@@ -22,8 +22,17 @@ export interface ProjectDetail extends ProjectRow {
   members: Array<{ userId: number; username: string; mode: GrantMode }>
 }
 
-function isSqliteError(error: unknown): error is Error & { code: string } {
+function isCodedError(error: unknown): error is Error & { code: string } {
   return error instanceof Error && 'code' in error && typeof (error as { code: unknown }).code === 'string'
+}
+
+function realpathIfPresent(path: string): string | undefined {
+  try {
+    return realpathSync(path)
+  } catch (error) {
+    if (isCodedError(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return undefined
+    throw error
+  }
 }
 
 export class ProjectService {
@@ -115,18 +124,18 @@ export class ProjectService {
     const users = this.db.prepare(`SELECT username, home_path FROM users`).all() as
       Array<{ username: string; home_path: string }>
     for (const user of users) {
-      if (canonical === user.home_path || canonical === realpathSync(user.home_path)) {
+      if (canonical === user.home_path || canonical === realpathIfPresent(user.home_path)) {
         throw new Error(`path is a user home: ${canonical}`)
       }
       const dsh = join(this.cfg.usersRoot, user.username, 'dsh')
-      if (canonical === dsh || canonical === realpathSync(dsh)) {
+      if (canonical === dsh || canonical === realpathIfPresent(dsh)) {
         throw new Error(`path is a user dsh home: ${canonical}`)
       }
     }
   }
 
   private rethrowUnique(error: unknown, name: string, path?: string): never {
-    if (isSqliteError(error) && error.code.startsWith('SQLITE_CONSTRAINT')) {
+    if (isCodedError(error) && error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
       if (error.message.includes('projects.name')) throw new Error(`duplicate project name: ${name}`)
       if (path !== undefined && error.message.includes('projects.path')) {
         throw new Error(`duplicate project path: ${path}`)

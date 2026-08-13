@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -42,11 +42,29 @@ describe('ProjectService', () => {
   it('rejects duplicate name, duplicate path, missing path, home, and dsh path', async () => {
     const { projects, cfg, alice, shared, docs } = await setup()
     projects.create({ name: 'Alpha', path: shared, createdBy: alice.id })
-    expect(() => projects.create({ name: 'Alpha', path: docs, createdBy: alice.id })).toThrow()
-    expect(() => projects.create({ name: 'Beta', path: shared, createdBy: alice.id })).toThrow()
+    expect(() => projects.create({ name: 'Alpha', path: docs, createdBy: alice.id })).toThrow(/duplicate project name/)
+    expect(() => projects.create({ name: 'Beta', path: shared, createdBy: alice.id })).toThrow(/duplicate project path/)
     expect(() => projects.create({ name: 'Ghost', path: join(cfg.usersRoot, 'no-such-dir'), createdBy: alice.id })).toThrow()
-    expect(() => projects.create({ name: 'Home', path: alice.homePath, createdBy: alice.id })).toThrow()
-    expect(() => projects.create({ name: 'Dsh', path: join(cfg.usersRoot, 'alice', 'dsh'), createdBy: alice.id })).toThrow()
+    expect(() => projects.create({ name: 'Home', path: alice.homePath, createdBy: alice.id })).toThrow(/user home/)
+    expect(() => projects.create({ name: 'Dsh', path: join(cfg.usersRoot, 'alice', 'dsh'), createdBy: alice.id })).toThrow(/dsh/)
+  })
+
+  it('creates a project when another user dsh directory is missing', async () => {
+    const { projects, users, alice, shared, cfg } = await setup()
+    await users.create({ username: 'bob', password: 'pw-123456' })
+    rmSync(join(cfg.usersRoot, 'bob', 'dsh'), { recursive: true })
+    expect(projects.create({ name: 'Alpha', path: shared, createdBy: alice.id }).name).toBe('Alpha')
+  })
+
+  it('rethrows non-unique sqlite constraints unchanged', async () => {
+    const { projects, docs } = await setup()
+    try {
+      projects.create({ name: 'Orphan', path: docs, createdBy: 999 })
+      expect.unreachable('expected foreign-key failure')
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'SQLITE_CONSTRAINT_FOREIGNKEY' })
+      expect((error as Error).message).not.toMatch(/duplicate/i)
+    }
   })
 
   it('setMember updates mode', async () => {
