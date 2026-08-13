@@ -60,12 +60,29 @@ export class UserService {
   }
 
   setStatus(id: number, status: 'active' | 'disabled'): void {
+    this.assertNotLastAdmin(id, { status })
     this.db.prepare(`UPDATE users SET status = ?, updated_at = ? WHERE id = ?`).run(status, Date.now(), id)
     if (status === 'disabled') this.db.prepare(`DELETE FROM auth_sessions WHERE user_id = ?`).run(id)
   }
 
   setRole(id: number, role: 'admin' | 'user'): void {
+    this.assertNotLastAdmin(id, { role })
     this.db.prepare(`UPDATE users SET role = ?, updated_at = ? WHERE id = ?`).run(role, Date.now(), id)
+  }
+
+  setDisplayName(id: number, name: string): void {
+    this.db.prepare(`UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?`).run(name, Date.now(), id)
+  }
+
+  private assertNotLastAdmin(id: number, next: { role?: 'admin' | 'user'; status?: 'active' | 'disabled' }): void {
+    const row = this.getById(id)
+    if (row === null || row.role !== 'admin' || row.status !== 'active') return
+    const wouldLose = (next.role === 'user') || (next.status === 'disabled')
+    if (!wouldLose) return
+    const n = (this.db.prepare(
+      `SELECT COUNT(*) AS n FROM users WHERE role='admin' AND status='active' AND id != ?`,
+    ).get(id) as { n: number }).n
+    if (n === 0) throw new Error('cannot-remove-last-admin')
   }
 
   async resetPassword(id: number, newPassword: string): Promise<void> {
