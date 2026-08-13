@@ -1,17 +1,18 @@
-import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
 import type { UserRow } from './auth.ts'
 import type { GatewayConfig } from './config.ts'
+import { LocalLauncher, type InstanceProcess, type Launcher } from './launcher.ts'
 
 const POLL_INTERVAL_MS = 300
 const STOP_GRACE_MS = 5000
 
 export class InstanceManager {
-  private readonly children = new Map<number, ChildProcess>()
+  private readonly processes = new Map<number, InstanceProcess>()
   private readonly wsRefs = new Map<number, number>()
   /** Per-user operation chain: serializes start vs stop so a reap cannot orphan a fresh spawn. */
   private readonly ops = new Map<number, Promise<unknown>>()
+  private readonly launcher: Launcher
 
   /**
    * Called with the user just before its instance is spawned, on every start.
@@ -21,7 +22,8 @@ export class InstanceManager {
    */
   beforeStart?: (user: UserRow) => void
 
-  constructor(private readonly db: Database.Database, private readonly cfg: GatewayConfig) {
+  constructor(private readonly db: Database.Database, private readonly cfg: GatewayConfig, launcher?: Launcher) {
+    this.launcher = launcher ?? new LocalLauncher(cfg)
     this.db.prepare(`UPDATE instances SET state = 'stopped', pid = NULL`).run()
   }
 
@@ -56,7 +58,7 @@ export class InstanceManager {
   async ensureRunning(user: UserRow): Promise<{ port: number }> {
     return this.serialize(user.id, async () => {
       const port = this.portOf(user.id)
-      if (this.stateOf(user.id) === 'ready' && this.children.has(user.id)) return { port }
+      if (this.stateOf(user.id) === 'ready' && this.processes.has(user.id)) return { port }
       return this.start(user, port)
     })
   }
@@ -66,27 +68,23 @@ export class InstanceManager {
     this.db.prepare(`UPDATE instances SET state = 'starting', started_at = ?, last_activity_at = ? WHERE user_id = ?`)
       .run(now, now, user.id)
     this.beforeStart?.(user)
-    const argv = this.cfg.dshCommand.map(a => a.replaceAll('{port}', String(port)))
-    const child = spawn(argv[0] ?? 'node', argv.slice(1), {
-      cwd: user.homePath,
-      env: {
-        ...process.env,
-        DSH_HOME: join(this.cfg.usersRoot, user.username, 'dsh'),
-      },
-      stdio: 'ignore',
+    const proc = await this.launcher.start({
+      username: user.username,
+      port,
+      homePath: user.homePath,
+      dshHome: join(this.cfg.usersRoot, user.username, 'dsh'),
     })
-    this.children.set(user.id, child)
-    child.on('exit', () => {
-      if (this.children.get(user.id) === child) {
-        this.children.delete(user.id)
+    this.processes.set(user.id, proc)
+    proc.onExit(() => {
+      if (this.processes.get(user.id) === proc) {
+        this.processes.delete(user.id)
         this.db.prepare(`UPDATE instances SET state = 'stopped', pid = NULL WHERE user_id = ?`).run(user.id)
       }
     })
-    this.db.prepare(`UPDATE instances SET pid = ? WHERE user_id = ?`).run(child.pid ?? null, user.id)
 
     const deadline = Date.now() + this.cfg.readinessTimeoutMs
     while (Date.now() < deadline) {
-      if (child.exitCode !== null) break
+      if (proc.hasExited()) break
       try {
         const response = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
         if (response.ok) {
@@ -120,22 +118,18 @@ export class InstanceManager {
     return this.serialize(userId, () => this.terminate(userId))
   }
 
-  /** Kill the child and mark the row stopped. Assumes the caller holds the per-user op slot. */
+  /** Terminate the instance and mark the row stopped. Assumes the caller holds the per-user op slot. */
   private async terminate(userId: number): Promise<void> {
-    const child = this.children.get(userId)
+    const proc = this.processes.get(userId)
     this.db.prepare(`UPDATE instances SET state = 'stopping' WHERE user_id = ?`).run(userId)
-    if (child !== undefined && child.exitCode === null) {
-      const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))
-      child.kill('SIGTERM')
-      const timer = setTimeout(() => child.kill('SIGKILL'), STOP_GRACE_MS)
-      await exited
-      clearTimeout(timer)
+    if (proc !== undefined && !proc.hasExited()) {
+      await proc.terminate(STOP_GRACE_MS)
     }
-    this.children.delete(userId)
+    this.processes.delete(userId)
     this.db.prepare(`UPDATE instances SET state = 'stopped', pid = NULL WHERE user_id = ?`).run(userId)
   }
 
   async stopAll(): Promise<void> {
-    await Promise.all([...this.children.keys()].map(id => this.stop(id)))
+    await Promise.all([...this.processes.keys()].map(id => this.stop(id)))
   }
 }

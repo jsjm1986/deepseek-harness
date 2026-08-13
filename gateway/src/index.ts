@@ -7,19 +7,39 @@ import { loadConfig } from './config.ts'
 import { openDb } from './db.ts'
 import { GrantService } from './grants.ts'
 import { InstanceManager } from './instances.ts'
+import { selectLauncher } from './launcher.ts'
 import { createProxyHandlers } from './proxy.ts'
 import { createGatewayServer, type GatewayDeps } from './server.ts'
 import { UserService } from './users.ts'
 
 const cfg = loadConfig()
 const db = openDb(join(cfg.dataDir, 'gateway.sqlite'))
+const auth = new AuthService(db, cfg)
+const users = new UserService(db, cfg)
+const grants = new GrantService(db)
+const audit = new AuditService(db)
+// Launcher is local child-process (dev) unless HGW_LAUNCHER=systemd (Linux prod);
+// the systemd options factory is only evaluated in the systemd case.
+const launcher = selectLauncher(cfg, () => ({
+  systemd: {
+    usersRoot: cfg.usersRoot,
+    execStart: cfg.dshCommand.join(' '),
+    gatewayDir: cfg.gatewayDir,
+    memoryMax: cfg.memoryMax,
+    cpuQuota: cfg.cpuQuota,
+  },
+  grantsProvider: (username) => {
+    const user = users.getByUsername(username)
+    return user === null ? [] : grants.effectiveGrants(user.id)
+  },
+}))
 const deps: GatewayDeps = {
   cfg,
-  auth: new AuthService(db, cfg),
-  users: new UserService(db, cfg),
-  grants: new GrantService(db),
-  audit: new AuditService(db),
-  instances: new InstanceManager(db, cfg),
+  auth,
+  users,
+  grants,
+  audit,
+  instances: new InstanceManager(db, cfg, launcher),
 }
 
 if (deps.users.count() === 0) {
