@@ -41,7 +41,10 @@ async function setup() {
   await deps.users.changeOwnPassword(admin.id, 'pw-12345678')
   const member = await deps.users.create({ username: 'worker', password: 'pw-12345678' })
   await deps.users.changeOwnPassword(member.id, 'pw-12345678')
-  const server = createGatewayServer(deps, { admin: createAdminApiHandler(deps) })
+  const server = createGatewayServer(deps, {
+    admin: createAdminApiHandler(deps),
+    adminRoot: join(root, 'public/admin'),
+  })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   closer = () => new Promise(resolve => server.close(() => resolve()))
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`

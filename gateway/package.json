@@ -5,6 +5,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "dev": "tsx src/index.ts",
+    "build:admin": "npm run build --prefix admin-ui",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

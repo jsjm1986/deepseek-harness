@@ -7,6 +7,7 @@ import type { GatewayConfig } from './config.ts'
 import { loginPage, passwordPage } from './html.ts'
 import type { InstanceManager } from './instances.ts'
 import type { ProjectService } from './projects.ts'
+import { serveAdmin } from './static.ts'
 import type { UserService } from './users.ts'
 
 export interface GatewayDeps {
@@ -78,6 +79,8 @@ export interface GatewayHandlers {
   proxy?: ProxyHandler
   upgrade?: UpgradeHandler
   admin?: (req: IncomingMessage, res: ServerResponse, user: UserRow, pathname: string, body: string) => Promise<boolean>
+  /** Override `serveAdmin` root (tests); default `gateway/public/admin`. */
+  adminRoot?: string
 }
 
 export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers = {}): Server {
@@ -155,6 +158,7 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
       if (user.role !== 'admin') { send(res, 403, 'forbidden', 'text/plain'); return }
       const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await readBody(req)
       if (handlers.admin !== undefined && await handlers.admin(req, res, user, pathname, body)) return
+      if (serveAdmin(req, res, pathname, handlers.adminRoot)) return
       send(res, 404, 'not found', 'text/plain')
       return
     }
