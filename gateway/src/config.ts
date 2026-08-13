@@ -14,6 +14,14 @@ export interface GatewayConfig {
   sessionTtlMs: number
   sessionAbsoluteTtlMs: number
   secureCookies: boolean
+  /** Instance launch backend: `local` child process (dev) or `systemd` (Linux prod). */
+  launcher: 'local' | 'systemd'
+  /** systemd MemoryMax per instance (systemd launcher only). */
+  memoryMax: string
+  /** systemd CPUQuota per instance (systemd launcher only). */
+  cpuQuota: string
+  /** Gateway install/data dir made inaccessible to instances (systemd launcher only). */
+  gatewayDir: string
 }
 
 const gatewayRoot = resolve(import.meta.dirname, '..')
@@ -42,5 +50,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     sessionTtlMs: Number(env.HGW_SESSION_TTL_MS ?? 7 * 24 * 3600 * 1000),
     sessionAbsoluteTtlMs: Number(env.HGW_SESSION_ABS_TTL_MS ?? 30 * 24 * 3600 * 1000),
     secureCookies: publicOrigins.some(o => o.startsWith('https://')),
+    launcher: env.HGW_LAUNCHER === 'systemd' ? 'systemd' : 'local',
+    memoryMax: env.HGW_MEMORY_MAX ?? '1G',
+    cpuQuota: env.HGW_CPU_QUOTA ?? '100%',
+    gatewayDir: env.HGW_GATEWAY_DIR ?? gatewayRoot,
   }
 }
