@@ -153,7 +153,7 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
 
     if (pathname.startsWith('/admin')) {
       if (user.role !== 'admin') { send(res, 403, 'forbidden', 'text/plain'); return }
-      const body = req.method === 'POST' ? await readBody(req) : ''
+      const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await readBody(req)
       if (handlers.admin !== undefined && await handlers.admin(req, res, user, pathname, body)) return
       send(res, 404, 'not found', 'text/plain')
       return

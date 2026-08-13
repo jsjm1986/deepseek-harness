@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
-import { createAdminHandler } from './admin.ts'
+import { createAdminApiHandler } from './admin-api.ts'
 import { AuditService } from './audit.ts'
 import { AuthService } from './auth.ts'
 import { loadConfig } from './config.ts'
@@ -51,7 +51,7 @@ if (deps.users.count() === 0) {
 }
 
 const proxyHandlers = createProxyHandlers(deps)
-const server = createGatewayServer(deps, { ...proxyHandlers, admin: createAdminHandler(deps) })
+const server = createGatewayServer(deps, { ...proxyHandlers, admin: createAdminApiHandler(deps) })
 // Bind loopback only: the gateway is reached through the TLS entry (Cloudflare
 // tunnel / Nginx) that connects to 127.0.0.1, never directly over the LAN.
 server.listen(cfg.port, '127.0.0.1', () => {
