@@ -1,8 +1,7 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
 import type { Duplex } from 'node:stream'
 import httpProxy from 'http-proxy'
+import { writeGrantsFile } from './apply-grants.ts'
 import type { UserRow } from './auth.ts'
 import { waitingPage } from './html.ts'
 import type { GatewayDeps, ProxyHandler, UpgradeHandler } from './server.ts'
@@ -18,9 +17,7 @@ export function createProxyHandlers(deps: GatewayDeps): { proxy: ProxyHandler; u
   // Grants handoff is intrinsic to starting an instance: the manager calls this
   // just before every spawn, so the child always reads the current grants.
   instances.beforeStart = (user: UserRow): void => {
-    const dir = join(cfg.usersRoot, user.username, 'dsh')
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, 'directory-grants.json'), JSON.stringify(projects.effectiveGrants(user.id), null, 2))
+    writeGrantsFile(cfg, user.username, projects.effectiveGrants(user.id))
   }
 
   async function ensureReady(req: IncomingMessage, res: ServerResponse | null, user: UserRow): Promise<number | null> {
