@@ -1,0 +1,26 @@
+{
+  "name": "@deepseek-ai/dsh-directory-guard",
+  "private": true,
+  "type": "module",
+  "version": "0.0.1",
+  "description": "In-dsh directory permission guard: denies fs tool calls outside a user's granted roots.",
+  "main": "src/index.ts",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.8"
+  }
+}
