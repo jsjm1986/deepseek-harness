@@ -9,8 +9,8 @@ import { AuditService } from '../src/audit.ts'
 import { AuthService } from '../src/auth.ts'
 import { loadConfig } from '../src/config.ts'
 import { openDb } from '../src/db.ts'
-import { GrantService } from '../src/grants.ts'
 import { InstanceManager } from '../src/instances.ts'
+import { ProjectService } from '../src/projects.ts'
 import { createProxyHandlers } from '../src/proxy.ts'
 import { createGatewayServer, type GatewayDeps } from '../src/server.ts'
 import { UserService } from '../src/users.ts'
@@ -42,7 +42,7 @@ async function setup() {
     cfg,
     auth: new AuthService(db, cfg),
     users: new UserService(db, cfg),
-    grants: new GrantService(db),
+    projects: new ProjectService(db, cfg),
     audit: new AuditService(db),
     instances: new InstanceManager(db, cfg),
   }
@@ -90,7 +90,7 @@ describe('proxy handlers', () => {
     expect(audited[0]?.methodPath).toBe('POST /api/echo')
     const grantsFile = join(root, 'users', 'alice', 'dsh', 'directory-grants.json')
     expect(existsSync(grantsFile)).toBe(true)
-    expect(JSON.parse(readFileSync(grantsFile, 'utf8'))).toEqual(deps.grants.effectiveGrants(1))
+    expect(JSON.parse(readFileSync(grantsFile, 'utf8'))).toEqual(deps.projects.effectiveGrants(1))
   })
 
   it('proxies websocket upgrades with rewritten host', async () => {

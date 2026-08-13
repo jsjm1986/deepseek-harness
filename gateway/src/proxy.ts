@@ -12,7 +12,7 @@ function wantsHtml(req: IncomingMessage): boolean {
 }
 
 export function createProxyHandlers(deps: GatewayDeps): { proxy: ProxyHandler; upgrade: UpgradeHandler; close(): void } {
-  const { cfg, instances, audit, grants } = deps
+  const { cfg, instances, audit, projects } = deps
   const server = httpProxy.createProxyServer({ xfwd: true })
 
   // Grants handoff is intrinsic to starting an instance: the manager calls this
@@ -20,7 +20,7 @@ export function createProxyHandlers(deps: GatewayDeps): { proxy: ProxyHandler; u
   instances.beforeStart = (user: UserRow): void => {
     const dir = join(cfg.usersRoot, user.username, 'dsh')
     mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, 'directory-grants.json'), JSON.stringify(grants.effectiveGrants(user.id), null, 2))
+    writeFileSync(join(dir, 'directory-grants.json'), JSON.stringify(projects.effectiveGrants(user.id), null, 2))
   }
 
   async function ensureReady(req: IncomingMessage, res: ServerResponse | null, user: UserRow): Promise<number | null> {

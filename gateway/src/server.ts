@@ -4,16 +4,16 @@ import type { Duplex } from 'node:stream'
 import type { AuditService } from './audit.ts'
 import type { AuthService, UserRow } from './auth.ts'
 import type { GatewayConfig } from './config.ts'
-import type { GrantService } from './grants.ts'
 import { loginPage, passwordPage } from './html.ts'
 import type { InstanceManager } from './instances.ts'
+import type { ProjectService } from './projects.ts'
 import type { UserService } from './users.ts'
 
 export interface GatewayDeps {
   cfg: GatewayConfig
   auth: AuthService
   users: UserService
-  grants: GrantService
+  projects: ProjectService
   audit: AuditService
   instances: InstanceManager
 }

@@ -10,8 +10,7 @@ function redirect(res: ServerResponse, location: string): void {
 
 function overview(deps: GatewayDeps): string {
   const users = deps.users.list()
-  const groups = deps.grants.listGroups()
-  const grants = deps.grants.listGrants()
+  const projects = deps.projects.list()
   const userRows = users.map(u => `<tr>
 <td>${escapeHtml(u.username)}</td><td>${u.role}</td><td>${u.status}</td>
 <td>${u.instanceState} :${u.port}</td>
@@ -19,12 +18,7 @@ function overview(deps: GatewayDeps): string {
 <form method="post" action="/admin/users/status" style="display:inline"><input type="hidden" name="id" value="${u.id}"><input type="hidden" name="status" value="${u.status === 'active' ? 'disabled' : 'active'}"><button>${u.status === 'active' ? '禁用' : '启用'}</button></form>
 <form method="post" action="/admin/instances/stop" style="display:inline"><input type="hidden" name="id" value="${u.id}"><button class="danger">停实例</button></form>
 </td></tr>`).join('')
-  const groupRows = groups.map(g => `<tr><td>${escapeHtml(g.name)}</td><td>${escapeHtml(g.members.join(', '))}</td>
-<td><form method="post" action="/admin/groups/delete" style="display:inline"><input type="hidden" name="id" value="${g.id}"><button class="danger">删除</button></form></td></tr>`).join('')
-  const grantRows = grants.map(g => `<tr><td>${g.subjectType}#${g.subjectId}</td><td>${escapeHtml(g.path)}</td><td>${g.mode}</td>
-<td><form method="post" action="/admin/grants/delete" style="display:inline"><input type="hidden" name="id" value="${g.id}"><button class="danger">删除</button></form></td></tr>`).join('')
-  const userOptions = users.map(u => `<option value="${u.id}">${escapeHtml(u.username)}</option>`).join('')
-  const groupOptions = groups.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')
+  const projectRows = projects.map(p => `<tr><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.path)}</td><td>${p.memberCount}</td></tr>`).join('')
   return layout('管理后台 - Harness', `
 <nav class="card"><a href="/admin">总览</a><a href="/admin/audit">审计</a><a href="/">返回工作台</a>
 <form method="post" action="/logout" style="display:inline;float:right"><button>退出登录</button></form></nav>
@@ -35,18 +29,7 @@ function overview(deps: GatewayDeps): string {
 <input name="password" placeholder="初始密码" required>
 <select name="role"><option value="user">user</option><option value="admin">admin</option></select>
 <button>创建</button></form></div>
-<div class="card"><h2>组</h2><table><tr><th>组名</th><th>成员</th><th>操作</th></tr>${groupRows}</table>
-<form method="post" action="/admin/groups"><input name="name" placeholder="组名" required><button>建组</button></form>
-<form method="post" action="/admin/groups/members/add"><select name="groupId">${groupOptions}</select><select name="userId">${userOptions}</select><button>加入组</button></form>
-<form method="post" action="/admin/groups/members/remove"><select name="groupId">${groupOptions}</select><select name="userId">${userOptions}</select><button class="danger">移出组</button></form></div>
-<div class="card"><h2>目录授权</h2><table><tr><th>主体</th><th>路径</th><th>模式</th><th>操作</th></tr>${grantRows}</table>
-<form method="post" action="/admin/grants">
-<select name="subjectType"><option value="user">用户</option><option value="group">组</option></select>
-<input name="subjectId" placeholder="主体ID" size="6" required>
-<input name="path" placeholder="/绝对/路径" size="32" required>
-<select name="mode"><option value="ro">只读</option><option value="rw">读写</option></select>
-<button>添加授权</button></form>
-<p class="muted">路径必须已存在；Phase 1 仅登记授权，Phase 2 在 Linux 生产由 systemd 强制，dsh-directory-guard 插件在实例内强制。</p></div>`)
+<div class="card"><h2>项目</h2><table><tr><th>名称</th><th>路径</th><th>成员</th></tr>${projectRows}</table></div>`)
 }
 
 function auditPage(deps: GatewayDeps, limit: number): string {
@@ -104,26 +87,6 @@ export function createAdminHandler(deps: GatewayDeps): NonNullable<GatewayHandle
         if (target !== null) await deps.instances.ensureRunning(target)
         write('admin.instances.restart', { id: id() }); break
       }
-      case '/admin/groups':
-        deps.grants.createGroup(field('name'))
-        write('admin.groups', { name: field('name') }); break
-      case '/admin/groups/delete':
-        deps.grants.deleteGroup(id())
-        write('admin.groups.delete', { id: id() }); break
-      case '/admin/groups/members/add':
-        deps.grants.addMember(Number(field('groupId')), Number(field('userId')))
-        write('admin.groups.members.add', { groupId: field('groupId'), userId: field('userId') }); break
-      case '/admin/groups/members/remove':
-        deps.grants.removeMember(Number(field('groupId')), Number(field('userId')))
-        write('admin.groups.members.remove', { groupId: field('groupId'), userId: field('userId') }); break
-      case '/admin/grants': {
-        const subjectType = field('subjectType') === 'group' ? 'group' : 'user'
-        deps.grants.addGrant({ subjectType, subjectId: Number(field('subjectId')), path: field('path'), mode: field('mode') === 'rw' ? 'rw' : 'ro', createdBy: admin.id })
-        write('admin.grants', { subjectType, subjectId: field('subjectId'), path: field('path'), mode: field('mode') }); break
-      }
-      case '/admin/grants/delete':
-        deps.grants.removeGrant(id())
-        write('admin.grants.delete', { id: id() }); break
       default:
         return false
     }

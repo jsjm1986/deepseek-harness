@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,8 +8,8 @@ import { AuditService } from '../src/audit.ts'
 import { AuthService } from '../src/auth.ts'
 import { loadConfig } from '../src/config.ts'
 import { openDb } from '../src/db.ts'
-import { GrantService } from '../src/grants.ts'
 import { InstanceManager } from '../src/instances.ts'
+import { ProjectService } from '../src/projects.ts'
 import { createGatewayServer, type GatewayDeps } from '../src/server.ts'
 import { UserService } from '../src/users.ts'
 
@@ -24,7 +24,7 @@ async function setup() {
     cfg,
     auth: new AuthService(db, cfg),
     users: new UserService(db, cfg),
-    grants: new GrantService(db),
+    projects: new ProjectService(db, cfg),
     audit: new AuditService(db),
     instances: new InstanceManager(db, cfg),
   }
@@ -51,23 +51,14 @@ async function setup() {
 }
 
 describe('admin handler', () => {
-  it('renders overview and creates users, groups and grants', async () => {
-    const { deps, base, cookie, post, root, member } = await setup()
+  it('renders overview and creates users', async () => {
+    const { deps, base, cookie, post } = await setup()
     const page = await fetch(`${base}/admin`, { headers: { cookie, accept: 'text/html' } })
     expect(page.status).toBe(200)
     expect(await page.text()).toContain('worker')
 
     expect((await post('/admin/users', { username: 'newbie', password: 'pw-87654321', role: 'user' })).status).toBe(302)
     expect(deps.users.getByUsername('newbie')).not.toBeNull()
-
-    expect((await post('/admin/groups', { name: 'team-x' })).status).toBe(302)
-    const group = deps.grants.listGroups()[0]!
-    expect((await post('/admin/groups/members/add', { groupId: String(group.id), userId: String(member.id) })).status).toBe(302)
-
-    const shared = join(root, 'shared'); mkdirSync(shared)
-    expect((await post('/admin/grants', { subjectType: 'group', subjectId: String(group.id), path: shared, mode: 'ro' })).status).toBe(302)
-    expect(deps.grants.effectiveGrants(member.id).some(g => g.mode === 'ro')).toBe(true)
-    expect(deps.audit.query({ action: 'admin.grants' })).toHaveLength(1)
   })
 
   it('refuses non-admin users', async () => {

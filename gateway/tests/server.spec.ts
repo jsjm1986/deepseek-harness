@@ -7,8 +7,8 @@ import { AuditService } from '../src/audit.ts'
 import { AuthService } from '../src/auth.ts'
 import { loadConfig } from '../src/config.ts'
 import { openDb } from '../src/db.ts'
-import { GrantService } from '../src/grants.ts'
 import { InstanceManager } from '../src/instances.ts'
+import { ProjectService } from '../src/projects.ts'
 import { createGatewayServer, type GatewayDeps } from '../src/server.ts'
 import { UserService } from '../src/users.ts'
 
@@ -23,7 +23,7 @@ async function setup() {
     cfg,
     auth: new AuthService(db, cfg),
     users: new UserService(db, cfg),
-    grants: new GrantService(db),
+    projects: new ProjectService(db, cfg),
     audit: new AuditService(db),
     instances: new InstanceManager(db, cfg),
   }
