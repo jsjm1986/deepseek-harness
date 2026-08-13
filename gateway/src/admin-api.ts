@@ -84,10 +84,13 @@ async function dispatch(
     deps.audit.write({ userId: admin.id, action, detail: JSON.stringify(detail), ip })
 
   const apply = async (userId: number): Promise<void> => {
+    const prior = deps.audit.query({ action: 'admin.instances.restart-failed', userId: admin.id })
     try {
       await applyGrantsToUser(deps, userId, admin.id)
-    } catch {
-      // applyGrantsToUser already wrote the grants file and audited restart-failed.
+    } catch (error) {
+      const next = deps.audit.query({ action: 'admin.instances.restart-failed', userId: admin.id })
+      if (next.length > prior.length) return
+      throw error
     }
   }
 
@@ -148,20 +151,20 @@ async function dispatch(
     const displayName = str(input, 'displayName')
     const role = str(input, 'role')
     const status = str(input, 'status')
-    if (displayName !== undefined) {
-      deps.users.setDisplayName(userId, displayName)
-      write('admin.users.display-name', { id: userId })
-    }
+    if (role !== undefined && role !== 'admin' && role !== 'user') { sendError(res, 400, 'invalid role'); return true }
+    if (status !== undefined && status !== 'active' && status !== 'disabled') { sendError(res, 400, 'invalid status'); return true }
     if (role !== undefined) {
-      if (role !== 'admin' && role !== 'user') { sendError(res, 400, 'invalid role'); return true }
       deps.users.setRole(userId, role)
       write('admin.users.role', { id: userId, role })
     }
     if (status !== undefined) {
-      if (status !== 'active' && status !== 'disabled') { sendError(res, 400, 'invalid status'); return true }
       deps.users.setStatus(userId, status)
       if (status === 'disabled') await deps.instances.stop(userId)
       write('admin.users.status', { id: userId, status })
+    }
+    if (displayName !== undefined) {
+      deps.users.setDisplayName(userId, displayName)
+      write('admin.users.display-name', { id: userId })
     }
     sendNoContent(res)
     return true

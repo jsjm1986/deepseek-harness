@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, unlinkSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -77,6 +77,48 @@ describe('admin JSON API', () => {
     })
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'cannot-remove-last-admin' })
+  })
+
+  it('does not persist displayName when a later PATCH field fails', async () => {
+    const { base, cookie, admin, deps } = await setup()
+    const original = deps.users.getById(admin.id)!.displayName
+    const lastAdmin = await fetch(`${base}/admin/api/users/${admin.id}`, {
+      method: 'PATCH',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Should Not Stick', status: 'disabled' }),
+    })
+    expect(lastAdmin.status).toBe(409)
+    expect(deps.users.getById(admin.id)?.displayName).toBe(original)
+    const invalidRole = await fetch(`${base}/admin/api/users/${admin.id}`, {
+      method: 'PATCH',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Also Not Stick', role: 'nope' }),
+    })
+    expect(invalidRole.status).toBe(400)
+    expect(deps.users.getById(admin.id)?.displayName).toBe(original)
+  })
+
+  it('returns 400 when applying grants fails before restart', async () => {
+    const { base, cookie, root, member } = await setup()
+    const shared = join(root, 'shared'); mkdirSync(shared)
+    const created = await fetch(`${base}/admin/api/projects`, {
+      method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Alpha', path: shared }),
+    })
+    const project = await created.json() as { id: number }
+    expect((await fetch(`${base}/admin/api/projects/${project.id}/members/${member.id}`, {
+      method: 'PUT', headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'ro' }),
+    })).status).toBe(204)
+    const grantsPath = join(root, 'users', 'worker', 'dsh', 'directory-grants.json')
+    unlinkSync(grantsPath)
+    mkdirSync(grantsPath)
+    const res = await fetch(`${base}/admin/api/projects/${project.id}/members/${member.id}`, {
+      method: 'PUT', headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'rw' }),
+    })
+    expect(res.status).toBe(400)
+    expect((await res.json() as { error: string }).error.length).toBeGreaterThan(0)
   })
 
   it('filters audit entries by userId and omits detail', async () => {
