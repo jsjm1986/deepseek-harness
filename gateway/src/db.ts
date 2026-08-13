@@ -151,22 +151,26 @@ function migrateLegacyGrants(db: Database.Database): void {
 }
 
 function migrate(db: Database.Database): void {
-  const names = tableNames(db)
-  const hasLegacy = names.has('groups') || names.has('dir_grants')
+  // Copy, drops, and the version stamp commit together so a failed upgrade retries from the original tables.
+  const upgrade = db.transaction(() => {
+    const names = tableNames(db)
+    const hasLegacy = names.has('groups') || names.has('dir_grants')
 
-  if (hasLegacy) {
-    if (names.has('dir_grants')) {
-      migrateLegacyGrants(db)
+    if (hasLegacy) {
+      if (names.has('dir_grants')) {
+        migrateLegacyGrants(db)
+      }
+      db.exec(`
+        DROP TABLE IF EXISTS group_members;
+        DROP TABLE IF EXISTS groups;
+        DROP TABLE IF EXISTS dir_grants;
+      `)
     }
-    db.exec(`
-      DROP TABLE IF EXISTS group_members;
-      DROP TABLE IF EXISTS groups;
-      DROP TABLE IF EXISTS dir_grants;
-    `)
-  }
 
-  db.exec('DELETE FROM schema_meta')
-  db.prepare('INSERT INTO schema_meta (version) VALUES (?)').run(SCHEMA_VERSION)
+    db.exec('DELETE FROM schema_meta')
+    db.prepare('INSERT INTO schema_meta (version) VALUES (?)').run(SCHEMA_VERSION)
+  })
+  upgrade()
 }
 
 export function openDb(file: string): Database.Database {
