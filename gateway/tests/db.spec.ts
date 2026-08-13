@@ -11,7 +11,7 @@ describe('openDb', () => {
     openDb(file)
     const names = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all()
       .map(r => (r as { name: string }).name)
-    for (const t of ['users', 'groups', 'group_members', 'dir_grants', 'auth_sessions', 'login_attempts', 'instances', 'audit_log']) {
+    for (const t of ['users', 'projects', 'project_members', 'schema_meta', 'auth_sessions', 'login_attempts', 'instances', 'audit_log']) {
       expect(names).toContain(t)
     }
     expect(() => db.prepare(
