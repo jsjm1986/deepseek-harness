@@ -767,7 +767,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/directory-picker-browse/src/index.ts:181`](../packages/host/directory-picker-browse/src/index.ts)
+Source: [`packages/host/directory-picker-browse/src/index.ts:271`](../packages/host/directory-picker-browse/src/index.ts)
 
 <a id="deepseek-aidsh-host-frontend-static"></a>
 

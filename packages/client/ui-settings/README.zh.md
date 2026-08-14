@@ -16,5 +16,5 @@
 
 ## 已知限制与暂缓事项
 
-- **远程浏览器没有持久化设置**：设置 RPC 仅限 loopback，因此在非 loopback 浏览器中绑定的 scope 以 `unavailable` 起步且从不跨线路，它支撑的每一行在那里都是无效的。
+- **失败或被拒绝的 settings.describe 保持 unavailable**：binder 一律使用 Host 持久化；`settings.describe` 抛错或非 ok 会发布 `unavailable`，插件卡片隐藏而不是停在 `loading`。Host 特权方法栅栏仍要求回环 `Host` 头；网关把 `Host`/`Origin` 改写成实例回环后，公网页才能成功。`settings.openDocument` 仍只在 loopback 页面出现，因为它打开的是宿主桌面上的文件。
 - **每次写入仅一个字段**：`set` 只发送单个 `set` op，因此需要同时改动两个字段的行没有事务可用，会发布两个 revision。

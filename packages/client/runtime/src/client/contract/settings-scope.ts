@@ -11,8 +11,8 @@
 export interface SettingsScopeSnapshot<T> {
   /**
    * `loading` until the first accepted section, `ready` while one stands, and
-   * `unavailable` when the namespace is not exposed to this client or the
-   * connection keeps preferences process-local (memory mode).
+   * `unavailable` when the namespace is not exposed, the describe call failed,
+   * or the scope is in memory mode.
    */
   status: 'loading' | 'ready' | 'unavailable'
   /** Last accepted schema-resolved section; undefined before the first acceptance. */

@@ -49,7 +49,8 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
   /**
    * @param api - settings wire face.
    * @param spec - namespace identity and optional narrowing decoder.
-   * @param persistence - remote browsers remain process-local because settings RPCs are loopback-only.
+   * @param persistence - `host` reads and writes the settings RPCs; `memory`
+   *   stays process-local and is only for tests or an explicit caller.
    */
   constructor(
     private readonly api: SettingsFace,
@@ -163,9 +164,18 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
     try {
       response = await this.api.settings.describe({})
     } catch (_settingsReadFailure) {
+      if (generation === this.readGeneration && !this.disposed && this.getSnapshot().status === 'loading') {
+        this.store.update((draft) => { draft.status = 'unavailable' })
+      }
       return
     }
-    if (!response.result.ok || this.disposed) return
+    if (this.disposed) return
+    if (!response.result.ok) {
+      if (generation === this.readGeneration && this.getSnapshot().status === 'loading') {
+        this.store.update((draft) => { draft.status = 'unavailable' })
+      }
+      return
+    }
     const { namespaces, writable } = response.result.value
     const view = namespaces.find(candidate => candidate.ns === this.spec.namespace)
     const publish = generation === this.readGeneration
@@ -248,7 +258,7 @@ export class SettingsScopeBinder extends Service {
     const controller = new SettingsScopeController<T>(
       connection.api,
       spec,
-      connection.isLoopback ? 'host' : 'memory',
+      'host',
     )
     ctx.effect(() => {
       const refresh = (namespace?: string): void => {

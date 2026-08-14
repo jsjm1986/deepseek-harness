@@ -143,17 +143,45 @@ describe('ui-settings-models apply', () => {
     expect(() => b.locale.register('settings.models', 'en', {})).not.toThrow()
   })
 
-  it('keeps remote-browser acknowledgement in process memory', async () => {
-    const b = await bench(false)
-    declare(b.slots)
-    await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const entry = b.slots.entries('settings.onboarding')
+  it('loads welcome acknowledgement from Host settings on a non-loopback page', async () => {
+    const describe = vi.fn(() => Promise.resolve({
+      rpcId: 'welcome-describe' as never,
+      result: {
+        ok: true as const,
+        value: {
+          writable: true,
+          hasDocument: true,
+          namespaces: [{
+            ns: 'ui-onboarding',
+            schema: {},
+            value: {},
+            applies: 'live' as const,
+            secrets: [],
+            revision: 0,
+          }],
+        },
+      },
+    }))
+    const ctx = new Context()
+    await ctx.plugin(SlotRegistry).await()
+    const locale = new LocaleRuntime(ctx)
+    ctx.provide('locale', locale)
+    new TestRemote(ctx)
+    ctx.provide('connection', {
+      api: { settings: { describe } },
+      isLoopback: false,
+    } as never)
+    const slots = ctx.get('slots') as SlotRegistry
+    declare(slots)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = slots.entries('settings.onboarding')
       .find(candidate => candidate.options.id === 'welcome-notice')!
     const injected = (
       entry.inject as unknown as () => import('../src/client/WelcomeNotice.tsx').WelcomeNoticeInjected
     )()
 
     await injected.controller.load()
+    expect(describe).toHaveBeenCalled()
     expect(injected.controller.store.getSnapshot()).toEqual({
       status: 'ready', acknowledged: false, error: null,
     })
