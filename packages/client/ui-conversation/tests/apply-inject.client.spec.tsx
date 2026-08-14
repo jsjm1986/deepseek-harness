@@ -209,6 +209,7 @@ describe('conversation slot inject API', () => {
     expect(absent.hooks.notices.getSnapshot()).toBeNull()
     expect(absent.hooks.lexicon.getSnapshot().size).toBe(0)
     expect(absent.hooks.menuLauncher.getSnapshot()).toBeNull()
+    expect(absent.hooks.documents.getSnapshot()).toBe(absent.hooks.documents.getSnapshot())
     // A scope whose service tree lost 'conversation' (the feature fiber
     // unloaded while a retained inject closure re-runs): fails loud too.
     const stop = injectFn(ROOT).stop!

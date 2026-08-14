@@ -74,8 +74,9 @@ const ABSENT_MENU_LAUNCHER = {
   getSnapshot: (): string | null => null,
   subscribe: () => () => {},
 }
+const EMPTY_DOCUMENTS: readonly [] = []
 const ABSENT_DOCUMENTS = {
-  getSnapshot: () => [] as const,
+  getSnapshot: () => EMPTY_DOCUMENTS,
   subscribe: () => () => {},
 }
 
