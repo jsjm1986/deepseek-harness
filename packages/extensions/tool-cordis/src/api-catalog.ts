@@ -2004,6 +2004,66 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'userDocs',
+    summary: 'Storage for documents a user uploads into their own workspace.',
+    description: 'Storage for documents a user uploads into their own workspace.\n\nThe stored form is an ordinary named file, not an opaque object: a document lands at a real path the agent\'s filesystem and shell tools can read, which is what lets one uploaded file serve every format without this seam knowing any of them. Nothing here inspects, parses, or whitelists content — `mediaType` is recorded and never acted upon, so an unrecognized format is stored exactly like a recognized one and the agent decides how to read it.\n\nWrites are two explicit steps. `resolveTarget` sanitizes the untrusted client name and computes the path; `save` streams bytes to that path. Naming policy therefore has one auditable home, and `save` never defaults a target of its own.',
+    methods: [
+      {
+        signature: 'abstract readonly limits: UserDocLimits',
+        description: 'Deployment-resolved upload policy, shared with client-side intake pre-checks.',
+        parameters: [],
+      },
+      {
+        signature: 'abstract resolveTarget(input: ResolveUserDocTarget): Promise<UserDocTarget>',
+        description: 'Resolve one untrusted client file name to the absolute path a `save` will create. Implementations sanitize the name, keep the result inside the upload root, and pick a leaf that no existing entry holds.',
+        parameters: [{ name: 'input', description: 'client-supplied name, treated as untrusted text.' }],
+        returns: 'the resolved write target.',
+        throws: ['UserDocError when no acceptable free name can be derived from the input.'],
+      },
+      {
+        signature: 'abstract save( target: UserDocTarget, body: ReadableStream<Uint8Array>, signal?: AbortSignal, ): Promise<UserDocRef>',
+        description: 'Stream one document to a resolved target and publish its reference.\n\nImplementations enforce `maxFileBytes` while streaming, so an oversized upload is cut off rather than buffered, and leave no partial file behind on failure or cancellation. The recorded `mediaType` is derived from the stored name, never taken from a client header: a declared type is unverifiable here, and nothing in this seam acts on the value anyway.',
+        parameters: [{ name: 'target', description: 'a target from this store\'s own `resolveTarget`.' }, { name: 'body', description: 'the upload byte stream.' }, { name: 'signal', description: 'optional cancellation for the streaming write.' }],
+        returns: 'the durable reference to the stored document.',
+        throws: ['UserDocError when the stream exceeds `maxFileBytes` or the write fails.'],
+      },
+      {
+        signature: 'abstract list(signal?: AbortSignal): Promise<UserDocRef[]>',
+        description: 'List every stored document, newest modification first.',
+        parameters: [{ name: 'signal', description: 'optional cancellation for the directory scan.' }],
+        returns: 'references to all stored documents; empty before the first upload.',
+      },
+      {
+        signature: 'abstract stat(docId: string, signal?: AbortSignal): Promise<UserDocRef>',
+        description: 'Resolve one identifier to its current reference.\n\nEvery read path takes this identifier rather than a `UserDocRef`, because a reference carries an absolute path and a caller\'s copy of one is untrusted input. Implementations re-derive the path from the identifier and re-prove containment, so a tampered path cannot name a file outside the upload root.',
+        parameters: [{ name: 'docId', description: 'identifier from a previous `save` or `list`.' }, { name: 'signal', description: 'optional cancellation for the filesystem probe.' }],
+        returns: 'the current reference.',
+        throws: ['UserDocError when the identifier is malformed, escapes the upload root, or names no file.'],
+      },
+      {
+        signature: 'abstract read(docId: string, signal?: AbortSignal): Promise<StoredUserDoc>',
+        description: 'Read one stored document in full.',
+        parameters: [{ name: 'docId', description: 'identifier from a previous `save` or `list`.' }, { name: 'signal', description: 'optional cancellation for the read.' }],
+        returns: 'the bytes and the reference they were read through.',
+        throws: ['the signal reason when aborted, or a UserDocError when the identifier does not resolve to a file.'],
+      },
+      {
+        signature: 'abstract openRead(docId: string): Promise<{ ref: UserDocRef; body: ReadableStream<Uint8Array> }>',
+        description: 'Open one stored document as a byte stream, for a download response that must not hold the whole file in memory.',
+        parameters: [{ name: 'docId', description: 'identifier from a previous `save` or `list`.' }],
+        returns: 'the reference and its byte stream.',
+        throws: ['UserDocError when the identifier does not resolve to a file.'],
+      },
+      {
+        signature: 'abstract remove(docId: string, signal?: AbortSignal): Promise<void>',
+        description: 'Delete one stored document. Deleting an already-absent document succeeds, so a client retrying a delete it already completed is not an error.',
+        parameters: [{ name: 'docId', description: 'identifier from a previous `save` or `list`.' }, { name: 'signal', description: 'optional cancellation.' }],
+        returns: 'after the entry is gone.',
+        throws: ['UserDocError when the identifier is malformed or escapes the upload root, or the deletion fails for any reason other than absence.'],
+      },
+    ],
+  },
+  {
     key: 'userQuestions',
     summary: '`ctx.userQuestions`: one active UI provider plus an `ask()` API.',
     description: '`ctx.userQuestions`: one active UI provider plus an `ask()` API.',
@@ -3618,6 +3678,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResolvedSubagentStartRequest extends SubagentStartRequest {\n    readonly descriptor: SubagentDescriptorData;\n}',
   },
   {
+    name: 'ResolveUserDocTarget',
+    declaration: 'export interface ResolveUserDocTarget {\n    name: string;\n}',
+  },
+  {
     name: 'RestoredSessionOptions',
     declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly seedSource: \'persistence\';\n}',
   },
@@ -4090,6 +4154,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface StoredImageAttachment {\n    ref: ImageAttachmentRef;\n    data: Uint8Array;\n}',
   },
   {
+    name: 'StoredUserDoc',
+    declaration: 'export interface StoredUserDoc {\n    ref: UserDocRef;\n    data: Uint8Array;\n}',
+  },
+  {
     name: 'StreamChunk',
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
@@ -4520,6 +4588,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertTypeModel',
     declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
+  },
+  {
+    name: 'UserDocId',
+    declaration: 'export type UserDocId = Branded<\'UserDocId\'>;',
+  },
+  {
+    name: 'UserDocLimits',
+    declaration: 'export interface UserDocLimits {\n    maxFileBytes: number;\n    maxFilesPerMessage: number;\n    maxMessageBytes: number;\n    maxInlineTextBytes: number;\n}',
+  },
+  {
+    name: 'UserDocRef',
+    declaration: 'export interface UserDocRef {\n    docId: UserDocId;\n    path: string;\n    name: string;\n    bytes: number;\n    mediaType: string;\n    modifiedAt: number;\n}',
+  },
+  {
+    name: 'UserDocTarget',
+    declaration: 'export interface UserDocTarget {\n    path: string;\n    name: string;\n    docId: UserDocId;\n}',
   },
   {
     name: 'UserMessage',
