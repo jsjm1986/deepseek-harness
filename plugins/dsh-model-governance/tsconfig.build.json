@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "lib",
+    "rootDir": "src",
+    "rewriteRelativeImportExtensions": true,
+    "declaration": false,
+    "paths": {
+      "@deepseek-ai/cordis": [
+        "../../vendor/cordis/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-llm": [
+        "../../packages/llm/llm/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-model-access": [
+        "../../packages/llm/model-access/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-agent": [
+        "../../packages/core/agent/lib/types/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ]
+}

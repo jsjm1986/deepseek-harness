@@ -15,6 +15,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-model-access'
 import { isAppendSurfaceEvent, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue, Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
@@ -331,7 +332,9 @@ async function buildModelCatalog(ctx: Context): Promise<{
 }> {
   const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
     try {
-      const models = await ctx.llm.listModels(provider.id)
+      const policy = ctx.get('modelAccess')
+      const models = (await ctx.llm.listModels(provider.id)).filter(model =>
+        policy?.decide({ provider: provider.id, model: model.id }).allowed !== false)
       const entries = await Promise.all(models.map(async (model) => {
         const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
         const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
@@ -1838,6 +1841,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return llm === undefined || llm.listProviders().some(entry => entry.id === provider)
   }
 
+  /** Return the mounted deployment policy's refusal for one route, if any. */
+  function modelRefusal(provider: string, model: string): RpcError | undefined {
+    const decision = ctx.get('modelAccess')?.decide({ provider, model })
+    if (decision === undefined || decision.allowed) return undefined
+    return {
+      code: 'model-forbidden',
+      message: decision.reason,
+      details: { provider, model },
+    }
+  }
+
   /**
    * Resolve the addressed agent for a turn-starting method and refuse when no
    * adapter serves its current selection: a provider nothing serves cannot start a
@@ -1854,6 +1868,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     if ('error' in found) return { refused: err(request, found.error) }
     const agent = found.agent
     const selection = selectionFor(agent).current
+    const forbidden = modelRefusal(selection.provider, selection.model)
+    if (forbidden !== undefined) return { refused: err(request, forbidden) }
     if (!routeServed(selection.provider)) {
       return {
         refused: err(request, {
@@ -2276,6 +2292,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const current = selectionFor(found.agent).current
         const { groups, failures } = await buildModelCatalog(ctx)
         const routable = routeServed(current.provider)
+          && modelRefusal(current.provider, current.model) === undefined
         return ok(request, { current: { ...current }, routable, groups, failures })
       },
 
@@ -2283,6 +2300,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId, provider, model, reasoningEffort } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
+        const forbidden = modelRefusal(provider, model)
+        if (forbidden !== undefined) return err(request, forbidden)
         return serializeImageAdmission(found.agent, async () => {
           try {
             const resolved = await ctx.llm.resolveCallConfig({

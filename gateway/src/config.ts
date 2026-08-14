@@ -4,6 +4,10 @@ import { join, resolve } from 'node:path'
 
 export interface GatewayConfig {
   port: number
+  /** Private loopback port accepting authenticated usage outbox records. */
+  intakePort: number
+  /** IANA time zone used for natural-month usage accounting. */
+  usageTimeZone: string
   publicOrigins: string[]
   dataDir: string
   usersRoot: string
@@ -33,6 +37,8 @@ export interface GatewayConfig {
    * resolve it.
    */
   guardPatch: string
+  /** Directory containing the tree-external model-governance plugin. */
+  modelGovernancePackage: string
   /**
    * Company default credentials file copied to each instance's
    * `$DSH_HOME/.env` on every start ('' = no seeding). dsh reads it as the
@@ -72,6 +78,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     : env.HGW_GUARD_PATCH ?? join(dshRepoRoot, 'plugins/dsh-directory-guard/cordis.patch.yml')
   return {
     port,
+    intakePort: Number(env.HGW_INTAKE_PORT ?? port + 1),
+    usageTimeZone: env.HGW_USAGE_TIME_ZONE ?? 'Asia/Shanghai',
     publicOrigins,
     dataDir: env.HGW_DATA_DIR ?? join(gatewayRoot, 'data'),
     usersRoot: env.HGW_USERS_ROOT ?? join(homedir(), 'harness-users'),
@@ -89,6 +97,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     gatewayDir: env.HGW_GATEWAY_DIR ?? gatewayRoot,
     systemdUnitDir: env.HGW_SYSTEMD_UNIT_DIR ?? '/etc/systemd/system',
     guardPatch,
+    modelGovernancePackage: env.HGW_MODEL_GOVERNANCE_PACKAGE ?? join(dshRepoRoot, 'plugins/dsh-model-governance'),
     defaultEnvFile: env.HGW_DEFAULT_ENV_FILE ?? '',
   }
 }

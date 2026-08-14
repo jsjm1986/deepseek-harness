@@ -95,6 +95,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const ctx = await harness(server.url)
 
     const kinds: string[] = []
+    let usageSource: string | undefined
     for await (const chunk of ctx.llm.stream({
       provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
@@ -104,8 +105,10 @@ describe('DeepSeekAdapter against a mock server', () => {
       })],
     })) {
       kinds.push(chunk.type)
+      if (chunk.type === 'usage') usageSource = chunk.credentialSource
     }
     expect(kinds).toEqual(['block-start', 'text-delta', 'block-end', 'usage', 'finish'])
+    expect(usageSource).toBe('process')
   })
 
   it('forwards the harness user and session ids for host-side trajectory routing', async () => {

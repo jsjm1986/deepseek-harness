@@ -19,6 +19,10 @@ async function setup(extraEnv: Record<string, string> = {}) {
   const guardDir = join(root, 'plugins', 'dsh-directory-guard')
   mkdirSync(guardDir, { recursive: true })
   writeFileSync(join(guardDir, 'cordis.patch.yml'), '- insert: []\n')
+  const governanceDir = join(root, 'plugins', 'dsh-model-governance')
+  mkdirSync(governanceDir, { recursive: true })
+  writeFileSync(join(governanceDir, 'package.json'), '{}')
+  writeFileSync(join(governanceDir, 'cordis.patch.yml'), '- insert:\n    - id: governance\n')
   const db = openDb(join(root, 'g.sqlite'))
   const cfg = loadConfig({
     HGW_USERS_ROOT: join(root, 'users'),
@@ -83,15 +87,22 @@ describe('InstanceManager', () => {
     const dshHome = join(root, 'users', 'alice', 'dsh')
     // The bundle patch becomes the instance's home-level user layer, applied
     // by dsh over every profile without touching the launch argv.
-    expect(readFileSync(join(dshHome, 'cordis.patch.yml'), 'utf8')).toBe('- insert: []\n')
-    const link = join(dshHome, 'profiles', 'node_modules', '@deepseek-ai', 'dsh-directory-guard')
-    expect(readlinkSync(link)).toBe(join(root, 'plugins', 'dsh-directory-guard'))
+    expect(readFileSync(join(dshHome, 'cordis.patch.yml'), 'utf8')).toBe(
+      '- insert:\n    - id: governance\n- insert: []\n',
+    )
+    const modules = join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
+    expect(readlinkSync(join(modules, 'dsh-directory-guard'))).toBe(join(root, 'plugins', 'dsh-directory-guard'))
+    expect(readlinkSync(join(modules, 'dsh-model-governance'))).toBe(join(root, 'plugins', 'dsh-model-governance'))
   })
 
-  it('HGW_GUARD_PATCH=off starts without mounting anything', async () => {
+  it('HGW_GUARD_PATCH=off disables only the directory guard and keeps model governance', async () => {
     const { root, alice, manager } = await setup({ HGW_GUARD_PATCH: 'off', HGW_INSTANCE_PORT_BASE: '43140' })
     await manager.ensureRunning(alice)
-    expect(existsSync(join(root, 'users', 'alice', 'dsh', 'cordis.patch.yml'))).toBe(false)
+    const dshHome = join(root, 'users', 'alice', 'dsh')
+    expect(readFileSync(join(dshHome, 'cordis.patch.yml'), 'utf8')).toBe('- insert:\n    - id: governance\n')
+    const modules = join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
+    expect(readlinkSync(join(modules, 'dsh-model-governance'))).toBe(join(root, 'plugins', 'dsh-model-governance'))
+    expect(existsSync(join(modules, 'dsh-directory-guard'))).toBe(false)
   })
 
   it('seeds the company default env into $DSH_HOME/.env on every start', async () => {

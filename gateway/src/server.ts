@@ -7,6 +7,7 @@ import type { GatewayConfig } from './config.ts'
 import { loginPage, passwordPage } from './html.ts'
 import type { InstanceManager } from './instances.ts'
 import type { ProjectService } from './projects.ts'
+import type { ModelGovernanceService } from './model-governance.ts'
 import { isAdminPath, serveAdmin } from './static.ts'
 import type { UserService } from './users.ts'
 
@@ -17,6 +18,7 @@ export interface GatewayDeps {
   projects: ProjectService
   audit: AuditService
   instances: InstanceManager
+  governance?: ModelGovernanceService
 }
 
 export const SESSION_COOKIE = 'hgw_session'
@@ -147,6 +149,13 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
     if (user.mustChangePassword && pathname !== '/account/password') {
       if (wantsHtml(req)) { redirect(res, '/account/password'); return }
       send(res, 403, '{"error":"password-change-required"}', 'application/json')
+      return
+    }
+
+    if (pathname === '/account/api/usage' && req.method === 'GET') {
+      if (deps.governance === undefined) { send(res, 503, '{"error":"usage-unavailable"}', 'application/json'); return }
+      const month = new URL(req.url ?? '/', 'http://x').searchParams.get('month') ?? undefined
+      send(res, 200, JSON.stringify(deps.governance.summary(user.id, month)), 'application/json')
       return
     }
 

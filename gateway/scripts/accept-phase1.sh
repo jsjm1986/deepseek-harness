@@ -7,6 +7,7 @@ set -u
 cd "$(dirname "$0")/.."
 
 PORT="${ACCEPT_PORT:-18899}"
+INSTANCE_PORT_BASE="${ACCEPT_INSTANCE_PORT_BASE:-$((PORT + 10000))}"
 ORIGIN="http://127.0.0.1:$PORT"
 ROOT="$(mktemp -d /tmp/hgw-accept-XXXXXX)"
 LOG="$ROOT/gateway.log"
@@ -19,11 +20,14 @@ check() { # check <name> <expected> <actual>
 }
 
 echo "== scratch root: $ROOT"
-# The guard plugin is mounted by package name; instances load its built lib/.
+# Instance policy plugins are mounted by package name; plain Node loads their built lib/.
 if [ ! -f ../plugins/dsh-directory-guard/lib/index.js ]; then
   (cd ../plugins/dsh-directory-guard && npx tsc -p tsconfig.build.json)
 fi
-HGW_PORT="$PORT" HGW_DATA_DIR="$ROOT/data" HGW_USERS_ROOT="$ROOT/users" \
+if [ ! -f ../plugins/dsh-model-governance/lib/index.js ]; then
+  (cd ../plugins/dsh-model-governance && npx tsc -p tsconfig.build.json)
+fi
+HGW_PORT="$PORT" HGW_INSTANCE_PORT_BASE="$INSTANCE_PORT_BASE" HGW_DATA_DIR="$ROOT/data" HGW_USERS_ROOT="$ROOT/users" \
   npx tsx src/index.ts >"$LOG" 2>&1 &
 GW_PID=$!
 trap 'kill $GW_PID 2>/dev/null; wait $GW_PID 2>/dev/null' EXIT
@@ -50,8 +54,10 @@ change_pw() { # change_pw <jar> <newpw>
 check "admin first login" "302" "$(login "$JAR_ADMIN" admin "$ADMIN_PW")"
 check "pre-change API is password-gated" "403" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_ADMIN" -X POST "$ORIGIN/api/session.list" -d '{}')"
 check "admin password change" "302" "$(change_pw "$JAR_ADMIN" admin-pw-9999)"
-check "create u1" "302" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_ADMIN" -H "Origin: $ORIGIN" -d 'username=u1&password=init-pw-111&role=user' "$ORIGIN/admin/users")"
-check "create u2" "302" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_ADMIN" -H "Origin: $ORIGIN" -d 'username=u2&password=init-pw-222&role=user' "$ORIGIN/admin/users")"
+check "create u1" "200" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_ADMIN" -H "Origin: $ORIGIN" -H 'content-type: application/json' -X POST -d '{"username":"u1","password":"init-pw-111","role":"user"}' "$ORIGIN/admin/api/users")"
+check "create u2" "200" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_ADMIN" -H "Origin: $ORIGIN" -H 'content-type: application/json' -X POST -d '{"username":"u2","password":"init-pw-222","role":"user"}' "$ORIGIN/admin/api/users")"
+check "register governed model" "204" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_ADMIN" -H "Origin: $ORIGIN" -H 'content-type: application/json' -X PUT -d '{"provider":"deepseek-official","model":"deepseek-chat","displayName":"DeepSeek Chat","enabled":true,"adminAllowed":true,"userAllowed":false,"inputMicrosPerMillion":1000000,"outputMicrosPerMillion":2000000,"cacheReadMicrosPerMillion":500000,"cacheWriteMicrosPerMillion":0}' "$ORIGIN/admin/api/models")"
+check "set role usage quota" "204" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_ADMIN" -H "Origin: $ORIGIN" -H 'content-type: application/json' -X PUT -d '{"subjectType":"role","subjectId":"user","tokenLimit":1000,"companyCostMicrosLimit":10000000}' "$ORIGIN/admin/api/quotas")"
 
 wait_ready() { # wait_ready <jar> — first hit answers 503/waiting page while booting; poll to 200
   local code=""
@@ -76,14 +82,40 @@ check "u1 llm.providers" "200" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JA
 
 # -- instance mount shape: guard home layer + package link + grants file -----
 [ -f "$ROOT/users/u1/dsh/cordis.patch.yml" ] \
-  && check "guard bundle mounted as the home patch layer" "yes" "yes" \
-  || check "guard bundle mounted as the home patch layer" "yes" "no"
+  && check "policy bundles mounted as the home patch layer" "yes" "yes" \
+  || check "policy bundles mounted as the home patch layer" "yes" "no"
+grep -q '@deepseek-ai/dsh-model-governance' "$ROOT/users/u1/dsh/cordis.patch.yml" \
+  && check "home patch includes mandatory model governance" "yes" "yes" \
+  || check "home patch includes mandatory model governance" "yes" "no"
 [ -f "$ROOT/users/u1/dsh/directory-grants.json" ] \
   && check "u1 grants file written before start" "yes" "yes" \
   || check "u1 grants file written before start" "yes" "no"
-LINK="$ROOT/users/u1/dsh/profiles/node_modules/@deepseek-ai/dsh-directory-guard"
-[ -L "$LINK" ] && check "guard package linked into profile" "yes" "yes" \
+MODULES="$ROOT/users/u1/dsh/profiles/node_modules/@deepseek-ai"
+[ -L "$MODULES/dsh-directory-guard" ] && check "guard package linked into profile" "yes" "yes" \
   || check "guard package linked into profile" "yes" "no"
+[ -L "$MODULES/dsh-model-governance" ] && check "governance package linked into profile" "yes" "yes" \
+  || check "governance package linked into profile" "yes" "no"
+POLICY="$ROOT/users/u1/dsh/model-governance.json"
+[ -f "$POLICY" ] && check "u1 model policy projected before start" "yes" "yes" \
+  || check "u1 model policy projected before start" "yes" "no"
+POLICY_MODE="$(stat -f '%Lp' "$POLICY" 2>/dev/null || stat -c '%a' "$POLICY" 2>/dev/null || true)"
+check "u1 model policy is private" "600" "$POLICY_MODE"
+POLICY_ALLOWED="$(node -e 'const p=require(process.argv[1]); const m=p.models.find(x=>x.provider==="deepseek-official"&&x.model==="deepseek-chat"); process.stdout.write(String(m?.allowed))' "$POLICY")"
+check "u1 role policy denies registered model" "false" "$POLICY_ALLOWED"
+check "u1 own usage summary reachable" "200" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_U1" "$ORIGIN/account/api/usage")"
+TOKEN="$(node -e 'process.stdout.write(require(process.argv[1]).intakeToken)' "$POLICY")"
+NOW_MS="$(node -e 'process.stdout.write(String(Date.now()))')"
+INTAKE_PORT=$((PORT+1))
+INTAKE_BODY="{\"eventId\":\"accept-smoke-1\",\"occurredAt\":$NOW_MS,\"provider\":\"deepseek-official\",\"model\":\"deepseek-chat\",\"purpose\":\"assistant\",\"credentialSource\":\"user-env\",\"credentialClass\":\"company\",\"status\":\"succeeded\",\"usage\":{\"inputTokens\":1000,\"outputTokens\":0}}"
+check "authenticated usage intake accepts event" "200" "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d "$INTAKE_BODY" "http://127.0.0.1:$INTAKE_PORT/usage")"
+USAGE_JSON="$(curl -s -b "$JAR_U1" "$ORIGIN/account/api/usage")"
+USAGE_CALLS="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).calls))' "$USAGE_JSON")"
+USAGE_TOKENS="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).totalTokens))' "$USAGE_JSON")"
+check "usage ledger records one call" "1" "$USAGE_CALLS"
+check "usage ledger records token buckets" "1000" "$USAGE_TOKENS"
+USAGE_ALERTS="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).alerts.map(a=>`${a.metric}:${a.threshold}`).join(","))' "$USAGE_JSON")"
+check "usage ledger emits durable 80/100 alerts" "tokens:80,tokens:100" "$USAGE_ALERTS"
+check "admin usage summary reachable" "200" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR_ADMIN" "$ORIGIN/admin/api/usage")"
 
 # -- u2: parallel instance, isolation by process boundary ---------------------
 check "u2 login" "302" "$(login "$JAR_U2" u2 init-pw-222)"

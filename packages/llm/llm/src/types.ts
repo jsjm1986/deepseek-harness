@@ -294,7 +294,12 @@ export type StreamChunk =
   | { type: 'reasoning-delta'; index: number; text: string }
   | { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
   | { type: 'block-end'; index: number; block: ContentBlock }
-  | { type: 'usage'; usage: TokenUsage }
+  | {
+    type: 'usage'
+    usage: TokenUsage
+    /** Non-secret credential-resolution source used for cost attribution. */
+    credentialSource?: string
+  }
   | {
     type: 'finish'
     reason: FinishReason

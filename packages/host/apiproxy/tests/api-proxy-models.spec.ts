@@ -10,6 +10,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import ModelAccessPolicy from '@deepseek-ai/dsh-model-access'
 import type {
   GenerateOptions, LlmCallConfig, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo,
   LlmResolvedModelInfo, StreamChunk,
@@ -446,6 +447,53 @@ describe('Web session model selection', () => {
     expect(stillAccepted.selected).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
+    await ctx.fiber.dispose()
+  })
+
+  it('filters, rejects selection, and refuses prompt execution under model policy', async () => {
+    const { ctx, sessionId } = await harness()
+    const denied = new Set(['deepseek-official/deepseek-reasoner'])
+    new class extends ModelAccessPolicy {
+      override decide(target: { provider: string; model: string }) {
+        return denied.has(`${target.provider}/${target.model}`)
+          ? { allowed: false as const, reason: `policy denies ${target.provider}/${target.model}` }
+          : { allowed: true as const }
+      }
+    }(ctx)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    const catalog = expectValue(await api.sessions.models(request({ sessionId })))
+    expect(catalog.groups.flatMap(group => group.models.map(model => `${group.id}/${model.id}`)))
+      .not.toContain('deepseek-official/deepseek-reasoner')
+    expect(catalog.routable).toBe(true)
+
+    const selection = await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner',
+    }))
+    expect(selection.result).toEqual({
+      ok: false,
+      error: {
+        code: 'model-forbidden',
+        message: 'policy denies deepseek-official/deepseek-reasoner',
+        details: { provider: 'deepseek-official', model: 'deepseek-reasoner' },
+      },
+    })
+
+    denied.add('deepseek-official/deepseek-chat')
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).routable).toBe(false)
+    const prompt = await api.sessions.prompt(request({
+      sessionId, mode: 'queue' as const, content: [{ type: 'text' as const, text: 'hi' }],
+    }))
+    expect(prompt.result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'model-forbidden',
+        details: { provider: 'deepseek-official', model: 'deepseek-chat' },
+      },
+    })
     await ctx.fiber.dispose()
   })
 

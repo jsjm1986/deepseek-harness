@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { applyGrantsToUser } from './apply-grants.ts'
+import { applyModelGovernanceToUser } from './apply-model-governance.ts'
 import type { UserRow } from './auth.ts'
 import type { GrantMode } from './projects.ts'
 import type { GatewayDeps, GatewayHandlers } from './server.ts'
@@ -155,6 +156,7 @@ async function dispatch(
     if (status !== undefined && status !== 'active' && status !== 'disabled') { sendError(res, 400, 'invalid status'); return true }
     if (role !== undefined) {
       deps.users.setRole(userId, role)
+      if (deps.governance !== undefined) await applyModelGovernanceToUser(deps, userId, admin.id)
       write('admin.users.role', { id: userId, role })
     }
     if (status !== undefined) {
@@ -167,6 +169,92 @@ async function dispatch(
       write('admin.users.display-name', { id: userId })
     }
     sendNoContent(res)
+    return true
+  }
+
+  if (pathname === '/admin/api/models') {
+    if (deps.governance === undefined) { sendError(res, 503, 'model governance unavailable'); return true }
+    if (method === 'GET') { sendJson(res, 200, deps.governance.listModels()); return true }
+    if (method === 'PUT') {
+      const input = parseObject(body)
+      const provider = str(input, 'provider'); const model = str(input, 'model'); const displayName = str(input, 'displayName')
+      if (provider === undefined || model === undefined || displayName === undefined) { sendError(res, 400, 'provider, model and displayName required'); return true }
+      const bool = (key: string, fallback: boolean): boolean => {
+        const value = input[key]
+        if (value === undefined) return fallback
+        if (typeof value !== 'boolean') throw new Error(`${key} must be boolean`)
+        return value
+      }
+      const integer = (key: string): number => {
+        const value = input[key]
+        if (value === undefined) return 0
+        if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+          throw new Error(`${key} must be a non-negative safe integer`)
+        }
+        return value
+      }
+      deps.governance.upsertModel({
+        provider, model, displayName, enabled: bool('enabled', true), adminAllowed: bool('adminAllowed', true),
+        userAllowed: bool('userAllowed', false), inputMicrosPerMillion: integer('inputMicrosPerMillion'),
+        outputMicrosPerMillion: integer('outputMicrosPerMillion'), cacheReadMicrosPerMillion: integer('cacheReadMicrosPerMillion'),
+        cacheWriteMicrosPerMillion: integer('cacheWriteMicrosPerMillion'),
+      })
+      write('admin.models.upsert', { provider, model })
+      for (const target of deps.users.list()) await applyModelGovernanceToUser(deps, target.id, admin.id)
+      sendNoContent(res); return true
+    }
+    return false
+  }
+
+  if (pathname === '/admin/api/model-access') {
+    if (deps.governance === undefined) { sendError(res, 503, 'model governance unavailable'); return true }
+    const query = new URL(req.url ?? '/', 'http://x').searchParams
+    if (method === 'GET') {
+      const userId = Number(query.get('userId'))
+      const target = deps.users.getById(userId)
+      if (target === null) { sendError(res, 404, 'user not found'); return true }
+      sendJson(res, 200, { effective: deps.governance.policyFor(target), overrides: deps.governance.userOverrides(userId) }); return true
+    }
+    if (method === 'PUT') {
+      const input = parseObject(body); const userId = Number(input.userId); const provider = str(input, 'provider'); const model = str(input, 'model')
+      const allowed = input.allowed
+      if (!Number.isSafeInteger(userId) || provider === undefined || model === undefined || (allowed !== null && typeof allowed !== 'boolean')) {
+        sendError(res, 400, 'userId, provider, model and boolean|null allowed required'); return true
+      }
+      if (deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
+      deps.governance.setUserAccess(userId, provider, model, allowed as boolean | null)
+      await applyModelGovernanceToUser(deps, userId, admin.id)
+      write('admin.models.user-access', { userId, provider, model, allowed }); sendNoContent(res); return true
+    }
+    return false
+  }
+
+  if (pathname === '/admin/api/quotas') {
+    if (deps.governance === undefined || method !== 'PUT') return false
+    const input = parseObject(body); const subjectType = str(input, 'subjectType'); const subjectId = str(input, 'subjectId')
+    if ((subjectType !== 'role' && subjectType !== 'user') || subjectId === undefined) { sendError(res, 400, 'invalid quota subject'); return true }
+    const nullable = (key: string): number | null | 'inherit' => {
+      const value = input[key]
+      if (value === 'inherit') return 'inherit'
+      if (value === null || value === undefined) return null
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+        throw new Error(`${key} must be a non-negative safe integer, null, or inherit`)
+      }
+      return value
+    }
+    deps.governance.setQuota(subjectType, subjectId, nullable('tokenLimit'), nullable('companyCostMicrosLimit'))
+    write('admin.models.quota', { subjectType, subjectId }); sendNoContent(res); return true
+  }
+
+  if (pathname === '/admin/api/usage') {
+    if (deps.governance === undefined || method !== 'GET') return false
+    const query = new URL(req.url ?? '/', 'http://x').searchParams
+    const month = query.get('month') ?? undefined; const requested = query.get('userId')
+    if (requested !== null) {
+      const userId = Number(requested); if (deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
+      sendJson(res, 200, deps.governance.summary(userId, month)); return true
+    }
+    sendJson(res, 200, deps.users.list().map(user => ({ userId: user.id, username: user.username, ...deps.governance!.summary(user.id, month) })))
     return true
   }
 

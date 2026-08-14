@@ -73,6 +73,18 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.paths).toEqual(['/chat/completions'])
   })
 
+  it('adds the non-secret credential source to usage chunks', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url)
+    let source: string | undefined
+    for await (const chunk of ctx.llm.stream({
+      provider: 'deepseek', model: 'deepseek-v4-flash', messages: [],
+    })) {
+      if (chunk.type === 'usage') source = chunk.credentialSource
+    }
+    expect(source).toBe('process')
+  })
+
   it('merges profile headers with Harness attribution winning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-在 Linux 主机上以 systemd 内核约束上线网关，并把公网域名切换到它。全文使用的布局：网关代码在 `/srv/harness/gateway`，数据在 `/srv/harness/gateway-data`，用户目录在 `/srv/harness/users` 下，守卫插件在 `/srv/harness/plugins/dsh-directory-guard`。
+在 Linux 主机上以 systemd 内核约束上线网关，并把公网域名切换到它。全文使用的布局：网关代码在 `/srv/harness/gateway`，数据在 `/srv/harness/gateway-data`，用户目录在 `/srv/harness/users` 下，目录守卫在 `/srv/harness/plugins/dsh-directory-guard`，强制模型治理在 `/srv/harness/plugins/dsh-model-governance`。
 
 ## 前置条件
 
@@ -13,9 +13,9 @@
 ## 安装
 
 1. 把 `gateway/` 复制到 `/srv/harness/gateway`；用生产 Node 在该目录执行 `npm install && npm rebuild better-sqlite3 argon2`。`public/admin` 已被 gitignore，因此还须执行 `npm run build --prefix gateway/admin-ui`（在仓库根目录；复制之后则是 `npm run build --prefix admin-ui`），否则不会提供管理端 SPA。
-2. 把 `plugins/dsh-directory-guard/` 复制到 `/srv/harness/plugins/dsh-directory-guard`；执行 `npm install --omit=dev && npx tsc -p tsconfig.build.json`（实例加载它构建出的 `lib/`；钉死的 npm dsh 以纯 Node 运行，没有 tsx）。
+2. 把 `plugins/dsh-directory-guard/` 复制到 `/srv/harness/plugins/dsh-directory-guard`，把 `plugins/dsh-model-governance/` 复制到 `/srv/harness/plugins/dsh-model-governance`。复制前分别按其 TypeScript 配置构建，或直接复制已纳入版本控制的 `lib/` 产物；钉死的 npm dsh 以纯 Node 运行，没有 tsx。即使 `HGW_GUARD_PATCH=off`，模型治理仍是强制项。
 3. 把公司默认凭据写入 `/srv/harness/gateway-data/company.env`（`DEEPSEEK_API_KEY=...`，权限 600）。每次实例启动都会把它复制为该用户的 `$DSH_HOME/.env`；用户在 Settings 里设置的个人 key 存放于 `.credentials.yaml`，优先级更高。
-4. 把 `deploy/harness-gateway.service` 复制到 `/etc/systemd/system/`，把 `HGW_PUBLIC_ORIGINS` 调整为真实 https 源以及有差异的路径，然后 `systemctl daemon-reload && systemctl enable --now harness-gateway`。
+4. 把 `deploy/harness-gateway.service` 复制到 `/etc/systemd/system/`，把 `HGW_PUBLIC_ORIGINS`、`HGW_MODEL_GOVERNANCE_PACKAGE` 以及其他有差异的路径调整正确，然后 `systemctl daemon-reload && systemctl enable --now harness-gateway`。
 5. 首次启动会把引导管理员密码打进 journal：`journalctl -u harness-gateway | grep 'bootstrap admin'`。
 
 ## 每用户开号
@@ -46,7 +46,7 @@ server {
 
 ## 验收
 
-- 网关行为：`bash scripts/accept-phase1.sh`（任意主机，23 项检查，无需 API key）。
+- 网关行为：`bash scripts/accept-phase1.sh`（任意主机，36 项检查，无需 API key）。
 - 内核约束：以测试用户登录一次让单元启动，然后 `sudo bash scripts/accept-phase2.sh <user> <other-user> [ro-path] [rw-path]`——从挂载命名空间内部验证同伴不可见、自身主目录可写、`ProtectSystem`、ro/rw 授权语义。把会话切到 `danger-full-access` 后重跑：内核边界必须保持不变。
 - 重启韧性：`reboot` 后确认 `harness-gateway` 活跃，登录能重新到达可用实例。
 

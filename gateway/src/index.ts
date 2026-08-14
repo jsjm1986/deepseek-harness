@@ -8,8 +8,10 @@ import { openDb } from './db.ts'
 import { InstanceManager } from './instances.ts'
 import { selectLauncher } from './launcher.ts'
 import { ProjectService } from './projects.ts'
+import { ModelGovernanceService } from './model-governance.ts'
 import { createProxyHandlers } from './proxy.ts'
 import { createGatewayServer, type GatewayDeps } from './server.ts'
+import { createUsageIntakeServer } from './usage-intake.ts'
 import { UserService } from './users.ts'
 
 const cfg = loadConfig()
@@ -18,6 +20,7 @@ const auth = new AuthService(db, cfg)
 const users = new UserService(db, cfg)
 const projects = new ProjectService(db, cfg)
 const audit = new AuditService(db)
+const governance = new ModelGovernanceService(db, cfg.usageTimeZone)
 // Launcher is local child-process (dev) unless HGW_LAUNCHER=systemd (Linux prod);
 // the systemd options factory is only evaluated in the systemd case.
 const launcher = selectLauncher(cfg, () => ({
@@ -41,6 +44,7 @@ const deps: GatewayDeps = {
   users,
   projects,
   audit,
+  governance,
   instances: new InstanceManager(db, cfg, launcher),
 }
 
@@ -58,6 +62,10 @@ const server = createGatewayServer(deps, { ...proxyHandlers, admin: createAdminA
 server.listen(cfg.port, '127.0.0.1', () => {
   console.log(`[gateway] listening on http://127.0.0.1:${cfg.port}`)
 })
+const intake = createUsageIntakeServer(governance, audit)
+intake.listen(cfg.intakePort, '127.0.0.1', () => {
+  console.log(`[gateway] usage intake listening on http://127.0.0.1:${cfg.intakePort}`)
+})
 
 const reaper = setInterval(() => {
   void deps.instances.reapIdle()
@@ -66,6 +74,7 @@ const reaper = setInterval(() => {
 async function shutdown(): Promise<void> {
   clearInterval(reaper)
   proxyHandlers.close()
+  intake.close()
   await deps.instances.stopAll()
   server.close(() => process.exit(0))
   setTimeout(() => process.exit(0), 3000).unref()

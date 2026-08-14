@@ -14,6 +14,8 @@ The public-facing portal gateway for DeepSeek Harness: login/session handling, u
 | Variable | Default | Meaning |
 |---|---|---|
 | `HGW_PORT` | 8899 | Gateway listen port |
+| `HGW_INTAKE_PORT` | `HGW_PORT + 1` | Loopback-only, bearer-authenticated usage intake port |
+| `HGW_USAGE_TIME_ZONE` | `Asia/Shanghai` | IANA time zone defining natural-month usage boundaries |
 | `HGW_PUBLIC_ORIGINS` | `http://127.0.0.1:8899` | Comma-separated public Origin allowlist (CSRF check; https marks cookies Secure) |
 | `HGW_DATA_DIR` | `gateway/data` | SQLite and runtime data directory |
 | `HGW_USERS_ROOT` | `~/harness-users` | Users root (production `/srv/harness/users`) |
@@ -25,6 +27,7 @@ The public-facing portal gateway for DeepSeek Harness: login/session handling, u
 | `HGW_LAUNCHER` | `local` | Instance launch driver: `local` (macOS dev subprocess) / `systemd` (Linux production per-user units) |
 | `HGW_SYSTEMD_UNIT_DIR` | `/etc/systemd/system` | Unit directory the systemd driver writes per-user unit files into |
 | `HGW_GUARD_PATCH` | `<repo>/plugins/dsh-directory-guard/cordis.patch.yml` | directory-guard bundle patch mounted into every instance; `off` disables |
+| `HGW_MODEL_GOVERNANCE_PACKAGE` | `<repo>/plugins/dsh-model-governance` | Tree-external per-instance authorization and usage plugin linked into each profile |
 | `HGW_DEFAULT_ENV_FILE` | (empty) | Company default credentials copied to each instance's `$DSH_HOME/.env` on start |
 | `HGW_MEMORY_MAX` / `HGW_CPU_QUOTA` | `1G` / `100%` | Per-instance systemd resource limits |
 | `HGW_GATEWAY_DIR` | gateway root | Directory masked from instances (`InaccessiblePaths`) |
@@ -34,6 +37,12 @@ Production install, cutover, and acceptance live in [deploy/README.md](deploy/RE
 ## Admin console and project grants
 
 `/admin` serves the Vite SPA built from `gateway/admin-ui` into `gateway/public/admin`; `/admin/api/*` is the gateway JSON API (non-`admin` role 403). Grants are project-centric: a project is an existing absolute directory, members have `ro` or `rw`, and each user's effective list (private home plus memberships, each with a `label`) is written to `$DSH_HOME/directory-grants.json`.
+
+## Model governance and usage accounting
+
+The admin SPA has **Models** and **Usage** pages. Models are identified by exact `(provider, model)` routes. A global enabled flag, role defaults (`admin` / `user`), and per-user `allow` / `deny` / `inherit` exceptions determine the effective policy. A policy change atomically rewrites `$DSH_HOME/model-governance.json` (mode `0600`) and restarts only an already-running affected instance. The instance plugin provides `ctx.modelAccess`; `apiproxy` filters catalogs and rejects selection/prompt RPCs, while the `llm/stream` middleware is the final adapter-dispatch enforcement point for chat, title, compaction, and direct calls.
+
+Every call produces one UUID-keyed usage record in a crash-safe per-instance outbox. The loopback intake deduplicates UUIDs in SQLite, applies the price version effective at the call timestamp, and attributes company cost from a non-secret credential source label (`file`/`project-env`/`request` are personal; launch environment sources are company; unknown remains company-conservative). No API key, prompt, or response content enters the ledger. Natural months use `HGW_USAGE_TIME_ZONE`; token and company-cost quotas support role defaults and per-user inherit/unlimited/custom overrides. Quotas warn at 80% and 100% but do not block calls. Users see durable crossings in the Web shell; admins see per-user monthly summaries, missing-usage counts, estimated cost, and company cost.
 
 ## Layered directory enforcement
 

@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import httpProxy from 'http-proxy'
 import { writeGrantsFile } from './apply-grants.ts'
+import { writeModelGovernanceFile } from './apply-model-governance.ts'
 import type { UserRow } from './auth.ts'
 import { waitingPage } from './html.ts'
 import type { GatewayDeps, ProxyHandler, UpgradeHandler } from './server.ts'
@@ -18,6 +19,7 @@ export function createProxyHandlers(deps: GatewayDeps): { proxy: ProxyHandler; u
   // just before every spawn, so the child always reads the current grants.
   instances.beforeStart = (user: UserRow): void => {
     writeGrantsFile(cfg, user.username, projects.effectiveGrants(user.id))
+    if (deps.governance !== undefined) writeModelGovernanceFile(cfg, deps.governance, user)
   }
 
   async function ensureReady(req: IncomingMessage, res: ServerResponse | null, user: UserRow): Promise<number | null> {

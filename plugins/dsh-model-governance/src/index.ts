@@ -1,0 +1,92 @@
+import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
+import type { GenerateOptions, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-agent'
+import type { ModelAccessService } from '@deepseek-ai/dsh-model-access'
+import { UsageOutbox, type UsageRecord } from './outbox.ts'
+import { loadPolicy } from './policy.ts'
+
+export const name = 'dsh-model-governance'
+export const inject = ['llm']
+
+class StaticModelAccess implements ModelAccessService {
+  private readonly routes: Map<string, boolean>
+  constructor(private readonly defaultAllowed: boolean, entries: Array<{ provider: string; model: string; allowed: boolean }>) {
+    this.routes = new Map(entries.map(entry => [`${entry.provider}\0${entry.model}`, entry.allowed]))
+  }
+  decide(target: { provider: string; model: string }) {
+    const allowed = this.routes.get(`${target.provider}\0${target.model}`) ?? this.defaultAllowed
+    return allowed ? { allowed: true as const } : {
+      allowed: false as const,
+      reason: `Model "${target.provider}/${target.model}" is not authorized for this account.`,
+    }
+  }
+}
+
+function credentialClass(source: string): UsageRecord['credentialClass'] {
+  if (source === 'file' || source === 'project-env' || source === 'request') return 'personal'
+  if (source === 'env' || source === 'process' || source === 'user-env') return 'company'
+  return 'unknown'
+}
+
+function terminalStatus(chunk: Extract<StreamChunk, { type: 'finish' }>): UsageRecord['status'] {
+  return chunk.reason.kind === 'error' ? 'failed' : chunk.reason.kind === 'aborted' ? 'cancelled' : 'succeeded'
+}
+
+/** Mount policy provider plus final llm/stream enforcement and metering. */
+export function apply(ctx: Context): void {
+  const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  const policy = loadPolicy(process.env.DSH_MODEL_GOVERNANCE ?? join(home, 'model-governance.json'))
+  const access = new StaticModelAccess(policy.defaultAllowed, policy.models)
+  ctx.provide('modelAccess', access)
+  const outbox = new UsageOutbox(join(home, 'model-governance-outbox'), policy.intakeUrl, policy.intakeToken)
+  const enqueue = (record: UsageRecord): void => {
+    try { outbox.enqueue(record) } catch (error) {
+      ctx.logger.warn('model-governance: failed to persist usage record; model result is preserved')
+      ctx.logger.warn(error)
+    }
+  }
+  ctx.effect(() => async () => outbox.close())
+  ctx.on('llm/stream', (options: GenerateOptions, next: () => AsyncIterable<StreamChunk>) => {
+    const initiatorId = ctx.get('agents')?.currentInitiator()?.session.id
+    const explicitId = options.sessionId
+    const attributedId = explicitId ?? initiatorId
+    const base = {
+      eventId: randomUUID(), occurredAt: Date.now(), provider: options.provider, model: options.model,
+      purpose: options.purpose ?? 'assistant', ...attributedId === undefined ? {} : { sessionId: String(attributedId) },
+    }
+    if (initiatorId !== undefined && explicitId !== undefined && initiatorId !== explicitId) {
+      return (async function* (): AsyncIterable<StreamChunk> {
+        enqueue({ ...base, credentialSource: 'none', credentialClass: 'unknown', status: 'failed' })
+        yield { type: 'finish', reason: { kind: 'error', failure: {
+          message: 'model-governance: initiating Agent and explicit sessionId disagree', code: 'MODEL_ATTRIBUTION_CONFLICT',
+        } } }
+      })()
+    }
+    const decision = access.decide({ provider: options.provider, model: options.model })
+    if (!decision.allowed) return (async function* (): AsyncIterable<StreamChunk> {
+      enqueue({ ...base, credentialSource: 'none', credentialClass: 'unknown', status: 'denied' })
+      yield { type: 'finish', reason: { kind: 'error', failure: { message: decision.reason, code: 'MODEL_FORBIDDEN' } } }
+    })()
+    return (async function* (): AsyncIterable<StreamChunk> {
+      let usage: TokenUsage | undefined
+      let source = 'unknown'
+      let status: UsageRecord['status'] = 'cancelled'
+      try {
+        for await (const chunk of next()) {
+          if (chunk.type === 'usage') { usage = chunk.usage; source = chunk.credentialSource ?? 'unknown' }
+          if (chunk.type === 'finish') status = terminalStatus(chunk)
+          yield chunk
+        }
+      } finally {
+        enqueue({
+          ...base, credentialSource: source, credentialClass: credentialClass(source),
+          status: status === 'succeeded' && usage === undefined ? 'missing-usage' : status,
+          ...usage === undefined ? {} : { usage },
+        })
+      }
+    })()
+  })
+}

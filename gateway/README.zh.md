@@ -14,6 +14,8 @@ DeepSeek Harness 公网化门户网关：登录/会话、用户/项目/目录授
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `HGW_PORT` | 8899 | 网关监听端口 |
+| `HGW_INTAKE_PORT` | `HGW_PORT + 1` | 仅回环监听、Bearer 鉴权的用量 intake 端口 |
+| `HGW_USAGE_TIME_ZONE` | `Asia/Shanghai` | 定义自然月边界的 IANA 时区 |
 | `HGW_PUBLIC_ORIGINS` | `http://127.0.0.1:8899` | 逗号分隔的公网 Origin 白名单（CSRF 校验；https 时 Cookie 标记 Secure） |
 | `HGW_DATA_DIR` | `gateway/data` | SQLite 与运行数据目录 |
 | `HGW_USERS_ROOT` | `~/harness-users` | 用户目录根（生产 `/srv/harness/users`） |
@@ -25,6 +27,7 @@ DeepSeek Harness 公网化门户网关：登录/会话、用户/项目/目录授
 | `HGW_LAUNCHER` | `local` | 实例启动驱动：`local`（macOS 开发子进程）/ `systemd`（Linux 生产每用户单元） |
 | `HGW_SYSTEMD_UNIT_DIR` | `/etc/systemd/system` | systemd 驱动写每用户单元文件的目录 |
 | `HGW_GUARD_PATCH` | `<仓库>/plugins/dsh-directory-guard/cordis.patch.yml` | 挂载进每个实例的 directory-guard bundle 补丁；`off` 关闭 |
+| `HGW_MODEL_GOVERNANCE_PACKAGE` | `<仓库>/plugins/dsh-model-governance` | 链接进每个 profile 的树外实例授权与用量插件 |
 | `HGW_DEFAULT_ENV_FILE` | （空） | 每次启动复制到实例 `$DSH_HOME/.env` 的公司默认凭据 |
 | `HGW_MEMORY_MAX` / `HGW_CPU_QUOTA` | `1G` / `100%` | 每实例 systemd 资源限额 |
 | `HGW_GATEWAY_DIR` | 网关根目录 | 对实例遮蔽的目录（`InaccessiblePaths`） |
@@ -34,6 +37,12 @@ DeepSeek Harness 公网化门户网关：登录/会话、用户/项目/目录授
 ## 管理端与项目授权
 
 `/admin` 托管从 `gateway/admin-ui` 构建到 `gateway/public/admin` 的 Vite SPA；`/admin/api/*` 是网关 JSON API（非 `admin` 角色 403）。授权按项目：一个项目对应一个已存在的绝对目录，成员为 `ro` 或 `rw`，用户的有效列表（私有 home 加成员身份，每条带 `label`）写入 `$DSH_HOME/directory-grants.json`。
+
+## 模型治理与用量核算
+
+管理 SPA 提供“模型”和“用量”页面。模型以精确 `(provider, model)` 路由标识；全局启用开关、角色默认（`admin` / `user`）和按用户 `允许` / `拒绝` / `继承` 例外共同决定有效策略。策略变化会原子重写 `$DSH_HOME/model-governance.json`（权限 `0600`），且只重启已经运行的受影响实例。实例插件提供 `ctx.modelAccess`；`apiproxy` 过滤目录并拒绝选择/发送 RPC，而 `llm/stream` 中间件是聊天、标题、压缩和直接调用进入适配器前的最终强制点。
+
+每次调用都会先以 UUID 写入实例本地的崩溃安全 outbox。仅回环的 intake 在 SQLite 中按 UUID 去重，按调用时间选择生效价格版本，并根据非秘密凭据来源标签归属公司成本（`file`/`project-env`/`request` 为个人，启动环境来源为公司，未知来源按公司成本保守计入）。账本不写 API Key、提示词或回复内容。自然月使用 `HGW_USAGE_TIME_ZONE`；Token 与公司成本额度支持角色默认以及按用户继承/不限/自定义。额度只在 80% 和 100% 提醒，不阻断调用。用户在 Web shell 看到持久阈值提醒；管理员看到按用户自然月汇总、缺失计量次数、估算成本和公司成本。
 
 ## 目录强制的分层
 

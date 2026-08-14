@@ -13,3 +13,7 @@ nav{margin-bottom:16px}
 nav a{margin-right:16px;color:#0071e3;text-decoration:none}
 nav a.active{font-weight:600}
 form{margin-bottom:16px}
+.card.wide{overflow-x:auto}
+label{font-size:14px;margin-right:12px;white-space:nowrap}
+label input[type=checkbox]{margin-right:5px}
+.warning{color:#9a6700}

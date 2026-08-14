@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, lstatSync, mkdirSync, rmSync, symlinkSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type Database from 'better-sqlite3'
 import type { UserRow } from './auth.ts'
@@ -97,33 +97,41 @@ export class InstanceManager {
   }
 
   /**
-   * Mount the directory-guard bundle into the instance's `$DSH_HOME`:
-   * symlink the plugin package (the directory holding the patch file) into
-   * `profiles/node_modules` — the loader resolves a bundle's bare package name
-   * from `$DSH_HOME/profiles/` — and write the patch as the home-level user
-   * layer (`$DSH_HOME/cordis.patch.yml`), which dsh applies over every profile
-   * regardless of how the instance command spells its argv (the CLI launcher
-   * only accepts `--patch` before app flags, and the pinned-npm production
-   * command has no patch flag at all). Refreshed on every start, so a plugin
-   * update reaches instances on their next restart. Fails loud on a missing
-   * patch file: silently starting an unguarded instance is worse than refusing
-   * to start (disable explicitly with HGW_GUARD_PATCH=off).
+   * Mount the mandatory model-governance bundle and, when configured, the
+   * independent directory-guard bundle. Their patch sequences are composed
+   * into the one home-level patch file dsh loads. Turning the directory guard
+   * off must never turn model authorization or usage accounting off.
    */
-  private mountGuard(user: UserRow): void {
-    const patch = this.cfg.guardPatch
-    if (patch === '') return
-    if (!existsSync(patch)) throw new Error(`directory-guard patch not found: ${patch} (set HGW_GUARD_PATCH=off to disable)`)
-    const packageDir = dirname(patch)
+  private mountPolicyBundles(user: UserRow): void {
+    const governanceDir = this.cfg.modelGovernancePackage
+    const governancePatch = join(governanceDir, 'cordis.patch.yml')
+    if (!existsSync(join(governanceDir, 'package.json')) || !existsSync(governancePatch)) {
+      throw new Error(`model-governance package is incomplete: ${governanceDir}`)
+    }
+
     const dshHome = join(this.cfg.usersRoot, user.username, 'dsh')
     const linkParent = join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
-    const link = join(linkParent, 'dsh-directory-guard')
     mkdirSync(linkParent, { recursive: true })
     try {
-      if (lstatSync(link, { throwIfNoEntry: false }) !== undefined) rmSync(link, { recursive: true })
-      symlinkSync(packageDir, link, 'dir')
-      copyFileSync(patch, join(dshHome, 'cordis.patch.yml'))
+      const governanceLink = join(linkParent, 'dsh-model-governance')
+      if (lstatSync(governanceLink, { throwIfNoEntry: false }) !== undefined) rmSync(governanceLink, { recursive: true })
+      symlinkSync(governanceDir, governanceLink, 'dir')
+
+      let patchText = readFileSync(governancePatch, 'utf8').trimEnd() + '\n'
+      const guardPatch = this.cfg.guardPatch
+      if (guardPatch !== '') {
+        if (!existsSync(guardPatch)) {
+          throw new Error(`directory-guard patch not found: ${guardPatch} (set HGW_GUARD_PATCH=off to disable)`)
+        }
+        const guardDir = dirname(guardPatch)
+        const guardLink = join(linkParent, 'dsh-directory-guard')
+        if (lstatSync(guardLink, { throwIfNoEntry: false }) !== undefined) rmSync(guardLink, { recursive: true })
+        symlinkSync(guardDir, guardLink, 'dir')
+        patchText += readFileSync(guardPatch, 'utf8').trimEnd() + '\n'
+      }
+      writeFileSync(join(dshHome, 'cordis.patch.yml'), patchText)
     } catch (error) {
-      throw new Error(`directory-guard mount failed for ${user.username}: ${String(error)}`)
+      throw new Error(`policy bundle mount failed for ${user.username}: ${String(error)}`)
     }
   }
 
@@ -144,9 +152,9 @@ export class InstanceManager {
   }
 
   private async start(user: UserRow, port: number): Promise<{ port: number }> {
-    // Mount the guard first: a misconfigured guard must refuse the start
-    // before any state transition, not strand the row in 'starting'.
-    this.mountGuard(user)
+    // Mount policy bundles first: a missing mandatory policy must refuse the
+    // start before any state transition, not strand the row in 'starting'.
+    this.mountPolicyBundles(user)
     this.seedDefaultEnv(user)
     const now = Date.now()
     this.db.prepare(`UPDATE instances SET state = 'starting', started_at = ?, last_activity_at = ? WHERE user_id = ?`)
