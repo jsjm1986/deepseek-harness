@@ -24,7 +24,7 @@
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
-  border-radius: 16px;
+  border-radius: var(--dsw-radius-xl);
   background: var(--dsw-alias-interactive-bg-hover);
   cursor: zoom-in;
 }
@@ -52,7 +52,7 @@
 
 .error {
   max-width: 240px;
-  padding: 10px 12px;
+  padding: 10px var(--dsw-space-3);
   border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
   border-radius: 10px;
   background: var(--dsw-alias-interactive-bg-hover-danger);
@@ -63,7 +63,7 @@
 .error[data-variant='tile'] {
   width: 64px;
   height: 64px;
-  padding: 4px;
+  padding: var(--dsw-space-1);
   overflow: hidden;
-  border-radius: 16px;
+  border-radius: var(--dsw-radius-xl);
 }

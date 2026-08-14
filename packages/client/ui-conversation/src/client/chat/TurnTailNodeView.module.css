@@ -1,7 +1,7 @@
 .root {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--dsw-space-4);
 }
 
 .actions {

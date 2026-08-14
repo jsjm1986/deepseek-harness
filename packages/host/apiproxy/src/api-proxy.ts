@@ -12,6 +12,12 @@ import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatu
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import {
+  DOCUMENT_STORE_UNAVAILABLE_CODE,
+  UserDocError,
+  type UserDocPromptAttachment,
+} from '@deepseek-ai/dsh-userdoc'
+import { prepareUserDocAttachments, renderUserDocAttachment } from '@deepseek-ai/dsh-userdoc-context'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -147,18 +153,50 @@ function decodeBase64(data: string): Uint8Array {
   return new Uint8Array(decoded)
 }
 
+/** Read one admitted document while preserving the prompt's source order. */
+function admittedDocumentAt(
+  documents: readonly UserDocPromptAttachment[],
+  index: number,
+): UserDocPromptAttachment {
+  const document = documents[index]
+  if (document === undefined) throw new Error('document admission count changed during prompt assembly')
+  return document
+}
+
 /** Validate one prompt as a batch before publishing any durable image object. */
-async function durablePromptContent(ctx: Context, content: readonly PromptContentPart[]): Promise<ContentBlock[]> {
-  if (content.every(part => part.type === 'text')) {
-    return content.map(part => ({ type: 'text', text: part.text }))
+async function durablePromptContent(
+  ctx: Context,
+  content: readonly PromptContentPart[],
+): Promise<{ blocks: ContentBlock[]; documents: UserDocPromptAttachment[] }> {
+  const documentParts = content.filter((part): part is Extract<PromptContentPart, { type: 'document' }> =>
+    part.type === 'document')
+  let documents: UserDocPromptAttachment[] = []
+  if (documentParts.length > 0) {
+    const store = ctx.get('userDocs')
+    if (store === undefined) {
+      throw new UserDocError('Document storage is unavailable.', DOCUMENT_STORE_UNAVAILABLE_CODE)
+    }
+    documents = await prepareUserDocAttachments(store, documentParts.map(part => part.docId))
   }
+  if (content.every(part => part.type === 'text' || part.type === 'document')) {
+    let documentIndex = 0
+    return {
+      blocks: content.map((part) => {
+        if (part.type === 'text') return { type: 'text', text: part.text }
+        return { type: 'text', text: renderUserDocAttachment(admittedDocumentAt(documents, documentIndex++)) }
+      }),
+      documents,
+    }
+  }
+  const imageParts = content.filter((part): part is Extract<PromptContentPart, { type: 'image' }> =>
+    part.type === 'image')
   const limits = ctx.attachments.imageLimits
-  if (content.filter(part => part.type === 'image').length > limits.maxImagesPerMessage) {
+  if (imageParts.length > limits.maxImagesPerMessage) {
     throw new AttachmentError('Prompt exceeds the configured image-count limit.', 'TOO_MANY_IMAGES')
   }
-  const prepared = content.map(part => part.type === 'text'
-    ? part
-    : { part, data: decodeBase64(part.data) })
+  const prepared = content.map(part => part.type === 'image'
+    ? { part, data: decodeBase64(part.data) }
+    : part)
   const images = prepared.filter((part): part is Extract<typeof part, { data: Uint8Array }> => 'data' in part)
   const totalBytes = images.reduce((sum, image) => sum + image.data.byteLength, 0)
   if (totalBytes > limits.maxMessageImageBytes) {
@@ -172,9 +210,12 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
     })
   }
   const blocks: ContentBlock[] = []
+  let documentIndex = 0
   for (const item of prepared) {
     if (!('data' in item)) {
-      blocks.push({ type: 'text', text: item.text })
+      blocks.push(item.type === 'text'
+        ? { type: 'text', text: item.text }
+        : { type: 'text', text: renderUserDocAttachment(admittedDocumentAt(documents, documentIndex++)) })
       continue
     }
     const attachment = await ctx.attachments.saveImage({
@@ -184,7 +225,7 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
     })
     blocks.push({ type: 'image', attachment })
   }
-  return blocks
+  return { blocks, documents }
 }
 
 /** Search durable content for an image reference, including nested tool results. */
@@ -2494,13 +2535,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               }
             }
             const durable = await durablePromptContent(ctx, content)
-            const message: UserMessage = createUserMessage({ content: durable, source })
+            const messageSource: MessageSource = durable.documents.length === 0
+              ? source
+              : { ...source, documents: durable.documents }
+            const message: UserMessage = createUserMessage({ content: durable.blocks, source: messageSource })
             if (mode === 'steer') agent.steer(message)
             else agent.followup(message)
           } catch (error: unknown) {
             if (error instanceof AttachmentError) {
               return err(request, {
                 code: 'attachment-error',
+                message: error.message,
+                details: { reason: error.code },
+              })
+            }
+            if (error instanceof UserDocError) {
+              return err(request, {
+                code: 'document-error',
                 message: error.message,
                 details: { reason: error.code },
               })

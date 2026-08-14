@@ -25,9 +25,9 @@
   max-width: calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));
   height: 36px;
   margin: 0 auto;
-  padding: 4px 5px 4px 12px;
+  padding: var(--dsw-space-1) 5px var(--dsw-space-1) var(--dsw-space-3);
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-specific-tip);
 }
 
@@ -75,9 +75,9 @@
   flex: 1;
   min-width: 0;
   height: 26px;
-  padding: 0 8px;
+  padding: 0 var(--dsw-space-2);
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-bg-base);
   font-size: 13px;
   line-height: 20px;

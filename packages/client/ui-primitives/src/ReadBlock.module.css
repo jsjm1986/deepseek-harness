@@ -12,7 +12,7 @@
   --dsl-read-gutter: 48px;
 
   position: relative;
-  margin: 16px 0;
+  margin: var(--dsw-space-4) 0;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-markdown-code-block);
   border-radius: var(--dsl-read-radius);
@@ -22,7 +22,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   padding: 9px 14px;
   background: var(--dsw-alias-markdown-code-block-banner);
   border-top-left-radius: var(--dsl-read-radius);
@@ -44,7 +44,7 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 12px;
+  gap: var(--dsw-space-3);
 }
 
 .count {
@@ -70,7 +70,7 @@
 }
 
 .body {
-  padding: 12px 0;
+  padding: var(--dsw-space-3) 0;
   font: var(--dsw-font-markdown-code-block);
   overflow-x: auto;
   overflow-y: hidden;

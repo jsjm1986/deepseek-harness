@@ -9,9 +9,12 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { PanelActions } from './service.ts'
 import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
+import { en, zh, type LayoutKey } from './locales.ts'
 import { LayoutController } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
 
@@ -31,6 +34,11 @@ declare module '@deepseek-ai/cordis' {
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Shell chrome copy (compact drawer toggle, overlay dismissal). */
+    layout: LayoutKey
+  }
+
   interface SlotMap {
     // The 'root' entry itself is the runtime's built-in slot (declared
     // there); these four are the frame's children, declared by the same
@@ -104,8 +112,11 @@ export interface ConvOwnerProps {}
 /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
 export interface DetailsOwnerProps {}
 
+/** Dictionary namespace owned by this plugin (shell chrome copy). */
+const NS = 'layout'
+
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
-export const inject = ['slots', 'theme']
+export const inject = ['slots', 'theme', 'locale']
 
 /**
  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
@@ -114,11 +125,14 @@ export const inject = ['slots', 'theme']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-layout: dictionaries')
+
   const layout = new LayoutController()
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     const disposeRegistration = ctx.slots.register({
       name: 'root',
+      locale: NS,
       children: {
         'sidebar': { kind: 'single', scope: 'root' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
@@ -153,4 +167,28 @@ export function apply(ctx: ClientContext): void {
       presenter.dispose()
     }
   }, 'ui-layout: theme presenter')
+
+  // Visual-viewport height as a root CSS variable: the compact frame sizes to
+  // it (AppFrame.module.css), so the composer stays above the on-screen
+  // keyboard where the layout viewport does not shrink (iOS). The scale
+  // factor folds pinch-zoom back out — the frame tracks the layout viewport,
+  // not the zoomed visual window. Absent visualViewport (jsdom, node e2e
+  // booting the client tree) the variable stays unset and the 100% fallback
+  // applies.
+  ctx.effect(() => {
+    const viewport = window.visualViewport
+    // jsdom implements no visualViewport despite lib.dom's null-only typing.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
+    if (viewport === null || viewport === undefined) return () => {}
+    const root = document.documentElement
+    const write = () => {
+      root.style.setProperty('--dsw-viewport-height', `${Math.round(viewport.height * viewport.scale)}px`)
+    }
+    write()
+    viewport.addEventListener('resize', write)
+    return () => {
+      viewport.removeEventListener('resize', write)
+      root.style.removeProperty('--dsw-viewport-height')
+    }
+  }, 'ui-layout: visual viewport height variable')
 }

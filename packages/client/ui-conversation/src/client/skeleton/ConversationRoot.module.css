@@ -28,7 +28,7 @@
 .header {
   position: relative;
   flex: none;
-  padding: 12px 28px 0 20px;
+  padding: var(--dsw-space-3) var(--dsw-space-7) 0 var(--dsw-space-5);
   border-bottom: 1px solid transparent;
 }
 
@@ -68,7 +68,7 @@
 .crumbs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -77,7 +77,7 @@
 .crumbSeg {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   min-width: 0;
 }
 
@@ -91,9 +91,9 @@
 .crumb {
   max-width: 220px;
   overflow: hidden;
-  padding: 4px 8px;
+  padding: var(--dsw-space-1) var(--dsw-space-2);
   border: none;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: transparent;
   font-size: 14px;
   line-height: 20px;
@@ -117,15 +117,15 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
+  gap: var(--dsw-space-2);
 }
 
 .headerUtilities {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
-  margin-left: 20px;
+  gap: var(--dsw-space-2);
+  margin-left: var(--dsw-space-5);
 }
 
 .headerUtilities:empty {
@@ -138,8 +138,8 @@
   z-index: 1;
   display: flex;
   gap: 36px;
-  margin-top: 4px;
-  padding-left: 8px;
+  margin-top: var(--dsw-space-1);
+  padding-left: var(--dsw-space-2);
 }
 
 /* figma .Tab 34:11442: 13/16 text (figma wt510, rendered 500), gap 8 to the 2px bar. */
@@ -315,9 +315,9 @@
   align-self: center;
   /* figma 75:8208 drew 12 between all three rows; the workspace row now sits
      8 above the card (its margin-top restores 12 under the hero chrome). */
-  gap: 8px;
+  gap: var(--dsw-space-2);
   /* Foot inside the centered box floats the stack a bit above true center. */
-  padding-bottom: 32px;
+  padding-bottom: var(--dsw-space-8);
   /* Card cap + both clearances: the hero input card lands at exactly the same
      width as the docked composer at every viewport. */
   width: min(calc(var(--dsh-composer-card-max-width) + 2 * var(--dsh-composer-side-clearance)), 100%);
@@ -345,10 +345,10 @@
   align-items: center;
   gap: 2px;
   min-width: 0;
-  margin-top: 4px;
+  margin-top: var(--dsw-space-1);
   /* figma drew px 8; nudged +12 so the chip's folder glyph lines up closer to
      the card's inner controls below. */
-  padding-left: 20px;
+  padding-left: var(--dsw-space-5);
 }
 
 /* Hero: the composer sits inside the session scroll body; center there so

@@ -35,7 +35,8 @@ export class WelcomeNoticeStore {
 
   /**
    * @param api - settings wire face used for durable reads and writes.
-   * @param persistence - remote browsers use memory because settings is loopback-only.
+   * @param persistence - `host` reads and writes the settings RPCs; `memory`
+   *   stays process-local and is only for tests or an explicit caller.
    */
   constructor(
     private readonly api: Pick<IApiClient, 'settings'>,
@@ -74,7 +75,7 @@ export class WelcomeNoticeStore {
   }
 
   /**
-   * Persist this copy version, or advance only this process for a remote browser.
+   * Persist this copy version, or advance only this process in memory mode.
    * @returns true when the selected persistence mode accepted the acknowledgement.
    */
   async acknowledge(): Promise<boolean> {

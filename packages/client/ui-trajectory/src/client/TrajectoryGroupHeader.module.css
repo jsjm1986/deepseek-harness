@@ -5,8 +5,8 @@
   align-items: center;
   box-sizing: border-box;
   height: 36px;
-  padding: 0 20px;
-  gap: 24px;
+  padding: 0 var(--dsw-space-5);
+  gap: var(--dsw-space-6);
   min-width: 0;
 }
 

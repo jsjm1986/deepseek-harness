@@ -769,7 +769,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/host/directory-picker-browse/src/index.ts:181`](../packages/host/directory-picker-browse/src/index.ts)
+来源：[`packages/host/directory-picker-browse/src/index.ts:271`](../packages/host/directory-picker-browse/src/index.ts)
 
 <a id="deepseek-aidsh-host-frontend-static"></a>
 
@@ -2845,6 +2845,34 @@ export type ApprovalPolicy = 'ask' | 'never'
 
 来源：[`packages/interaction/user-approval/src/index.ts:177`](../packages/interaction/user-approval/src/index.ts)
 
+<a id="deepseek-aidsh-userdoc-local"></a>
+
+## `@deepseek-ai/dsh-userdoc-local`
+
+```ts config-catalog
+/** Local document backend configuration. */
+export interface Config {
+  /**
+   * Absolute upload root, `~`-expanded. Omitted uses `<home>/uploads`.
+   *
+   * The deployment must keep this inside a directory the tool authorization
+   * policy already grants the session, because every stored reference carries
+   * a real path the model is invited to read.
+   */
+  uploadRoot?: string
+  /** Maximum bytes accepted for one document. */
+  maxFileBytes?: number
+  /** Maximum document count accepted in one submitted message. */
+  maxFilesPerMessage?: number
+  /** Maximum aggregate bytes accepted in one submitted message. */
+  maxMessageBytes?: number
+  /** Maximum bytes of a document inlined into a prompt as text. */
+  maxInlineTextBytes?: number
+}
+```
+
+来源：[`packages/attachment/userdoc-local/src/index.ts:51`](../packages/attachment/userdoc-local/src/index.ts)
+
 <a id="deepseek-aidsh-web"></a>
 
 ## `@deepseek-ai/dsh-web`
@@ -3111,6 +3139,7 @@ export interface Config {
 - `@deepseek-ai/dsh-shell` — 抽象 `ShellExecutor`（[`packages/shell/shell/src/index.ts`](../packages/shell/shell/src/index.ts)）
 - `@deepseek-ai/dsh-spill` — 抽象 `SpillStore`（[`packages/spill/spill/src/index.ts`](../packages/spill/spill/src/index.ts)）
 - `@deepseek-ai/dsh-subprocess` — 抽象 `SubprocessRuntime`（[`packages/subprocess/subprocess/src/index.ts`](../packages/subprocess/subprocess/src/index.ts)）
+- `@deepseek-ai/dsh-userdoc` — 抽象 `UserDocStore`（[`packages/attachment/userdoc/src/index.ts`](../packages/attachment/userdoc/src/index.ts)）
 - `@deepseek-ai/dsh-workflow` — 抽象 `WorkflowEngine`（[`packages/workflow/workflow/src/index.ts`](../packages/workflow/workflow/src/index.ts)）
 ## 库包（无插件入口）
 

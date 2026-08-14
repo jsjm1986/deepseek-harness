@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness 公网化门户网关：登录/会话、用户/项目/目录授权（SQLite）、HTTP+WS 反向代理（把 Host/Origin 改写为实例回环地址）、每用户 dsh 实例生命周期、`/admin` SPA 与 `/admin/api` JSON、审计。设计与阶段计划见[设计文档](../docs/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md)、[Phase 1 计划](../docs/superpowers/plans/2026-08-14-gateway-phase1.md)与[项目制管理端](../docs/superpowers/specs/2026-08-14-project-centric-admin-design.md)。
+DeepSeek Harness 公网化门户网关：登录/会话、用户/项目/目录授权（SQLite）、HTTP+WS 反向代理（把 Host/Origin 改写为实例回环地址）、每用户 dsh 实例生命周期、`/admin` SPA 与 `/admin/api` JSON、审计。设计与阶段计划见[设计文档](../.agents/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md)、[Phase 1 计划](../.agents/superpowers/plans/2026-08-14-gateway-phase1.md)与[项目制管理端](../.agents/superpowers/specs/2026-08-14-project-centric-admin-design.md)。
 
 ## 工具链
 

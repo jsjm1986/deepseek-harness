@@ -44,9 +44,9 @@
   z-index: 100;
   box-sizing: border-box;
   width: 264px;
-  padding: 12px;
+  padding: var(--dsw-space-3);
   border: 1px solid var(--dsw-alias-border-inverted);
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-specific-menu);
   box-shadow: var(--dsw-shadow-lv3);
   font-size: 12px;
@@ -86,7 +86,7 @@
 .bar {
   display: flex;
   gap: 1px;
-  margin: 10px 0 12px;
+  margin: 10px 0 var(--dsw-space-3);
   height: 4px;
   border-radius: 999px;
   background: var(--dsw-alias-interactive-bg-hover);
@@ -132,7 +132,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   padding: 2px 0;
 }
 

@@ -134,6 +134,7 @@ export class InputMachine {
     return {
       draft: this.draft,
       imageIds: [],
+      documentIds: [],
       draftRev: this.draftRev,
       phase: this.phase,
       ...(c ? { claim: { token: c.token, ...(c.hint !== undefined ? { hint: c.hint } : {}) } } : {}),

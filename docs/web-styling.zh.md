@@ -20,6 +20,14 @@
 - 呈现规则写在 CSS 中。React 内联样式可以传递组件局部自定义属性值，但不得编码主题分支。
 - 添加过渡动画或仅悬停可见的控件时，保留清晰可见的键盘焦点和减少动态效果行为。
 
+## 响应式布局
+
+外壳会把当前视口档位以 `data-viewport` 标记在框架根元素上：768px 以下为 `compact`，1024px 以下为 `medium`，1440px 以下为 `expanded`，自此往上为 `wide`，阈值见 [`viewport.ts`](../packages/client/ui-layout/src/client/viewport.ts)。框架内的组件 CSS 以该标记做分支（`[data-viewport='compact'] &`），而不是测量窗口或硬编码宽度断点。
+
+需要响应自身宽度而非整个框架的面板，在其根元素声明 `container-type: inline-size`，并以匿名容器查询（`@container (max-width: …)`）在共享档位宽度 480、560、720 上分支。CSS Modules 会按模块对 `container-name` 做哈希，因此跨模块查询保持匿名；绝不在包含非自有 `position: fixed` 内容的祖先上声明 `container-type`，因为 layout containment 会改变 fixed 元素的包含块。
+
+间距与圆角取自度量 token（`--dsw-space-*`、`--dsw-radius-*`），设备安全区取自 `--dsw-safe-*`（metrics.css）。在粗指针设备上，悬停显现的控件需要 `@media (pointer: coarse)` 常显回退，交互目标保持至少 `--dsw-touch-target`；仅悬停的提示归入 `@media (hover: hover)`。portal 渲染的浮层看不到框架标记——它们在 JS 里用 ui-primitives 的 `useMediaQuery` 按相同阈值分支。
+
 ## 变更系统
 
 在所属 `ui-theme` 样式表中添加或修改共享 token，然后在功能包中使用其语义别名。公共样式约定发生变化时，更新所属包的参考文档。视觉行为遵循[测试策略](testing.md)；[样式系统 Agent Note](../.agents/notes/implemented/process/2026-07-19-web-styling-system.md) 记录框架依据。

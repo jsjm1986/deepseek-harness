@@ -42,12 +42,12 @@
 }
 
 .title {
-  margin-top: 16px;
+  margin-top: var(--dsw-space-4);
   font: var(--dsw-font-l-20);
 }
 
 .desc {
-  margin-top: 16px;
+  margin-top: var(--dsw-space-4);
   font: var(--dsw-font-s-14);
   color: var(--dsw-alias-label-tertiary);
   white-space: pre-wrap;

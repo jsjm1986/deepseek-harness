@@ -794,7 +794,7 @@ A step or turn errored. The machine reports a failure here even when the error h
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:290`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:304`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentinboxclaimed--emit"></a>
 
@@ -862,6 +862,33 @@ Types: [Scoped](scope.md) · [UserMessage](session.md)
 
 Source: [`packages/core/agent/src/runtime-types.ts:186`](../../packages/core/agent/src/runtime-types.ts)
 
+<a id="agentmessage-entered--serial"></a>
+
+#### `agent/message-entered` — serial
+
+A final user message has committed to the durable surface and the model request has not been assembled yet. Awaited listeners may append capability-owned relation events derived from that exact message; a failure aborts the step before provider dispatch.
+
+```ts cordis-catalog
+/**
+ * A final user message has committed to the durable surface and the model
+ * request has not been assembled yet. Awaited listeners may append
+ * capability-owned relation events derived from that exact message; a
+ * failure aborts the step before provider dispatch.
+ * @param payload.agent - agent whose Session owns the message.
+ * @param payload.event - exact committed `user/message` event.
+ * @param payload.turn - open turn containing the message.
+ * @param payload.step - open step containing the message.
+ * @param payload.signal - current turn cancellation signal.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode serial
+ */
+'agent/message-entered'(this: Scoped<Agent>, payload: { agent: Agent; event: SessionEvent<'user/message'>; turn: number; step: number; signal: AbortSignal }): Promise<void> | void
+```
+
+Types: [Scoped](scope.md) · [SessionEvent](session.md)
+
+Source: [`packages/core/agent/src/runtime-types.ts:245`](../../packages/core/agent/src/runtime-types.ts)
+
 <a id="agentpre-step--waterfall"></a>
 
 #### `agent/pre-step` — waterfall
@@ -911,7 +938,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [LlmCallConfig](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:244`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:258`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentrequest-error--waterfall"></a>
 
@@ -940,7 +967,7 @@ Handle one failed model-request attempt before the loop retries or closes its st
 
 Types: [LlmFailure](llm-streaming.md) · [ResolvedRetryPolicy](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:260`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:274`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentsession-start--emit"></a>
 
@@ -1018,7 +1045,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/runtime-types.ts:278`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:292`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agent-loop-events"></a>
 

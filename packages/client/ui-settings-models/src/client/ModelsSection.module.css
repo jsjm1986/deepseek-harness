@@ -11,7 +11,7 @@
 .section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   max-width: 720px;
   color: var(--dsw-alias-label-primary);
 }
@@ -48,22 +48,22 @@
 .rows {
   list-style: none;
   /* Extra air between the title/intro block and the first provider card. */
-  margin: 12px 0 0;
+  margin: var(--dsw-space-3) 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--dsw-space-2);
 }
 
 /* A configured provider: outlined on the panel fill, so the filled editor
    card it expands into reads as the nested object. */
 .rowCard {
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: var(--dsw-radius-lg);
+  padding: var(--dsw-space-3) 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--dsw-space-3);
 }
 
 .rowHead {
@@ -94,7 +94,7 @@
   flex: none;
   padding: 1px 6px;
   border: 1px solid var(--dsw-alias-border-l3);
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   font-size: 11px;
   line-height: 16px;
   color: var(--dsw-alias-label-secondary);
@@ -120,7 +120,7 @@
 .rowActions {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   margin-left: auto;
 }
 
@@ -134,7 +134,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   height: 36px;
   padding: 0 14px;
   border: none;
@@ -226,9 +226,9 @@
 /* Editing surface: a filled module on the panel, matching the settings
    selector fill rather than adding another outline inside the row. */
 .editor {
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-alias-bg-module-platform);
-  padding: 14px 16px;
+  padding: 14px var(--dsw-space-4);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -237,7 +237,7 @@
 .editorHeader {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--dsw-space-2);
 }
 
 .editorTitle {
@@ -300,13 +300,13 @@
 .editorActions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--dsw-space-2);
 }
 
 .addBlock {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--dsw-space-3);
 }
 
 /* The two ways to gain a provider, as equal siblings spanning the same width
@@ -328,14 +328,14 @@
   gap: 6px;
   height: 44px;
   border: 1px dashed var(--dsw-alias-border-l3);
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
 }
 
 .addCard,
 .setupCard {
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-alias-bg-module-platform);
-  padding: 14px 16px;
+  padding: 14px var(--dsw-space-4);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -361,9 +361,9 @@
   align-items: center;
   gap: 6px;
   width: fit-content;
-  padding: 2px 4px;
+  padding: 2px var(--dsw-space-1);
   margin-left: -4px;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   cursor: pointer;
   font-size: 12px;
   line-height: 18px;
@@ -397,8 +397,8 @@
 .customizedBody {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding-top: 12px;
+  gap: var(--dsw-space-3);
+  padding-top: var(--dsw-space-3);
 }
 
 /* Model catalog: a table, not a stack of cards. The column captions are
@@ -410,7 +410,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-top: 12px;
+  padding-top: var(--dsw-space-3);
   border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
@@ -444,19 +444,19 @@
 .modelList {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--dsw-space-2);
 }
 
 .modelListHead {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--dsw-space-3);
 }
 
 .modelEntry {
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   padding: 6px;
 }
 
@@ -477,7 +477,7 @@
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
@@ -502,14 +502,14 @@
 .modelAdvanced {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 8px;
-  padding: 8px 4px 2px;
+  gap: var(--dsw-space-2);
+  padding: var(--dsw-space-2) var(--dsw-space-1) 2px;
 }
 
 .modelField {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--dsw-space-1);
 }
 
 .modelFieldLabel {
@@ -519,9 +519,9 @@
 }
 
 .modelEmpty {
-  padding: 12px;
+  padding: var(--dsw-space-3);
   border: 1px dashed var(--dsw-alias-border-l3);
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   text-align: center;
 }
 
@@ -530,7 +530,7 @@
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   height: 28px;
   padding: 0 10px;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -553,7 +553,7 @@
   height: 32px;
   padding: 0 10px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   font: inherit;
   font-size: 14px;
   line-height: 22px;
@@ -587,7 +587,7 @@ select.input {
    .select chips; the right pad reserves its cell. */
 .selectInput {
   appearance: none;
-  padding-right: 32px;
+  padding-right: var(--dsw-space-8);
   /* Data-URI SVGs cannot resolve CSS variables; #81858C is the caption gray
      shared by both themes. */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -656,14 +656,14 @@ select.input {
 }
 
 .candidate {
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
 }
 
 .candidateLabel {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: var(--dsw-space-2);
+  padding: 6px var(--dsw-space-2);
   cursor: pointer;
 }
 

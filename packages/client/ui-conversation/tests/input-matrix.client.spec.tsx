@@ -51,13 +51,17 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     inputActions: shell.actions,
     keyboard: shell,
     addImages: () => null,
+    addDocuments: () => null,
     removeImage: () => {},
+    removeDocument: () => {},
+    retryDocument: () => {},
     draftImages: () => [],
     resolveSubmitMode: () => 'queue',
     toggleCommandMenu: vi.fn(),
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(createSnapshotStore<string | null>(null)),
+    useDocuments: (() => []) as InputBarProps['useDocuments'],
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     command: () => Promise.resolve(true),
@@ -95,7 +99,7 @@ describe('matrix row: plain', () => {
     fireEvent.change(textarea, { target: { value: '普通消息' } })
     expect(shell.snapshot.claim).toBeUndefined()
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('普通消息', [], 'queue')
+    expect(sink).toHaveBeenCalledWith('普通消息', [], [], 'queue')
     expect(shell.snapshot.phase).toBe('plain')
   })
 })
@@ -194,7 +198,7 @@ describe('matrix row: locked (session disabled)', () => {
     expect((textarea).disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队', [], 'queue')
+    expect(sink).toHaveBeenCalledWith('排队', [], [], 'queue')
   })
 })
 

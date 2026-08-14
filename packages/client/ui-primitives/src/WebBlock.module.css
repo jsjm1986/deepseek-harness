@@ -7,8 +7,8 @@
 .block {
   --dsl-web-radius: 12px;
 
-  margin: 16px 0;
-  padding: 12px 14px;
+  margin: var(--dsw-space-4) 0;
+  padding: var(--dsw-space-3) 14px;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-markdown-code-block);
   border-radius: var(--dsl-web-radius);
@@ -17,7 +17,7 @@
 /* The provider answer reads as body prose above the citation list; its own
    MarkdownText margins are trimmed so the list sits tight under it. */
 .answer {
-  margin-bottom: 8px;
+  margin-bottom: var(--dsw-space-2);
 }
 
 .answer > :global(div) > :first-child {
@@ -83,7 +83,7 @@
 }
 
 .truncated {
-  margin-top: 8px;
+  margin-top: var(--dsw-space-2);
   color: var(--dsw-alias-label-tertiary);
   font: var(--dsw-font-xs-13);
 }
@@ -115,7 +115,7 @@
 .fetchMeta {
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: var(--dsw-space-3);
 }
 
 .status {

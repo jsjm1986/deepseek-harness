@@ -1,5 +1,6 @@
 /** Host registry and HTTP adapter for generic Connection RPC channels. */
 
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
@@ -18,13 +19,47 @@ import type {
   ConnectionRpcEndpointMatcher,
   ConnectionRpcHandler,
   ConnectionRpcHandlerOptions,
-  HostConnectionHandle,
   HostConnectionRpc,
 } from './rpc.ts'
+
+/** Handler for a streaming HTTP subtree mounted below Connection's trusted `/api` route. */
+export type ConnectionHttpHandler = (
+  request: IncomingMessage,
+  response: ServerResponse,
+) => void | Promise<void>
+
+/** Host registry for streaming HTTP subtrees that cannot use the buffered RPC envelope. */
+export interface HostConnectionHttp {
+  /**
+   * Register one prefix below `/api`; Connection applies its Host/Origin fence before dispatch.
+   * @param path - absolute prefix below `/api`, such as `/api/documents`.
+   * @param handler - handler owning request streaming and the complete response.
+   * @param options - authority accepted by this subtree.
+   * @returns asynchronous disposer removing the prefix.
+   */
+  handlePrefix(
+    path: string,
+    handler: ConnectionHttpHandler,
+    options: ConnectionRpcHandlerOptions,
+  ): () => Promise<void>
+}
+
+/** Host `ctx.connection` shape consumed by transport-independent adapters. */
+export interface HostConnectionHandle {
+  /** Generic RPC channel registry. */
+  readonly rpc: HostConnectionRpc
+  /** Streaming HTTP registry. */
+  readonly http: HostConnectionHttp
+}
 
 const INVALID_REQUEST_RPC_ID = RpcId('invalid-request')
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
 const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
+
+interface ConnectionHttpRegistration {
+  readonly handler: ConnectionHttpHandler
+  readonly options: ConnectionRpcHandlerOptions
+}
 
 interface ConnectionRpcInterceptor {
   readonly matches: ConnectionRpcEndpointMatcher
@@ -42,6 +77,7 @@ declare module '@deepseek-ai/cordis' {
 /** Host Connection service whose channel registrations belong to the caller fiber. */
 export class HostConnectionService extends Service implements HostConnectionHandle {
   private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
+  private readonly httpPrefixes = new Map<string, ConnectionHttpRegistration>()
 
   /**
    * Provide the Host half over the active HTTP server.
@@ -50,6 +86,37 @@ export class HostConnectionService extends Service implements HostConnectionHand
    */
   constructor(ctx: Context, private readonly trustedHosts: readonly string[]) {
     super(ctx, 'connection')
+  }
+
+  /** Streaming HTTP registry scoped to the Context reading this service. */
+  get http(): HostConnectionHttp {
+    const owner = this.ctx
+    return {
+      handlePrefix: (path, handler, options) =>
+        this.registerHttpPrefix(owner, path, handler, options),
+    }
+  }
+
+  /**
+   * Dispatch a request already admitted by Connection's outer trust fence.
+   * @param request - incoming request to match against registered prefixes.
+   * @param response - response owned by the matched streaming handler.
+   * @returns true when a registered streaming subtree owned the response.
+   */
+  async dispatchHttp(request: IncomingMessage, response: ServerResponse): Promise<boolean> {
+    const pathname = new URL(request.url ?? '/', 'http://dsh.internal').pathname
+    const matches = [...this.httpPrefixes.entries()]
+      .filter(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+      .sort(([left], [right]) => right.length - left.length)
+    const registration = matches[0]?.[1]
+    if (registration === undefined) return false
+    if (registration.options.authority === 'loopback' && !isTrustedApiRequest(request, [])) {
+      response.writeHead(403)
+      response.end('forbidden')
+      return true
+    }
+    await registration.handler(request, response)
+    return true
   }
 
   /** Generic channel registry scoped to the Context reading this service. */
@@ -85,6 +152,22 @@ export class HostConnectionService extends Service implements HostConnectionHand
         return interceptor.fetchHandler.fetch(request)
       },
     }
+  }
+
+  private registerHttpPrefix(
+    owner: Context,
+    path: string,
+    handler: ConnectionHttpHandler,
+    options: ConnectionRpcHandlerOptions,
+  ): () => Promise<void> {
+    assertHttpPrefix(path)
+    return owner.effect(() => {
+      if (this.httpPrefixes.has(path)) {
+        throw new Error(`connection: streaming HTTP prefix ${JSON.stringify(path)} already registered`)
+      }
+      this.httpPrefixes.set(path, { handler, options })
+      return () => { this.httpPrefixes.delete(path) }
+    }, `client-connection: ${path} streaming HTTP subtree`)
   }
 
   private register(
@@ -220,5 +303,13 @@ function fullResponse(rpcId: RpcIdType, result: RpcServerResponse['result']): Re
 function assertChannel(channel: string): void {
   if (!CHANNEL_PATTERN.test(channel) || channel === '/api') {
     throw new Error(`connection: invalid or reserved RPC channel ${JSON.stringify(channel)}`)
+  }
+}
+
+
+function assertHttpPrefix(path: string): void {
+  if (!path.startsWith(`${API_PATH}/`) || path.endsWith('/')
+    || path.split('/').slice(2).some(segment => segment === '' || !ENDPOINT_SEGMENT_PATTERN.test(segment))) {
+    throw new Error(`connection: invalid streaming HTTP prefix ${JSON.stringify(path)}`)
   }
 }

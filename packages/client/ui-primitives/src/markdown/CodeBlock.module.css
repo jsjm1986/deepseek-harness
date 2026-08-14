@@ -8,7 +8,7 @@
   --dsl-code-block-content-font: var(--dsw-font-markdown-code-block);
 
   position: relative;
-  margin: 16px 0;
+  margin: var(--dsw-space-4) 0;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-markdown-code-block);
   border-radius: var(--dsl-code-block-border-radius);
@@ -33,7 +33,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   font: var(--dsl-code-block-banner-font);
   border-top-left-radius: var(--dsl-code-block-border-radius);
   border-top-right-radius: var(--dsl-code-block-border-radius);
@@ -68,7 +68,7 @@
 
 .block :where(pre) {
   font: var(--dsl-code-block-content-font);
-  padding: 16px;
+  padding: var(--dsw-space-4);
   margin: 0 !important;
   overflow-x: auto;
   white-space: pre-wrap;

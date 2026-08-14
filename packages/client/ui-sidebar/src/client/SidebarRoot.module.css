@@ -92,10 +92,10 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   height: 60px;
-  padding: 8px 0 8px 4px;
-  margin-bottom: 8px;
+  padding: var(--dsw-space-2) 0 var(--dsw-space-2) var(--dsw-space-1);
+  margin-bottom: var(--dsw-space-2);
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -103,7 +103,7 @@
 .collapsed .logoRow {
   height: 36px;
   padding: 0;
-  margin-bottom: 12px;
+  margin-bottom: var(--dsw-space-3);
   justify-content: flex-start;
 }
 
@@ -178,11 +178,11 @@
   justify-content: center;
   gap: 6px;
   height: 38px;
-  padding: 8px 16px;
-  margin: 0 2px 8px;
+  padding: var(--dsw-space-2) var(--dsw-space-4);
+  margin: 0 2px var(--dsw-space-2);
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-alias-button-elevated-fill);
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
@@ -201,7 +201,7 @@
   width: 36px;
   height: 36px;
   padding: 0;
-  margin: 0 0 12px;
+  margin: 0 0 var(--dsw-space-3);
   gap: 0;
   border-color: transparent;
   background: transparent;
@@ -231,7 +231,7 @@
   flex-direction: column;
   margin-left: -4px;
   margin-right: calc(-1 * var(--dsh-sidebar-inline-padding));
-  padding-left: 4px;
+  padding-left: 4px; /* cancels the -4px pull above — a literal pair, not spacing-scale usage */
   overflow: hidden;
 }
 

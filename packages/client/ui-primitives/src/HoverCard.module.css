@@ -16,8 +16,8 @@
   z-index: 100;
   box-sizing: border-box;
   width: 244px;
-  padding: 12px 16px;
-  border-radius: 12px;
+  padding: var(--dsw-space-3) var(--dsw-space-4);
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-hovercard-bg);
   box-shadow: var(--dsw-shadow-lv3);
 }

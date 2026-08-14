@@ -3,11 +3,11 @@
 .label {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   max-width: 180px;
   padding: 0 2px 0 0;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-fill-tsp-secondary);
   font-size: 12px;
   line-height: 22px;

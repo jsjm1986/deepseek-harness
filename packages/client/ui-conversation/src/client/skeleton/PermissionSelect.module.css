@@ -1,11 +1,11 @@
 .trigger {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   min-width: 0;
   max-width: 220px;
   height: 28px;
-  padding: 0 4px 0 8px;
+  padding: 0 var(--dsw-space-1) 0 var(--dsw-space-2);
   border: none;
   /* Rounded chip chrome, matching the sibling model trigger. */
   border-radius: 24px;
@@ -62,10 +62,11 @@
 /* Narrow composer: the trigger collapses to icon + chevron so the row keeps
    fitting. Only triggers that actually carry a mode glyph drop their label —
    a host-configured mode without one keeps its text as the sole identifier.
-   The 460px cut is the point where the row (attach + modes + model + send)
-   starts squeezing labels; the container is the composer row (InputBar .row —
-   anonymous query because CSS modules hash container-names per module). */
-@container (max-width: 460px) {
+   The 480 container step (docs/web-styling.md) is where the row (attach +
+   modes + model + send) starts squeezing labels; the container is the
+   composer row (InputBar .row — anonymous query because CSS modules hash
+   container-names per module). */
+@container (max-width: 480px) {
   .trigger:has(.triggerIcon) .triggerLabel {
     display: none;
   }

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-directory-guard.md
+2026-08-14-directory-guard.md: 6f83d4f810d41bf06d29b92e8d681b99bf3d126e
+2026-08-14-directory-guard.zh.md: 013c25b1b8f9b028108e6886ecf5c3fdad4828ba

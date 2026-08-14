@@ -61,6 +61,19 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().sidebar).toBe(400)
   })
 
+  it('collapseNarrow drops only the override (scrim tap / compact navigation)', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setSidebar(400)
+    actions.setNarrow(true)
+    actions.toggleSidebar()
+    expect(store.getSnapshot().narrowExpanded).toBe(true)
+    actions.collapseNarrow()
+    expect(store.getSnapshot()).toMatchObject({ narrowExpanded: false, sidebar: 400, narrow: true })
+    // Idempotent while already collapsed.
+    actions.collapseNarrow()
+    expect(store.getSnapshot().narrowExpanded).toBe(false)
+  })
+
   it('crossing the breakpoint drops the override; a same-value setNarrow keeps it', () => {
     const { store, actions } = createLayoutStore().create()
     actions.setNarrow(true)

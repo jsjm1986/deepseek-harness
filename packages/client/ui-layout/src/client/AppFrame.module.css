@@ -1,5 +1,5 @@
 .frame {
-  position: relative; /* anchors the drag handles, which straddle column borders */
+  position: relative; /* anchors the drag handles and the compact/medium overlay panels */
   display: grid;
   grid-template-rows: 100%;
   height: 100%;
@@ -8,6 +8,135 @@
   /* Collapse/expand animates the tracks on the deepsuite sider curve
      (--ds-ease-in-out / --ds-transition-duration-slow, ui-theme base.css). */
   transition: grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* Compact template is CSS-owned: shell topbar row over one content column.
+   The frame height follows the visual viewport (ui-layout writes the
+   variable) so the composer rides above the on-screen keyboard where the
+   layout viewport does not shrink. */
+.frame[data-viewport='compact'] {
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  height: var(--dsw-viewport-height, 100%);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--dsw-space-2);
+  padding: calc(var(--dsw-space-1) + var(--dsw-safe-top)) var(--dsw-space-2) var(--dsw-space-1)
+    calc(var(--dsw-space-2) + var(--dsw-safe-left));
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-base);
+}
+
+.topbarToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dsw-touch-target);
+  height: var(--dsw-touch-target);
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.topbarToggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.topbarToggle:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-l3);
+  outline-offset: -2px;
+}
+
+/* Scrim behind the compact drawer and the overlay details panel: hidden
+   (and click-through) until its companion opens. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 14;
+  background: var(--dsw-alias-bg-mask-1);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.scrim[data-open] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Compact-mode sidebar drawer: mounted at all times, slid out by transform
+   so open/close never re-seats the slot subtree. */
+.drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 15;
+  width: min(85%, 320px);
+  padding-left: var(--dsw-safe-left);
+  transform: translateX(-100%);
+  visibility: hidden;
+  overflow: hidden;
+  background: var(--dsw-specific-sidebar-fill);
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  transition:
+    transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    visibility var(--ds-transition-duration-slow) step-end;
+}
+
+.drawer[data-open] {
+  transform: translateX(0);
+  visibility: visible;
+  transition:
+    transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    visibility var(--ds-transition-duration-slow) step-start;
+}
+
+/* Overlay details panel (compact: edge to edge; medium: capped at the
+   contract default width passed inline). Mounted at all times, slid out by
+   transform — the open/close line never re-seats the subtree. */
+.detailsOverlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  z-index: 15;
+  width: 100%;
+  transform: translateX(100%);
+  visibility: hidden;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+  border-left: 1px solid var(--dsw-alias-border-l2);
+  transition:
+    transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    visibility var(--ds-transition-duration-slow) step-end;
+}
+
+.detailsOverlay[data-open] {
+  transform: translateX(0);
+  visibility: visible;
+  transition:
+    transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    visibility var(--ds-transition-duration-slow) step-start;
+}
+
+.frame[data-viewport='medium'] .detailsOverlay {
+  width: min(var(--frame-details-overlay-width), calc(100% - var(--dsw-space-8)));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrim,
+  .drawer,
+  .detailsOverlay {
+    transition: none;
+  }
 }
 
 /* Dragging writes widths at pointer cadence; easing them would detach the
@@ -34,6 +163,11 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* Home-indicator clearance for the bottom-pinned composer; zero elsewhere. */
+.frame[data-viewport='compact'] .centerCol {
+  padding-bottom: var(--dsw-safe-bottom);
 }
 
 .detailsCol {
@@ -99,6 +233,13 @@
 .handle[data-side='details']:hover::after,
 .handle[data-side='details'][data-dragging='true']::after {
   opacity: 1;
+}
+
+/* No hover to reveal the pill on touch surfaces (expanded-mode tablets). */
+@media (pointer: coarse) {
+  .handle[data-side='details']::after {
+    opacity: 1;
+  }
 }
 
 .handle[data-side='details']:hover::after,

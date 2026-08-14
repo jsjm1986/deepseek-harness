@@ -9,16 +9,20 @@
  */
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only imports: a plugin-to-plugin value import is a bundle purity
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
 import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import type { ComposerAttachment } from './contract/slots.ts'
+import type { UserDocIdType } from '@deepseek-ai/dsh-userdoc'
+import type { ComposerAttachment, ComposerDocument } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './input/blocks.ts'
-import type { DraftAttachmentId, SessionInputResolver } from './input/contract.ts'
+import type { DraftAttachmentId, DraftDocumentId, SessionInputResolver } from './input/contract.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
+import { createUserDocClient, UserDocHttpError, UserDocServiceUnavailableError } from './userdoc-client.ts'
 
 /**
  * The outward conversation face (`ctx.conversation`): the scope-addressed
@@ -74,6 +78,18 @@ interface ImageUrlEntry {
   readonly pending: Promise<string>
 }
 
+interface DraftDocumentEntry {
+  readonly sessionId: SessionId
+  readonly file: File
+  readonly controller: AbortController
+  descriptor: ComposerDocument
+}
+
+interface ReadyComposerDocument extends ComposerDocument {
+  readonly docId: UserDocIdType
+  readonly status: 'ready'
+}
+
 /** Unsupported browser-declared image type, localized by the UI boundary. */
 export class UnsupportedImageMediaTypeError extends Error {
   /** Browser-declared MIME value, possibly empty. */
@@ -94,6 +110,9 @@ export class ConversationController extends Service implements IConversation {
   /** The per-session composer-block registry. */
   readonly blocks: ComposerBlocks
   private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
+  private readonly draftDocuments = new Map<DraftDocumentId, DraftDocumentEntry>()
+  private readonly documentStores = new Map<SessionId, SnapshotStore<readonly ComposerDocument[]>>()
+  private readonly userDocs = createUserDocClient()
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
   private readonly createdImageUrls = new Set<string>()
@@ -115,6 +134,9 @@ export class ConversationController extends Service implements IConversation {
       for (const url of this.createdImageUrls) revokePreview(url)
       this.createdImageUrls.clear()
       this.draftAttachments.clear()
+      for (const entry of this.draftDocuments.values()) entry.controller.abort()
+      this.draftDocuments.clear()
+      this.documentStores.clear()
       this.imageUrls.clear()
       this.imageGenerations.clear()
     }, 'conversation attachment URL cache')
@@ -137,20 +159,30 @@ export class ConversationController extends Service implements IConversation {
    * @param session - target session.
    * @param text - serialized prompt text.
    * @param imageIds - ordered draft-local attachment ids.
+   * @param documentIds - ordered draft-local document ids.
    * @param mode - queue or steer delivery selected by composer policy.
    */
   async sendSession(
     session: SessionFace,
     text: string,
     imageIds: readonly DraftAttachmentId[],
+    documentIds: readonly DraftDocumentId[],
     mode: InputSubmitMode,
   ): Promise<void> {
     const attachments = this.draftImages(imageIds)
     if (attachments.length !== imageIds.length) {
       throw new Error('conversation.sendSession: one or more draft images are no longer available')
     }
+    const documents = this.draftDocumentsFor(session.sessionId, documentIds)
+    if (documents.length !== documentIds.length) {
+      throw new Error('conversation.sendSession: one or more draft documents are no longer available')
+    }
     const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file))
-    const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
+    const content = [
+      ...uploaded,
+      ...documents.map(document => ({ type: 'document' as const, docId: document.docId })),
+      ...(text === '' ? [] : [{ type: 'text' as const, text }]),
+    ]
     const result = await session.prompt(content, mode)
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
     this.releaseDraftImages(attachments)
@@ -203,6 +235,112 @@ export class ConversationController extends Service implements IConversation {
    */
   releaseDraftImages(attachments: readonly ComposerAttachment[]): void {
     for (const attachment of attachments) this.releaseDraftImage(attachment.id)
+  }
+
+  /**
+   * Return the live per-session document projection used by the composer hook.
+   * @param sessionId - session whose browser drafts are projected.
+   * @returns snapshot store containing the current document descriptors.
+   */
+  documentStore(sessionId: SessionId): SnapshotStore<readonly ComposerDocument[]> {
+    const existing = this.documentStores.get(sessionId)
+    if (existing !== undefined) return existing
+    const store = createSnapshotStore<readonly ComposerDocument[]>(this.documentsFor(sessionId))
+    this.documentStores.set(sessionId, store)
+    return store
+  }
+
+  /**
+   * Create browser-local document drafts and begin their uploads.
+   * @param sessionId - owning session for the browser drafts.
+   * @param files - browser files to upload.
+   * @returns ordered descriptors for the new drafts.
+   */
+  createDraftDocuments(sessionId: SessionId, files: readonly File[]): readonly ComposerDocument[] {
+    const descriptors: ComposerDocument[] = []
+    for (const file of files) {
+      const descriptor: ComposerDocument = {
+        kind: 'document',
+        id: crypto.randomUUID() as DraftDocumentId,
+        name: file.name || 'document',
+        bytes: file.size,
+        mediaType: file.type || 'application/octet-stream',
+        status: 'uploading',
+        progress: 0,
+      }
+      descriptors.push(descriptor)
+      const entry: DraftDocumentEntry = {
+        sessionId,
+        file,
+        controller: new AbortController(),
+        descriptor,
+      }
+      this.draftDocuments.set(descriptor.id, entry)
+      void this.uploadDocument(descriptor.id, entry)
+    }
+    this.publishDocuments(sessionId)
+    return descriptors
+  }
+
+  /**
+   * Remove one document draft and delete its durable file when it exists.
+   * @param sessionId - owning session for the draft.
+   * @param id - browser-local draft document id.
+   */
+  removeDraftDocument(sessionId: SessionId, id: DraftDocumentId): void {
+    const entry = this.draftDocuments.get(id)
+    if (entry === undefined || entry.sessionId !== sessionId) return
+    entry.controller.abort()
+    this.draftDocuments.delete(id)
+    this.publishDocuments(sessionId)
+    if (entry.descriptor.docId !== undefined) {
+      void this.userDocs.remove(entry.descriptor.docId).catch(() => {
+        // The draft is already gone; a later list/retry can reconcile an orphan.
+      })
+    }
+  }
+
+  /**
+   * Retry a failed document upload in place.
+   * @param sessionId - owning session for the draft.
+   * @param id - browser-local draft document id.
+   */
+  retryDraftDocument(sessionId: SessionId, id: DraftDocumentId): void {
+    const current = this.draftDocuments.get(id)
+    if (current === undefined || current.sessionId !== sessionId || current.descriptor.status !== 'failed') return
+    const entry: DraftDocumentEntry = {
+      ...current,
+      controller: new AbortController(),
+      descriptor: {
+        kind: 'document',
+        id: current.descriptor.id,
+        name: current.descriptor.name,
+        bytes: current.descriptor.bytes,
+        mediaType: current.descriptor.mediaType,
+        status: 'uploading',
+        progress: 0,
+      },
+    }
+    this.draftDocuments.set(id, entry)
+    this.publishDocuments(sessionId)
+    void this.uploadDocument(id, entry)
+  }
+
+  /**
+   * Release browser draft metadata after a successful prompt; durable files remain.
+   * @param sessionId - owning session for the drafts.
+   * @param ids - browser-local draft document ids to release.
+   */
+  releaseDraftDocuments(sessionId: SessionId, ids: readonly DraftDocumentId[]): void {
+    let changed = false
+    for (const id of ids) {
+      const entry = this.draftDocuments.get(id)
+      if (entry?.sessionId !== sessionId) continue
+      entry.controller.abort()
+      this.draftDocuments.delete(id)
+      changed = true
+    }
+    if (changed) this.publishDocuments(sessionId)
   }
 
   /**
@@ -320,6 +458,57 @@ export class ConversationController extends Service implements IConversation {
       data: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
       ...(file.name === '' ? {} : { name: file.name }),
     })))
+  }
+
+  private draftDocumentsFor(sessionId: SessionId, ids: readonly DraftDocumentId[]): readonly ReadyComposerDocument[] {
+    return ids.flatMap((id) => {
+      const entry = this.draftDocuments.get(id)
+      if (entry?.sessionId !== sessionId || entry.descriptor.status !== 'ready' || entry.descriptor.docId === undefined) return []
+      return [entry.descriptor as ReadyComposerDocument]
+    })
+  }
+
+  private documentsFor(sessionId: SessionId): readonly ComposerDocument[] {
+    return [...this.draftDocuments.values()]
+      .filter(entry => entry.sessionId === sessionId)
+      .map(entry => entry.descriptor)
+  }
+
+  private publishDocuments(sessionId: SessionId): void {
+    this.documentStores.get(sessionId)?.set(this.documentsFor(sessionId))
+  }
+
+  private async uploadDocument(id: DraftDocumentId, entry: DraftDocumentEntry): Promise<void> {
+    try {
+      const ref = await this.userDocs.upload(entry.file, entry.controller.signal, (loaded, total) => {
+        const current = this.draftDocuments.get(id)
+        if (current !== entry) return
+        current.descriptor = { ...current.descriptor, progress: total <= 0 ? 1 : Math.min(1, loaded / total) }
+        this.publishDocuments(entry.sessionId)
+      })
+      const current = this.draftDocuments.get(id)
+      if (current !== entry) return
+      current.descriptor = {
+        kind: 'document',
+        id: current.descriptor.id,
+        docId: ref.docId,
+        name: ref.name,
+        bytes: ref.bytes,
+        mediaType: ref.mediaType,
+        progress: 1,
+        status: 'ready',
+      }
+      this.publishDocuments(entry.sessionId)
+    } catch (error: unknown) {
+      if (entry.controller.signal.aborted || this.draftDocuments.get(id) !== entry) return
+      const message = error instanceof UserDocServiceUnavailableError
+        ? error.message
+        : error instanceof UserDocHttpError
+          ? `${error.message}${error.code === undefined ? '' : ` (${error.code})`}`
+          : error instanceof Error ? error.message : String(error)
+      entry.descriptor = { ...entry.descriptor, status: 'failed', progress: 0, error: message }
+      this.publishDocuments(entry.sessionId)
+    }
   }
 }
 

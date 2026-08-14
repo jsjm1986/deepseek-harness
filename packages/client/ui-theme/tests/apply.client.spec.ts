@@ -125,7 +125,7 @@ describe('ui-theme apply', () => {
     await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
   })
 
-  it('loads Host settings at boot, refreshes its namespace, and keeps remote browsers process-local', async () => {
+  it('loads Host settings at boot, refreshes its namespace, and uses Host settings from a non-loopback page', async () => {
     const b = await bench()
     b.setHostPreference('dark')
     declareItems(b.slots)
@@ -142,13 +142,14 @@ describe('ui-theme apply', () => {
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
 
     const remote = await bench(false)
+    remote.setHostPreference('light')
     declareItems(remote.slots)
     await remote.ctx.plugin({ inject: [...inject], apply }).await()
     const remoteTheme = remote.ctx.get('theme') as ThemeRuntime
+    await vi.waitFor(() => { expect(remoteTheme.getTheme().preference).toBe('light') })
+    expect(remote.describe).toHaveBeenCalled()
     remoteTheme.setTheme('dark')
-    await Promise.resolve()
-    expect(remote.describe).not.toHaveBeenCalled()
-    expect(remote.mutate).not.toHaveBeenCalled()
+    await vi.waitFor(() => { expect(remote.mutate).toHaveBeenCalled() })
   })
 
   it('activates before a slow initial settings read and converges when it settles', async () => {

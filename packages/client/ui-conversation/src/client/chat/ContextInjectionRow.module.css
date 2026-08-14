@@ -5,7 +5,7 @@
 }
 
 .root[data-open] {
-  padding-bottom: 4px;
+  padding-bottom: var(--dsw-space-1);
 }
 
 .chevron {
@@ -18,7 +18,7 @@
   flex: none;
   width: 2px;
   height: 2px;
-  margin: 0 8px;
+  margin: 0 var(--dsw-space-2);
   border-radius: 1px;
   background: var(--dsw-alias-label-caption);
 }
@@ -50,11 +50,11 @@
   box-sizing: border-box;
   width: calc(100% - 22px);
   max-height: 141px;
-  margin: 4px 0 0 22px;
+  margin: var(--dsw-space-1) 0 0 22px;
   overflow: auto;
-  padding: 10px 16px 12px 12px;
+  padding: 10px var(--dsw-space-4) var(--dsw-space-3) var(--dsw-space-3);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-markdown-code-block);
   color: var(--dsw-alias-label-tertiary);
   /* Figma 10:2482 code text: the form bodies inherit it from the scrollport. */

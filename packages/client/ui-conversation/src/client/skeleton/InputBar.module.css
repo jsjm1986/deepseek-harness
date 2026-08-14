@@ -39,8 +39,8 @@
   width: 100%;
   max-width: var(--dsh-composer-card-max-width);
   margin-bottom: 6px;
-  padding: 4px 8px;
-  border-radius: 8px;
+  padding: var(--dsw-space-1) var(--dsw-space-2);
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
@@ -59,7 +59,7 @@
   flex-direction: column;
   /* figma Input 75:8208: 12px between the text area and the button row; 10px
      top pad on the card before .InputText. */
-  gap: 12px;
+  gap: var(--dsw-space-3);
   width: 100%;
   max-width: var(--dsh-composer-card-max-width);
   padding-top: 10px;
@@ -118,8 +118,8 @@
 .accessory {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px 0;
+  gap: var(--dsw-space-2);
+  padding: 10px var(--dsw-space-3) 0;
 }
 
 /* Rail seat: the card's top padding (10px) plus this 4px matches DeepSeek
@@ -128,7 +128,101 @@
    ui-attachment atom's. */
 .attachments {
   min-width: 0;
-  padding: 4px 12px 0;
+  padding: var(--dsw-space-1) var(--dsw-space-3) 0;
+}
+
+.documentRail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--dsw-space-2);
+  min-width: 0;
+  padding: 0 var(--dsw-space-3);
+}
+
+.documentItem {
+  display: flex;
+  align-items: center;
+  gap: var(--dsw-space-1);
+  min-width: 0;
+  max-width: min(100%, 280px);
+  padding: 5px 6px 5px 8px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.documentItemFailed {
+  border-color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.documentBody {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.documentName,
+.documentStatus {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.documentName {
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.documentStatus {
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.documentItemFailed .documentStatus {
+  color: inherit;
+}
+
+.documentProgress {
+  display: block;
+  width: 100%;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l2-darkmode-thin);
+}
+
+.documentProgress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--dsw-alias-state-business-primary);
+  transition: width 120ms ease;
+}
+
+.documentAction {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-xs);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.documentAction:hover {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
 }
 
 /* Floating overlay anchor (menu / popupSelect shell): entries position
@@ -176,7 +270,7 @@
 }
 
 .hlSegment {
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   background-color: transparent;
   color: transparent;
 }
@@ -227,7 +321,7 @@
   box-sizing: border-box;
   /* figma .InputText 34:10434: pl 16 / pr 12 / pt 4. Backdrop MUST share these
      metrics or the highlight ranges drift off the glyphs. */
-  padding: 4px 12px 0 16px;
+  padding: var(--dsw-space-1) var(--dsw-space-3) 0 var(--dsw-space-4);
   /* DshChipCell first: ONLY U+FFFC resolves there (4em blank cell — the chip
      slot); everything else falls through to the app stack. All three layers
      share the stack, so placeholder advances agree by construction. */
@@ -286,11 +380,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   /* 2px moved from the bottom pad to the top: the whole control row sits 2px
      lower in the card (it read too high against the textarea) while the card
      height and the controls' own centering stay untouched. */
-  padding: 2px 8px 6px;
+  padding: 2px var(--dsw-space-2) 6px;
   min-width: 0;
   /* Size container so the chips inside can collapse to icon-only when the
      card runs out of row width (PermissionSelect @container rule). Anonymous
@@ -311,16 +405,16 @@
    Read-only; the chip gap widened to 12 so the pill chips read as separate
    controls. */
 .tools {
-  gap: 16px;
+  gap: var(--dsw-space-4);
 }
 
 .modes {
-  gap: 12px;
+  gap: var(--dsw-space-3);
 }
 
 .trailing {
   flex: none;
-  gap: 12px;
+  gap: var(--dsw-space-3);
 }
 
 /* Attach circle (figma + control): 28px, selector fill, primary glyph. */
@@ -351,9 +445,9 @@
 .select {
   max-width: 220px;
   height: 28px;
-  padding: 0 20px 0 8px;
+  padding: 0 var(--dsw-space-5) 0 var(--dsw-space-2);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   outline: none;
   background-color: transparent;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -411,10 +505,10 @@
 }
 
 .retry {
-  margin-left: 8px;
-  padding: 1px 8px;
+  margin-left: var(--dsw-space-2);
+  padding: 1px var(--dsw-space-2);
   border: 1px solid currentColor;
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   background: transparent;
   color: inherit;
   font-size: 12px;
@@ -443,7 +537,7 @@
    with an ellipsis; the full name rides the title tooltip. */
 .chip {
   position: relative;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   background: rgba(97, 135, 216, 0.22);
 }
 

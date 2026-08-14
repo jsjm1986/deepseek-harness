@@ -20,7 +20,7 @@
   max-width: 880px;
   height: 100%;
   margin: 0 auto;
-  padding: 0 16px;
+  padding: 0 var(--dsw-space-4);
 }
 
 .title {
@@ -34,9 +34,9 @@
   display: flex;
   align-items: center;
   width: 320px;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   /* Match cell padding-right: 8 so Time lines up with the trailing lane. */
-  margin-right: 8px;
+  margin-right: var(--dsw-space-2);
 }
 
 .column {

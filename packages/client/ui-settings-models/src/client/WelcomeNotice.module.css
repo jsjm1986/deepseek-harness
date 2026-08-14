@@ -9,11 +9,11 @@
 }
 
 .copy p + p {
-  margin-top: 12px;
+  margin-top: var(--dsw-space-3);
 }
 
 .error {
-  margin: 16px 0 0;
+  margin: var(--dsw-space-4) 0 0;
   font-size: 14px;
   line-height: 22px;
   color: var(--dsw-alias-state-error-primary);
@@ -22,14 +22,15 @@
 .actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 24px;
+  margin-top: var(--dsw-space-6);
 }
 
 .primary {
   min-width: 120px;
 }
 
-@media (max-width: 560px) {
+/* Compact-viewport tightening (below the 768 medium boundary, docs/web-styling.md). */
+@media (max-width: 767px) {
   .primary {
     width: 100%;
   }

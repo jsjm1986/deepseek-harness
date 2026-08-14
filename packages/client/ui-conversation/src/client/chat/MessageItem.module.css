@@ -12,7 +12,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   min-width: 0;
   max-width: min(525px, 82%);
 }
@@ -22,7 +22,7 @@
   background: var(--dsw-specific-bubble);
   border-radius: 22px;
   /* 44px single-line bubble: 24 line + 10 vertical padding each side. */
-  padding: 10px 16px;
+  padding: 10px var(--dsw-space-4);
   font-size: 16px;
   line-height: 24px;
   color: var(--dsw-alias-label-primary);
@@ -47,7 +47,7 @@
   min-width: 0;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   background: none;
   color: inherit;
   font: inherit;
@@ -105,7 +105,7 @@
   flex: none;
   width: 2px;
   height: 2px;
-  margin: 0 8px;
+  margin: 0 var(--dsw-space-2);
   border-radius: 1px;
   background: var(--dsw-alias-label-caption);
 }
@@ -122,7 +122,7 @@
 }
 
 .compactionBody {
-  padding: 4px 0 4px 22px;
+  padding: var(--dsw-space-1) 0 var(--dsw-space-1) 22px;
   color: var(--dsw-alias-label-tertiary);
   font-size: 14px;
   line-height: 24px;
@@ -213,7 +213,7 @@
 .turnErrorRow {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   align-items: start;
   padding: 2px 0;
   font-size: 13px;
@@ -273,8 +273,8 @@
 .refChip {
   display: inline-block;
   margin: 0 2px;
-  padding: 0 8px;
-  border-radius: 6px;
+  padding: 0 var(--dsw-space-2);
+  border-radius: var(--dsw-radius-sm);
   background: rgba(97, 135, 216, 0.22);
   color: var(--dsw-alias-label-primary);
   font-size: 0.85em;

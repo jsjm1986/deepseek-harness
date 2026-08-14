@@ -9,12 +9,12 @@
 .submenu {
   /* min-widths below are the design's outer card widths — include the pad. */
   box-sizing: border-box;
-  padding: 4px;
+  padding: var(--dsw-space-1);
   display: flex;
   flex-direction: column;
   gap: 0;
   border: 1px solid var(--dsw-alias-border-inverted);
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-specific-menu);
   box-shadow: var(--dsw-shadow-lv3);
   /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens. The
@@ -83,8 +83,8 @@
   flex: none;
   display: flex;
   flex-direction: column;
-  margin-top: 4px;
-  padding-top: 4px;
+  margin-top: var(--dsw-space-1);
+  padding-top: var(--dsw-space-1);
   border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
@@ -97,10 +97,10 @@
 .item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   width: 100%;
   min-height: 40px;
-  padding: 8px 10px;
+  padding: var(--dsw-space-2) 10px;
   border: none;
   border-radius: 10px;
   background: transparent;
@@ -121,7 +121,7 @@
 }
 
 .denseList .label {
-  padding-block: 4px;
+  padding-block: var(--dsw-space-1);
 }
 
 .list.compactList,
@@ -150,7 +150,7 @@
 }
 
 .compactList .label {
-  padding: 4px 7px;
+  padding: var(--dsw-space-1) 7px;
   font-size: 11px;
   line-height: 16px;
 }
@@ -158,6 +158,19 @@
 .item:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Coarse pointers: rows grow to the shared touch target; the dense/compact
+   variants keep a reduced but still tappable height. */
+@media (pointer: coarse) {
+  .item {
+    min-height: var(--dsw-touch-target);
+  }
+
+  .denseList .item,
+  .compactList .item {
+    min-height: 40px;
+  }
 }
 
 .itemIcon {
@@ -204,7 +217,7 @@
 
 /* Heading row: non-interactive small grey text, padding aligned with items. */
 .label {
-  padding: 8px 10px;
+  padding: var(--dsw-space-2) 10px;
   font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
@@ -213,7 +226,7 @@
 /* Separator cell (figma 122:9481): py 4 / px 2 around the hairline. */
 .separator {
   height: 1px;
-  margin: 4px 2px;
+  margin: var(--dsw-space-1) 2px;
   background: var(--dsw-alias-border-l1);
 }
 
@@ -239,4 +252,25 @@
   bottom: 0;
   left: -10px;
   width: 10px;
+}
+
+/* Compact viewports (below the 768 medium boundary, docs/web-styling.md):
+   a side-flyout would overflow the screen, so the submenu unfolds inline
+   under its parent row as an indented group. */
+@media (max-width: 767px) {
+  .submenu {
+    position: static;
+    min-width: 0;
+    margin: var(--dsw-space-1) 0 var(--dsw-space-1) var(--dsw-space-6);
+    padding: 0 0 0 var(--dsw-space-1);
+    border: none;
+    border-left: 1px solid var(--dsw-alias-border-l1);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .submenu::before {
+    content: none;
+  }
 }

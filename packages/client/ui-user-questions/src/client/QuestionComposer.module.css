@@ -45,9 +45,9 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--dsw-space-4);
   flex-shrink: 0;
-  padding: 20px 16px 0 24px;
+  padding: var(--dsw-space-5) var(--dsw-space-4) 0 var(--dsw-space-6);
 }
 
 .headingBlock {
@@ -70,13 +70,13 @@
 }
 
 .detail {
-  margin: 0 2px 8px;
+  margin: 0 2px var(--dsw-space-2);
 }
 
 .footerActions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   flex-shrink: 0;
 }
 
@@ -88,7 +88,7 @@
 }
 
 .progress {
-  padding: 0 4px;
+  padding: 0 var(--dsw-space-1);
   color: var(--dsw-alias-label-secondary);
   font-size: 14px;
   line-height: 24px;
@@ -134,8 +134,8 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  margin: 8px 0 0;
-  padding: 4px 12px;
+  margin: var(--dsw-space-2) 0 0;
+  padding: var(--dsw-space-1) var(--dsw-space-3);
 }
 
 .option {
@@ -145,7 +145,7 @@
      The 8px padding makes a single-line row 40px exactly, so nothing reads
      as top-heavy; .number/.checkbox re-center against the first line box. */
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   width: 100%;
   min-height: 40px;
   /* Rows are the scroll content, never the slack absorber: a shrinkable row
@@ -153,9 +153,9 @@
      intrinsic height, and centered content then paints outside the row box —
      over the title and the next row. Overflow belongs to .options. */
   flex-shrink: 0;
-  padding: 8px 12px 8px 8px;
+  padding: var(--dsw-space-2) var(--dsw-space-3) var(--dsw-space-2) var(--dsw-space-2);
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -188,7 +188,7 @@
   /* (24px first-line box − 20px indicator) / 2: centers the indicator against
      the first text line under the row's flex-start alignment. */
   margin-top: 2px;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-bg-overlay);
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
@@ -215,7 +215,7 @@
   width: 14px;
   height: 14px;
   border: 1px solid var(--dsw-alias-border-l4);
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   transition: background-color 120ms ease, border-color 120ms ease;
 }
 
@@ -253,8 +253,8 @@
 }
 
 .badge {
-  padding: 0 4px;
-  border-radius: 6px;
+  padding: 0 var(--dsw-space-1);
+  border-radius: var(--dsw-radius-sm);
   background: var(--dsw-specific-sidebar-nav-item-active-accent);
   color: var(--dsw-alias-button-info-fill);
   font-size: 11px;
@@ -276,15 +276,15 @@
   /* Same first-line alignment as .option — the indicator seat carries the
      2px re-centering margin. */
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   width: 100%;
   min-height: 40px;
   /* Same reason as .option: the custom row is scroll content, and shrinking
      it pushes the inline input past the footer. */
   flex-shrink: 0;
-  padding: 8px 12px 8px 8px;
+  padding: var(--dsw-space-2) var(--dsw-space-3) var(--dsw-space-2) var(--dsw-space-2);
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   transition: background-color 120ms ease, border-color 120ms ease;
 }
 
@@ -325,8 +325,8 @@
   min-height: 64px;
   max-height: 140px;
   flex-shrink: 0;
-  margin: 0 12px;
-  padding: 8px 12px;
+  margin: 0 var(--dsw-space-3);
+  padding: var(--dsw-space-2) var(--dsw-space-3);
   resize: none;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 10px;
@@ -351,9 +351,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   flex-shrink: 0;
-  margin-top: 12px;
+  margin-top: var(--dsw-space-3);
   padding: 0 10px 0 18px;
 }
 
@@ -366,17 +366,18 @@
   text-align: right;
 }
 
-@media (max-width: 720px) {
+/* Compact-viewport tightening (below the 768 medium boundary, docs/web-styling.md). */
+@media (max-width: 767px) {
   .card {
-    border-radius: 16px;
+    border-radius: var(--dsw-radius-xl);
   }
 
   .header {
-    padding: 10px 12px 0 18px;
+    padding: 10px var(--dsw-space-3) 0 18px;
   }
 
   .options {
-    padding: 4px 8px;
+    padding: var(--dsw-space-1) var(--dsw-space-2);
   }
 
   .title {
@@ -386,7 +387,7 @@
 
   .option,
   .customRow {
-    padding: 8px 6px;
+    padding: var(--dsw-space-2) 6px;
   }
 
   .footer {

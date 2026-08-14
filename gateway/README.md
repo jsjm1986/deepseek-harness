@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The public-facing portal gateway for DeepSeek Harness: login/session handling, user/project/directory grants (SQLite), HTTP+WS reverse proxy (rewriting Host/Origin to the instance loopback address), per-user dsh instance lifecycle, the `/admin` SPA plus `/admin/api` JSON, and auditing. Design and staged plan: [design doc](../docs/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md), [Phase 1 plan](../docs/superpowers/plans/2026-08-14-gateway-phase1.md), [project-centric admin](../docs/superpowers/specs/2026-08-14-project-centric-admin-design.md).
+The public-facing portal gateway for DeepSeek Harness: login/session handling, user/project/directory grants (SQLite), HTTP+WS reverse proxy (rewriting Host/Origin to the instance loopback address), per-user dsh instance lifecycle, the `/admin` SPA plus `/admin/api` JSON, and auditing. Design and staged plan: [design doc](../.agents/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md), [Phase 1 plan](../.agents/superpowers/plans/2026-08-14-gateway-phase1.md), [project-centric admin](../.agents/superpowers/specs/2026-08-14-project-centric-admin-design.md).
 
 ## Toolchain
 

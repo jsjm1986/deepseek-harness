@@ -15,7 +15,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
-import { SIDEBAR_COLLAPSED } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
+import { SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
 import type {
   SessionId, SessionListState, WorkspaceListState,
@@ -55,6 +55,8 @@ function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapsho
 function mountFrame() {
   window.innerWidth = frameWidth // first-render viewport source before the observer fires
   const instance = createLayoutStore().create()
+  // Key-echo locale stub: aria-labels assert against raw keys.
+  const t = ((key: string) => key) as AppFrameProps['t']
   const slotCalls: { key: string; props: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
     slotCalls.push({ key, props: owner })
@@ -88,6 +90,7 @@ function mountFrame() {
       useSessions={useSessions}
       useWorkspaces={((sel: (s: WorkspaceListState) => unknown) => sel(workspaceState)) as never}
       SessionProvider={SessionProviderStub}
+      t={t}
     />
   )
   const utils = render(element())
@@ -96,9 +99,13 @@ function mountFrame() {
 }
 
 function tracks(frame: HTMLElement): number[] {
-  const m = /^(\d+)px minmax\(0, 1fr\) (\d+)px$/.exec(frame.style.gridTemplateColumns)
-  if (m === null) throw new Error(`unexpected template: ${frame.style.gridTemplateColumns}`)
-  return [Number(m[1]), Number(m[2])]
+  // Three tracks in expanded/wide; medium drops the details track (overlay
+  // panel) and reports it as 0 so width assertions stay uniform.
+  const three = /^(\d+)px minmax\(0, 1fr\) (\d+)px$/.exec(frame.style.gridTemplateColumns)
+  if (three !== null) return [Number(three[1]), Number(three[2])]
+  const two = /^(\d+)px minmax\(0, 1fr\)$/.exec(frame.style.gridTemplateColumns)
+  if (two !== null) return [Number(two[1]), 0]
+  throw new Error(`unexpected template: ${frame.style.gridTemplateColumns}`)
 }
 
 function drag(handle: Element, fromX: number, toX: number): void {
@@ -284,7 +291,7 @@ describe('AppFrame', () => {
   })
 })
 
-describe('AppFrame — narrow-viewport auto-collapse', () => {
+describe('AppFrame — medium-viewport auto-collapse', () => {
   it('mounts collapsed below the breakpoint with no sidebar handle', () => {
     frameWidth = 980
     const { frame, slotCalls } = mountFrame()
@@ -325,6 +332,118 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
     frameWidth = 1920
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     expect(tracks(frame)).toEqual([400, 0])
+  })
+
+  it('details opens as an overlay, not a grid track, and scrim-dismisses', () => {
+    frameWidth = 980
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openDetails() })
+    // The track template ignores the open details (no third column).
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    const overlay = frame.querySelector('[class*="detailsOverlay"]')!
+    expect(overlay.hasAttribute('data-open')).toBe(true)
+    expect(frame.hasAttribute('data-details-collapsed')).toBe(false)
+    const scrims = frame.querySelectorAll('[class*="scrim"]')
+    expect(scrims).toHaveLength(1) // details scrim only — no drawer in medium
+    act(() => { (scrims[0] as HTMLElement).click() })
+    expect(overlay.hasAttribute('data-open')).toBe(false)
+    expect(instance.getSnapshot().details).toBe(0)
+  })
+})
+
+describe('AppFrame — compact drawer and overlay details', () => {
+  it('renders the topbar toggle, no columns template, and no drag handles', () => {
+    frameWidth = 390
+    const { frame } = mountFrame()
+    expect(frame.getAttribute('data-viewport')).toBe('compact')
+    expect(frame.style.gridTemplateColumns).toBe('') // CSS owns the compact template
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+    const toggle = frame.querySelector('[class*="topbarToggle"]')!
+    expect(toggle.getAttribute('aria-label')).toBe('drawer.open')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('toggle opens the drawer with the expanded sidebar and the scrim closes it', () => {
+    frameWidth = 390
+    const { frame, slotCalls } = mountFrame()
+    const toggle = frame.querySelector('[class*="topbarToggle"]') as HTMLElement
+    const drawer = frame.querySelector('[class*="drawer"]')!
+    expect(drawer.hasAttribute('data-open')).toBe(false)
+    // The drawer renders the sidebar expanded at the contract default even while closed.
+    expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: false, width: SIDEBAR_DEFAULT })
+    act(() => { toggle.click() })
+    expect(drawer.hasAttribute('data-open')).toBe(true)
+    expect(toggle.getAttribute('aria-label')).toBe('drawer.close')
+    const drawerScrim = frame.querySelectorAll('[class*="scrim"]')[0] as HTMLElement
+    expect(drawerScrim.hasAttribute('data-open')).toBe(true)
+    act(() => { drawerScrim.click() })
+    expect(drawer.hasAttribute('data-open')).toBe(false)
+  })
+
+  it('session navigation dismisses the open drawer', () => {
+    frameWidth = 390
+    const { frame, rerenderFrame } = mountFrame()
+    const toggle = frame.querySelector('[class*="topbarToggle"]') as HTMLElement
+    act(() => { toggle.click() })
+    const drawer = frame.querySelector('[class*="drawer"]')!
+    expect(drawer.hasAttribute('data-open')).toBe(true)
+    selectedSession.current = 's-next' as SessionId
+    act(() => { rerenderFrame() })
+    expect(drawer.hasAttribute('data-open')).toBe(false)
+  })
+
+  it('details opens edge to edge as an overlay and scrim-dismisses', () => {
+    frameWidth = 390
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openDetails() })
+    const overlay = frame.querySelector('[class*="detailsOverlay"]')!
+    expect(overlay.hasAttribute('data-open')).toBe(true)
+    const detailsScrim = frame.querySelectorAll('[class*="scrim"]')[1] as HTMLElement
+    expect(detailsScrim.hasAttribute('data-open')).toBe(true)
+    act(() => { detailsScrim.click() })
+    expect(overlay.hasAttribute('data-open')).toBe(false)
+    expect(instance.getSnapshot().details).toBe(0)
+  })
+
+  it('shrinking a medium squeeze-open sidebar into compact drops it instead of opening the drawer', () => {
+    frameWidth = 980
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() }) // medium squeeze-open
+    expect(tracks(frame)).toEqual([SIDEBAR_DEFAULT, 0])
+    frameWidth = 390
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    expect(frame.getAttribute('data-viewport')).toBe('compact')
+    const drawer = frame.querySelector('[class*="drawer"]')!
+    expect(drawer.hasAttribute('data-open')).toBe(false)
+    expect(instance.getSnapshot().narrowExpanded).toBe(false)
+  })
+
+  it('widening out of compact re-seats the sidebar into the column and drops the topbar', () => {
+    frameWidth = 390
+    const { frame } = mountFrame()
+    expect(frame.querySelector('[class*="topbar"]')).not.toBeNull()
+    frameWidth = 1920
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    expect(frame.getAttribute('data-viewport')).toBe('wide')
+    expect(frame.querySelector('[class*="topbar"]')).toBeNull()
+    expect(frame.querySelector('[class*="drawer"]')).toBeNull()
+    expect(tracks(frame)).toEqual([SIDEBAR_DEFAULT, 0])
+  })
+})
+
+describe('AppFrame — viewport class stamp', () => {
+  it('stamps data-viewport from the frame width and restamps on resize', () => {
+    const { frame } = mountFrame()
+    expect(frame.getAttribute('data-viewport')).toBe('wide')
+    frameWidth = 1280
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    expect(frame.getAttribute('data-viewport')).toBe('expanded')
+    frameWidth = 900
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    expect(frame.getAttribute('data-viewport')).toBe('medium')
+    frameWidth = 390
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    expect(frame.getAttribute('data-viewport')).toBe('compact')
   })
 })
 

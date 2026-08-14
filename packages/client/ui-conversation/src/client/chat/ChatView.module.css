@@ -41,7 +41,7 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--dsw-space-4);
 }
 
 /* Settled-flow identity boundary. It is neutral today and becomes the natural
@@ -58,7 +58,7 @@
 }
 
 .callRow {
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
 }
 
 /* Selection still sets data-selected for details linkage; no outline —
@@ -92,7 +92,7 @@
 }
 
 .turnStatusClock {
-  margin-left: 8px;
+  margin-left: var(--dsw-space-2);
   font: var(--dsw-font-xs-13);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
@@ -134,7 +134,7 @@
 .older button {
   border: none;
   border-radius: 14px;
-  padding: 4px 12px;
+  padding: var(--dsw-space-1) var(--dsw-space-3);
   font-size: 12px;
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-interactive-bg-hover-solid);
