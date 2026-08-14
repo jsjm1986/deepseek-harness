@@ -27,6 +27,18 @@ describe('loadGrants', () => {
     expect(grants.map(g => g.path)).toEqual([ab, a])
     expect(grants.find(g => g.path === ab)?.mode).toBe('rw')
   })
+
+  it('ignores extra label fields and still denies a path outside every grant', () => {
+    const root = scratch()
+    const proj = join(root, 'proj'); mkdirSync(proj)
+    const file = join(root, 'grants.json')
+    writeFileSync(file, JSON.stringify([
+      { path: proj, mode: 'rw', label: 'Shared Project' },
+    ]))
+    const grants = loadGrants(file)
+    expect(grants).toEqual([{ path: realpathSync(proj), mode: 'rw' }])
+    expect(classify(grants, join(root, 'outside.ts'))).toBe('none')
+  })
 })
 
 describe('classify', () => {

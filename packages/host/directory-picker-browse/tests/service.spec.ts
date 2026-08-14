@@ -1,5 +1,6 @@
 /** Behavior of the browse backend over a real temporary directory tree. */
 
+import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -227,5 +228,179 @@ describe('BrowseDirectoryPicker', () => {
     // Missing parent is a real failure, not a level to invent.
     const missingParent = await capability.createDirectory(join(root, 'no-such-dir'), 'child').catch((error: unknown) => error)
     expect((missingParent as DirectoryPickerError).code).toBe('directory-create-failed')
+  })
+})
+
+describe('BrowseDirectoryPicker grant roots', () => {
+  let grantsRoot: string
+  let alpha: string
+  let beta: string
+  let grantCapability: DirectoryPickerBrowseCapability
+  let grantDispose: () => Promise<void>
+  let previousGrants: string | undefined
+  let previousHome: string | undefined
+
+  beforeAll(async () => {
+    grantsRoot = await mkdtemp(join(tmpdir(), 'dsh-browse-grants-'))
+    alpha = await mkdir(join(grantsRoot, 'alpha')).then(() => realpathSync(join(grantsRoot, 'alpha')))
+    beta = await mkdir(join(grantsRoot, 'beta')).then(() => realpathSync(join(grantsRoot, 'beta')))
+    const grantsFile = join(grantsRoot, 'directory-grants.json')
+    await writeFile(grantsFile, JSON.stringify([
+      { path: alpha, mode: 'rw', label: 'Alpha Project' },
+      { path: beta, mode: 'ro', label: '' },
+      null,
+      'skip',
+      { path: join(grantsRoot, 'ghost'), mode: 'rw' },
+      { path: alpha, mode: 'xx' },
+    ]))
+    previousGrants = process.env.DSH_DIRECTORY_GRANTS
+    previousHome = process.env.DSH_HOME
+    process.env.DSH_DIRECTORY_GRANTS = grantsFile
+    delete process.env.DSH_HOME
+
+    const ctx = new Context()
+    const fiber = ctx.plugin(BrowseDirectoryPicker)
+    await fiber.await()
+    const picked = ctx.get('directoryPicker')!.capability()
+    if (picked.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
+    grantCapability = picked
+    grantDispose = () => fiber.dispose()
+  })
+
+  afterAll(async () => {
+    await grantDispose()
+    if (previousGrants === undefined) delete process.env.DSH_DIRECTORY_GRANTS
+    else process.env.DSH_DIRECTORY_GRANTS = previousGrants
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    await rm(grantsRoot, { recursive: true, force: true })
+  })
+
+  it('lists only the grant roots for an absent path, using label or basename', async () => {
+    const listing = await grantCapability.list()
+    expect(listing.crumbs).toEqual([])
+    expect(listing.truncated).toBe(false)
+    expect(listing.path).toBe(alpha)
+    expect(listing.home).toBe(alpha)
+    expect(listing.entries).toEqual([
+      { name: 'Alpha Project', path: alpha, hidden: false },
+      { name: 'beta', path: beta, hidden: false },
+    ])
+  })
+
+  it('rejects listing and createDirectory outside the grant roots', async () => {
+    const listed = await grantCapability.list('/etc').catch((error: unknown) => error)
+    expect(listed).toBeInstanceOf(DirectoryPickerError)
+    expect((listed as DirectoryPickerError).code).toBe('directory-unreadable')
+    const created = await grantCapability.createDirectory('/etc', 'nope').catch((error: unknown) => error)
+    expect(created).toBeInstanceOf(DirectoryPickerError)
+    expect((created as DirectoryPickerError).code).toBe('directory-create-failed')
+  })
+
+  it('keeps crumbs at the containing grant root when listing inside a grant', async () => {
+    const listing = await grantCapability.list(alpha)
+    expect(listing.path).toBe(alpha)
+    expect(listing.crumbs[0]).toMatchObject({ name: 'alpha', path: alpha, hidden: false })
+    expect(listing.crumbs.some(crumb => crumb.path === '/')).toBe(false)
+    const logical = join(grantsRoot, 'alpha')
+    const viaLogical = await grantCapability.list(logical)
+    expect(viaLogical.crumbs[0]!.name).toBe('alpha')
+    expect(viaLogical.crumbs.some(crumb => crumb.path === '/')).toBe(false)
+    const readonlyRoot = await grantCapability.list(beta)
+    expect(readonlyRoot.path).toBe(beta)
+    expect(readonlyRoot.crumbs[0]).toMatchObject({ name: 'beta', path: beta, hidden: false })
+  })
+
+  it('rejects a missing child inside a grant as directory-unreadable', async () => {
+    const missing = join(alpha, 'no-such-child')
+    const failure = await grantCapability.list(missing).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(DirectoryPickerError)
+    expect((failure as DirectoryPickerError).code).toBe('directory-unreadable')
+  })
+})
+
+describe('BrowseDirectoryPicker grant file fallbacks', () => {
+  it('lists OS home when the grants file is not a JSON array', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-browse-bad-grants-'))
+    const file = join(dir, 'directory-grants.json')
+    await writeFile(file, JSON.stringify({ path: dir, mode: 'rw' }))
+    const previous = process.env.DSH_DIRECTORY_GRANTS
+    process.env.DSH_DIRECTORY_GRANTS = file
+    try {
+      const ctx = new Context()
+      const fiber = ctx.plugin(BrowseDirectoryPicker)
+      await fiber.await()
+      const picked = ctx.get('directoryPicker')!.capability()
+      if (picked.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
+      try {
+        const listing = await picked.list()
+        expect(listing.path).toBe(homedir())
+      } finally {
+        await fiber.dispose()
+      }
+    } finally {
+      if (previous === undefined) delete process.env.DSH_DIRECTORY_GRANTS
+      else process.env.DSH_DIRECTORY_GRANTS = previous
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reads $DSH_HOME/directory-grants.json when DSH_DIRECTORY_GRANTS is unset', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-browse-home-grants-'))
+    const project = realpathSync(await mkdir(join(dir, 'proj')).then(() => join(dir, 'proj')))
+    await writeFile(join(dir, 'directory-grants.json'), JSON.stringify([
+      { path: project, mode: 'rw', label: 'Home Project' },
+    ]))
+    const previousGrants = process.env.DSH_DIRECTORY_GRANTS
+    const previousHome = process.env.DSH_HOME
+    delete process.env.DSH_DIRECTORY_GRANTS
+    process.env.DSH_HOME = dir
+    try {
+      const ctx = new Context()
+      const fiber = ctx.plugin(BrowseDirectoryPicker)
+      await fiber.await()
+      const picked = ctx.get('directoryPicker')!.capability()
+      if (picked.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
+      try {
+        const listing = await picked.list()
+        expect(listing.entries).toEqual([
+          { name: 'Home Project', path: project, hidden: false },
+        ])
+      } finally {
+        await fiber.dispose()
+      }
+    } finally {
+      if (previousGrants === undefined) delete process.env.DSH_DIRECTORY_GRANTS
+      else process.env.DSH_DIRECTORY_GRANTS = previousGrants
+      if (previousHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = previousHome
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('treats a filesystem-root grant as containing every descendant', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-browse-slash-grant-'))
+    const file = join(dir, 'directory-grants.json')
+    await writeFile(file, JSON.stringify([{ path: '/', mode: 'rw', label: 'System' }]))
+    const previous = process.env.DSH_DIRECTORY_GRANTS
+    process.env.DSH_DIRECTORY_GRANTS = file
+    try {
+      const ctx = new Context()
+      const fiber = ctx.plugin(BrowseDirectoryPicker)
+      await fiber.await()
+      const picked = ctx.get('directoryPicker')!.capability()
+      if (picked.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
+      try {
+        const listing = await picked.list('/etc')
+        expect(listing.path).toBe('/etc')
+        expect(listing.crumbs[0]).toMatchObject({ path: '/' })
+      } finally {
+        await fiber.dispose()
+      }
+    } finally {
+      if (previous === undefined) delete process.env.DSH_DIRECTORY_GRANTS
+      else process.env.DSH_DIRECTORY_GRANTS = previous
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })

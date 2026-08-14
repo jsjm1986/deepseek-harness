@@ -9,18 +9,27 @@
  * occupant's own create-folder affordance already covers creating one.
  */
 import type { ReactNode, RefObject } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type {
-  WorkspaceId, WorkspaceListState, WorkspaceView,
+import {
+  DirectoryBrowseError,
+  type DirectoryListing, type WorkspaceId, type WorkspaceListState, type WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from './contract/slots.ts'
 import css from './WorkspacePicker.module.css'
 
 const ADD_WORKSPACE = '::add-workspace'
+
+/** Segment-aware prefix: `target` is `root` or a descendant (same as directory-guard `contains`). */
+function containsRoot(root: string, target: string): boolean {
+  if (target === root) return true
+  const slash = root.includes('\\') && !root.includes('/') ? '\\' : '/'
+  const prefix = root.endsWith(slash) ? root : root + slash
+  return target.startsWith(prefix)
+}
 
 /** Core flow props: the owner supplies popover control and pick semantics. */
 export interface WorkspacePickFlowProps {
@@ -48,6 +57,12 @@ export interface WorkspacePickFlowProps {
   side?: 'bottom' | 'top' | 'right'
   /** Currently active workspace (trailing check in the picker list). */
   selectedId?: WorkspaceId | undefined
+  /**
+   * Absent-path listing used to fence existing-workspace picks against grant
+   * roots. Omitted inject, or `directory-picker-unavailable` from a native
+   * Host, skips the check so standalone dsh web still opens existing workspaces.
+   */
+  listDirectory?: ((path?: string, signal?: AbortSignal) => Promise<DirectoryListing>) | undefined
 }
 
 /**
@@ -68,6 +83,7 @@ export function WorkspacePickFlow({
   addOnly = false,
   side = 'bottom',
   selectedId,
+  listDirectory,
 }: WorkspacePickFlowProps) {
   const workspaceSnapshot = useWorkspaces(state => state)
   const workspaces = workspaceSnapshot.items
@@ -79,6 +95,9 @@ export function WorkspacePickFlow({
   const [modalError, setModalError] = useState<string | null>(null)
   const [flowOpen, setFlowOpen] = useState(false)
   const [pickingFolder, setPickingFolder] = useState(false)
+  // Last existing-workspace select wins: a slower unauthorized listing must
+  // not raise the folder-error dialog after a later authorized onPick.
+  const pickGeneration = useRef(0)
   // One picking interaction at a time: while the flow is open (native chooser
   // pending, browse dialog up) or its pick is being adopted, every other
   // menu action stays disabled — a late outcome must not race a concurrent
@@ -174,10 +193,43 @@ export function WorkspacePickFlow({
 
   const handleSelect = (id: string): void => {
     if (id === ADD_WORKSPACE) {
+      pickGeneration.current += 1
       openDirectoryFlow()
       return
     }
-    onPick(id as WorkspaceId)
+    const workspaceId = id as WorkspaceId
+    const workspace = workspaces.find(item => item.workspaceId === id)
+    const generation = ++pickGeneration.current
+    if (listDirectory === undefined || workspace === undefined) {
+      onPick(workspaceId)
+      return
+    }
+    void listDirectory().then((listing) => {
+      if (generation !== pickGeneration.current) return
+      // Grant-root listings advertise empty crumbs; an OS-home listing keeps
+      // ancestry crumbs and must not fence standalone dsh web.
+      if (listing.crumbs.length > 0) {
+        onPick(workspaceId)
+        return
+      }
+      const allowed = listing.entries.some(entry => containsRoot(entry.path, workspace.path))
+      if (!allowed) {
+        setModalError(t('menu.workspaceUnauthorized'))
+        setErrorOpen(true)
+        return
+      }
+      onPick(workspaceId)
+    }).catch((reason: unknown) => {
+      if (generation !== pickGeneration.current) return
+      // Native standalone injects listDirectory; the Host has no browse
+      // capability, so the fence does not apply.
+      if (reason instanceof DirectoryBrowseError && reason.rpcError.code === 'directory-picker-unavailable') {
+        onPick(workspaceId)
+        return
+      }
+      setModalError(reason instanceof Error ? reason.message : String(reason))
+      setErrorOpen(true)
+    })
   }
 
   return (
@@ -233,6 +285,7 @@ export function WorkspacePicker({
   useDirectoryFlow,
   renderSlot,
   t,
+  listDirectory,
 }: WorkspacePickerProps) {
   return (
     <WorkspacePickFlow
@@ -246,6 +299,7 @@ export function WorkspacePicker({
       selectedId={selectedId}
       onPick={onPick}
       onClose={onClose}
+      listDirectory={listDirectory}
     />
   )
 }

@@ -4,16 +4,17 @@ import type { Duplex } from 'node:stream'
 import type { AuditService } from './audit.ts'
 import type { AuthService, UserRow } from './auth.ts'
 import type { GatewayConfig } from './config.ts'
-import type { GrantService } from './grants.ts'
 import { loginPage, passwordPage } from './html.ts'
 import type { InstanceManager } from './instances.ts'
+import type { ProjectService } from './projects.ts'
+import { isAdminPath, serveAdmin } from './static.ts'
 import type { UserService } from './users.ts'
 
 export interface GatewayDeps {
   cfg: GatewayConfig
   auth: AuthService
   users: UserService
-  grants: GrantService
+  projects: ProjectService
   audit: AuditService
   instances: InstanceManager
 }
@@ -59,6 +60,14 @@ function send(res: ServerResponse, status: number, body: string, type = 'text/ht
   res.end(body)
 }
 
+function sendAdminGate(res: ServerResponse, pathname: string, error: string): void {
+  if (pathname.startsWith('/admin/api')) {
+    send(res, 403, JSON.stringify({ error }), 'application/json')
+    return
+  }
+  send(res, 403, error, 'text/plain')
+}
+
 function redirect(res: ServerResponse, location: string, cookies: string[] = []): void {
   res.writeHead(302, { location, ...(cookies.length > 0 ? { 'set-cookie': cookies } : {}) })
   res.end()
@@ -78,6 +87,8 @@ export interface GatewayHandlers {
   proxy?: ProxyHandler
   upgrade?: UpgradeHandler
   admin?: (req: IncomingMessage, res: ServerResponse, user: UserRow, pathname: string, body: string) => Promise<boolean>
+  /** Override `serveAdmin` root (tests); default `gateway/public/admin`. */
+  adminRoot?: string
 }
 
 export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers = {}): Server {
@@ -102,7 +113,7 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
 
     if (pathname === '/healthz') { send(res, 200, '{"ok":true}', 'application/json'); return }
 
-    if (!csrfOk(req, cfg, pathname)) { send(res, 403, 'origin not allowed', 'text/plain'); return }
+    if (!csrfOk(req, cfg, pathname)) { sendAdminGate(res, pathname, 'origin not allowed'); return }
 
     if (pathname === '/login') {
       if (req.method === 'GET') { send(res, 200, loginPage()); return }
@@ -151,10 +162,11 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
       }
     }
 
-    if (pathname.startsWith('/admin')) {
-      if (user.role !== 'admin') { send(res, 403, 'forbidden', 'text/plain'); return }
-      const body = req.method === 'POST' ? await readBody(req) : ''
+    if (isAdminPath(pathname)) {
+      if (user.role !== 'admin') { sendAdminGate(res, pathname, 'forbidden'); return }
+      const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await readBody(req)
       if (handlers.admin !== undefined && await handlers.admin(req, res, user, pathname, body)) return
+      if (serveAdmin(req, res, pathname, handlers.adminRoot)) return
       send(res, 404, 'not found', 'text/plain')
       return
     }

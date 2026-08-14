@@ -1,13 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
-import { createAdminHandler } from './admin.ts'
+import { createAdminApiHandler } from './admin-api.ts'
 import { AuditService } from './audit.ts'
 import { AuthService } from './auth.ts'
 import { loadConfig } from './config.ts'
 import { openDb } from './db.ts'
-import { GrantService } from './grants.ts'
 import { InstanceManager } from './instances.ts'
 import { selectLauncher } from './launcher.ts'
+import { ProjectService } from './projects.ts'
 import { createProxyHandlers } from './proxy.ts'
 import { createGatewayServer, type GatewayDeps } from './server.ts'
 import { UserService } from './users.ts'
@@ -16,7 +16,7 @@ const cfg = loadConfig()
 const db = openDb(join(cfg.dataDir, 'gateway.sqlite'))
 const auth = new AuthService(db, cfg)
 const users = new UserService(db, cfg)
-const grants = new GrantService(db)
+const projects = new ProjectService(db, cfg)
 const audit = new AuditService(db)
 // Launcher is local child-process (dev) unless HGW_LAUNCHER=systemd (Linux prod);
 // the systemd options factory is only evaluated in the systemd case.
@@ -30,14 +30,15 @@ const launcher = selectLauncher(cfg, () => ({
   },
   grantsProvider: (username) => {
     const user = users.getByUsername(username)
-    return user === null ? [] : grants.effectiveGrants(user.id)
+    if (user === null) return []
+    return projects.effectiveGrants(user.id).map(({ path, mode }) => ({ path, mode }))
   },
 }))
 const deps: GatewayDeps = {
   cfg,
   auth,
   users,
-  grants,
+  projects,
   audit,
   instances: new InstanceManager(db, cfg, launcher),
 }
@@ -50,7 +51,7 @@ if (deps.users.count() === 0) {
 }
 
 const proxyHandlers = createProxyHandlers(deps)
-const server = createGatewayServer(deps, { ...proxyHandlers, admin: createAdminHandler(deps) })
+const server = createGatewayServer(deps, { ...proxyHandlers, admin: createAdminApiHandler(deps) })
 // Bind loopback only: the gateway is reached through the TLS entry (Cloudflare
 // tunnel / Nginx) that connects to 127.0.0.1, never directly over the LAN.
 server.listen(cfg.port, '127.0.0.1', () => {

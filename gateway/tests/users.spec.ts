@@ -35,11 +35,34 @@ describe('UserService', () => {
   it('manages status, role and password lifecycle', async () => {
     const { users } = setup()
     const u = await users.create({ username: 'carol', password: 'pw-123456', role: 'admin' })
+    await users.create({ username: 'other-admin', password: 'pw-123456', role: 'admin' })
     users.setStatus(u.id, 'disabled')
     expect(users.getById(u.id)?.status).toBe('disabled')
     await users.changeOwnPassword(u.id, 'pw-654321')
     expect(users.getById(u.id)?.mustChangePassword).toBe(false)
     await users.resetPassword(u.id, 'pw-000000')
     expect(users.getById(u.id)?.mustChangePassword).toBe(true)
+  })
+
+  it('refuses to disable or demote the last active admin', async () => {
+    const { users } = setup()
+    const admin = await users.create({ username: 'boss', password: 'pw-123456', role: 'admin' })
+    expect(() => users.setStatus(admin.id, 'disabled')).toThrow(/cannot-remove-last-admin/)
+    expect(() => users.setRole(admin.id, 'user')).toThrow(/cannot-remove-last-admin/)
+  })
+
+  it('allows demoting an admin when another active admin remains', async () => {
+    const { users } = setup()
+    const a = await users.create({ username: 'a-admin', password: 'pw-123456', role: 'admin' })
+    await users.create({ username: 'b-admin', password: 'pw-123456', role: 'admin' })
+    users.setRole(a.id, 'user')
+    expect(users.getById(a.id)?.role).toBe('user')
+  })
+
+  it('updates display name', async () => {
+    const { users } = setup()
+    const u = await users.create({ username: 'dave', password: 'pw-123456' })
+    users.setDisplayName(u.id, 'Dave Smith')
+    expect(users.getById(u.id)?.displayName).toBe('Dave Smith')
   })
 })
