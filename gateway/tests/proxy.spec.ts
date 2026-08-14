@@ -22,6 +22,7 @@ const ECHO_DSH = `
 const http = require('http')
 const { WebSocketServer } = require(${JSON.stringify(WS_MODULE)})
 const server = http.createServer((req, res) => {
+  if (req.url === '/exit') { res.end('bye'); process.exit(0); return }
   res.setHeader('content-type', 'application/json')
   res.end(JSON.stringify({ host: req.headers.host, origin: req.headers.origin ?? null, url: req.url }))
 })
@@ -91,6 +92,28 @@ describe('proxy handlers', () => {
     const grantsFile = join(root, 'users', 'alice', 'dsh', 'directory-grants.json')
     expect(existsSync(grantsFile)).toBe(true)
     expect(JSON.parse(readFileSync(grantsFile, 'utf8'))).toEqual(deps.projects.effectiveGrants(1))
+  })
+
+  it('shows the waiting page and respawns when a ready child has exited', async () => {
+    const { deps, base, cookie } = await setup()
+    const alice = deps.users.getByUsername('alice')!
+    await deps.instances.ensureRunning(alice)
+    const port = deps.instances.portOf(alice.id)
+    await fetch(`http://127.0.0.1:${port}/exit`)
+    await new Promise(r => setTimeout(r, 50))
+    expect(deps.instances.isLive(alice.id)).toBe(false)
+    const waiting = await fetch(base + '/', { headers: { cookie, accept: 'text/html' }, redirect: 'manual' })
+    expect(waiting.status).toBe(200)
+    expect(await waiting.text()).toContain('正在启动您的工作台')
+    const deadline = Date.now() + 8000
+    while (Date.now() < deadline && !deps.instances.isLive(alice.id)) {
+      await new Promise(r => setTimeout(r, 100))
+    }
+    expect(deps.instances.isLive(alice.id)).toBe(true)
+    const proxied = await fetch(`${base}/api/echo`, {
+      method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' }, body: '{}',
+    })
+    expect(proxied.status).toBe(200)
   })
 
   it('proxies websocket upgrades with rewritten host', async () => {

@@ -28,6 +28,7 @@ const launcher = selectLauncher(cfg, () => ({
     memoryMax: cfg.memoryMax,
     cpuQuota: cfg.cpuQuota,
   },
+  unitDir: cfg.systemdUnitDir,
   grantsProvider: (username) => {
     const user = users.getByUsername(username)
     if (user === null) return []

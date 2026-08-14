@@ -1,18 +1,19 @@
-import { join } from 'node:path'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, rmSync, symlinkSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type Database from 'better-sqlite3'
 import type { UserRow } from './auth.ts'
 import type { GatewayConfig } from './config.ts'
-import { LocalLauncher, type InstanceProcess, type Launcher } from './launcher.ts'
+import { LocalLauncher, type InstanceProc, type Launcher, type LaunchUser } from './launcher.ts'
 
 const POLL_INTERVAL_MS = 300
 const STOP_GRACE_MS = 5000
 
 export class InstanceManager {
-  private readonly processes = new Map<number, InstanceProcess>()
+  private readonly launcher: Launcher
+  private readonly procs = new Map<number, InstanceProc>()
   private readonly wsRefs = new Map<number, number>()
   /** Per-user operation chain: serializes start vs stop so a reap cannot orphan a fresh spawn. */
   private readonly ops = new Map<number, Promise<unknown>>()
-  private readonly launcher: Launcher
 
   /**
    * Called with the user just before its instance is spawned, on every start.
@@ -24,7 +25,15 @@ export class InstanceManager {
 
   constructor(private readonly db: Database.Database, private readonly cfg: GatewayConfig, launcher?: Launcher) {
     this.launcher = launcher ?? new LocalLauncher(cfg)
-    this.db.prepare(`UPDATE instances SET state = 'stopped', pid = NULL`).run()
+    // Local children died with the previous gateway process; systemd units
+    // survive it, and their rows re-converge through ensureRunning's probe.
+    if (!this.launcher.instancesOutliveGateway) {
+      this.db.prepare(`UPDATE instances SET state = 'stopped', pid = NULL`).run()
+    }
+  }
+
+  private markStopped(userId: number): void {
+    this.db.prepare(`UPDATE instances SET state = 'stopped', pid = NULL WHERE user_id = ?`).run(userId)
   }
 
   portOf(userId: number): number {
@@ -36,6 +45,20 @@ export class InstanceManager {
   stateOf(userId: number): string {
     const row = this.db.prepare(`SELECT state FROM instances WHERE user_id = ?`).get(userId) as { state: string } | undefined
     return row?.state ?? 'stopped'
+  }
+
+  /**
+   * Whether this process still holds a live child for a `ready` row.
+   * A crashed or externally killed child leaves the row `ready`; callers must
+   * treat that as not live and go through {@link ensureRunning}. systemd
+   * handles always answer true while the row is `ready` — that driver does
+   * not track the unit through this handle.
+   * @param userId - instance owner
+   * @returns true only when the row is `ready` and the tracked child has not exited
+   */
+  isLive(userId: number): boolean {
+    const proc = this.procs.get(userId)
+    return this.stateOf(userId) === 'ready' && proc !== undefined && !proc.hasExited()
   }
 
   touch(userId: number): void {
@@ -55,32 +78,82 @@ export class InstanceManager {
     return run
   }
 
+  private launchUser(user: UserRow): LaunchUser {
+    return {
+      username: user.username,
+      port: this.portOf(user.id),
+      homePath: user.homePath,
+      dshHome: join(this.cfg.usersRoot, user.username, 'dsh'),
+    }
+  }
+
   async ensureRunning(user: UserRow): Promise<{ port: number }> {
     return this.serialize(user.id, async () => {
       const port = this.portOf(user.id)
-      if (this.stateOf(user.id) === 'ready' && this.processes.has(user.id)) return { port }
+      const proc = this.procs.get(user.id)
+      if (this.stateOf(user.id) === 'ready' && proc !== undefined && !proc.hasExited()) return { port }
       return this.start(user, port)
     })
   }
 
+  /**
+   * Mount the directory-guard bundle into the instance's `$DSH_HOME`:
+   * symlink the plugin package (the directory holding the patch file) into
+   * `profiles/node_modules` — the loader resolves a bundle's bare package name
+   * from `$DSH_HOME/profiles/` — and write the patch as the home-level user
+   * layer (`$DSH_HOME/cordis.patch.yml`), which dsh applies over every profile
+   * regardless of how the instance command spells its argv (the CLI launcher
+   * only accepts `--patch` before app flags, and the pinned-npm production
+   * command has no patch flag at all). Refreshed on every start, so a plugin
+   * update reaches instances on their next restart. Fails loud on a missing
+   * patch file: silently starting an unguarded instance is worse than refusing
+   * to start (disable explicitly with HGW_GUARD_PATCH=off).
+   */
+  private mountGuard(user: UserRow): void {
+    const patch = this.cfg.guardPatch
+    if (patch === '') return
+    if (!existsSync(patch)) throw new Error(`directory-guard patch not found: ${patch} (set HGW_GUARD_PATCH=off to disable)`)
+    const packageDir = dirname(patch)
+    const dshHome = join(this.cfg.usersRoot, user.username, 'dsh')
+    const linkParent = join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
+    const link = join(linkParent, 'dsh-directory-guard')
+    mkdirSync(linkParent, { recursive: true })
+    try {
+      if (lstatSync(link, { throwIfNoEntry: false }) !== undefined) rmSync(link, { recursive: true })
+      symlinkSync(packageDir, link, 'dir')
+      copyFileSync(patch, join(dshHome, 'cordis.patch.yml'))
+    } catch (error) {
+      throw new Error(`directory-guard mount failed for ${user.username}: ${String(error)}`)
+    }
+  }
+
+  /**
+   * Copy the company default credentials file to the instance's
+   * `$DSH_HOME/.env` (the dsh user-env layer). Refreshed every start so a
+   * rotated company key propagates; a personal key set from the instance's
+   * Settings lives in the managed `.credentials.yaml`, which outranks this
+   * layer, so seeding never overrides it.
+   */
+  private seedDefaultEnv(user: UserRow): void {
+    const source = this.cfg.defaultEnvFile
+    if (source === '') return
+    if (!existsSync(source)) throw new Error(`default env file not found: ${source} (unset HGW_DEFAULT_ENV_FILE to disable)`)
+    const dshHome = join(this.cfg.usersRoot, user.username, 'dsh')
+    mkdirSync(dshHome, { recursive: true })
+    copyFileSync(source, join(dshHome, '.env'))
+  }
+
   private async start(user: UserRow, port: number): Promise<{ port: number }> {
+    // Mount the guard first: a misconfigured guard must refuse the start
+    // before any state transition, not strand the row in 'starting'.
+    this.mountGuard(user)
+    this.seedDefaultEnv(user)
     const now = Date.now()
     this.db.prepare(`UPDATE instances SET state = 'starting', started_at = ?, last_activity_at = ? WHERE user_id = ?`)
       .run(now, now, user.id)
     this.beforeStart?.(user)
-    const proc = await this.launcher.start({
-      username: user.username,
-      port,
-      homePath: user.homePath,
-      dshHome: join(this.cfg.usersRoot, user.username, 'dsh'),
-    })
-    this.processes.set(user.id, proc)
-    proc.onExit(() => {
-      if (this.processes.get(user.id) === proc) {
-        this.processes.delete(user.id)
-        this.db.prepare(`UPDATE instances SET state = 'stopped', pid = NULL WHERE user_id = ?`).run(user.id)
-      }
-    })
+    const proc = await this.launcher.start(this.launchUser(user))
+    this.procs.set(user.id, proc)
 
     const deadline = Date.now() + this.cfg.readinessTimeoutMs
     while (Date.now() < deadline) {
@@ -118,18 +191,35 @@ export class InstanceManager {
     return this.serialize(userId, () => this.terminate(userId))
   }
 
-  /** Terminate the instance and mark the row stopped. Assumes the caller holds the per-user op slot. */
+  /**
+   * Terminate via the tracked handle, or re-attach first for an instance a
+   * previous gateway process started (systemd survivors). Assumes the caller
+   * holds the per-user op slot.
+   */
   private async terminate(userId: number): Promise<void> {
-    const proc = this.processes.get(userId)
     this.db.prepare(`UPDATE instances SET state = 'stopping' WHERE user_id = ?`).run(userId)
-    if (proc !== undefined && !proc.hasExited()) {
-      await proc.terminate(STOP_GRACE_MS)
+    let proc = this.procs.get(userId)
+    if (proc === undefined && this.launcher.attach !== undefined) {
+      const row = this.db.prepare(`SELECT id, username, home_path FROM users WHERE id = ?`).get(userId) as
+        | { id: number; username: string; home_path: string } | undefined
+      if (row !== undefined) {
+        proc = this.launcher.attach({
+          username: row.username,
+          port: this.portOf(userId),
+          homePath: row.home_path,
+          dshHome: join(this.cfg.usersRoot, row.username, 'dsh'),
+        })
+      }
     }
-    this.processes.delete(userId)
-    this.db.prepare(`UPDATE instances SET state = 'stopped', pid = NULL WHERE user_id = ?`).run(userId)
+    if (proc !== undefined) await proc.terminate(STOP_GRACE_MS)
+    this.procs.delete(userId)
+    this.markStopped(userId)
   }
 
   async stopAll(): Promise<void> {
-    await Promise.all([...this.processes.keys()].map(id => this.stop(id)))
+    // Local children must not outlive the gateway; systemd units stay up
+    // across a gateway restart by design.
+    if (this.launcher.instancesOutliveGateway) return
+    await Promise.all([...this.procs.keys()].map(id => this.stop(id)))
   }
 }

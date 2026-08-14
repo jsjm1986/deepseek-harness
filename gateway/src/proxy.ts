@@ -21,7 +21,9 @@ export function createProxyHandlers(deps: GatewayDeps): { proxy: ProxyHandler; u
   }
 
   async function ensureReady(req: IncomingMessage, res: ServerResponse | null, user: UserRow): Promise<number | null> {
-    if (instances.stateOf(user.id) !== 'ready') {
+    // Trust the live handle, not the `ready` row: an external kill or crash
+    // leaves the row stale, and proxying that port yields instance-unreachable.
+    if (!instances.isLive(user.id)) {
       const pending = instances.ensureRunning(user)
       if (res !== null) {
         if (wantsHtml(req)) { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(waitingPage()) }
@@ -61,7 +63,7 @@ export function createProxyHandlers(deps: GatewayDeps): { proxy: ProxyHandler; u
   const upgrade: UpgradeHandler = async (req, socket, head, user) => {
     let port: number
     try {
-      port = instances.stateOf(user.id) === 'ready'
+      port = instances.isLive(user.id)
         ? instances.portOf(user.id)
         : (await instances.ensureRunning(user)).port
     } catch {

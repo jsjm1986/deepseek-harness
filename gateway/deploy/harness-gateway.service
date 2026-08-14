@@ -1,0 +1,32 @@
+# DeepSeek Harness portal gateway — systemd unit (Linux production).
+# Install: copy to /etc/systemd/system/, adjust paths/env, then
+#   systemctl daemon-reload && systemctl enable --now harness-gateway
+# The gateway runs as root: it writes per-user unit files, provisions system
+# accounts, and drives systemctl. Its listen socket stays loopback-only; the
+# public entry (Nginx / Cloudflare Tunnel) terminates TLS and connects to
+# 127.0.0.1:8899.
+[Unit]
+Description=DeepSeek Harness portal gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/harness/gateway
+Environment=HGW_PORT=8899
+Environment=HGW_PUBLIC_ORIGINS=https://harness.example.com
+Environment=HGW_DATA_DIR=/srv/harness/gateway-data
+Environment=HGW_USERS_ROOT=/srv/harness/users
+Environment=HGW_LAUNCHER=systemd
+# Pinned npm dsh (never the source tree): install with
+#   npm install -g @deepseek-ai/dsh@<pinned>
+Environment=HGW_DSH_COMMAND=/usr/local/bin/dsh web --port {port}
+Environment=HGW_GUARD_PATCH=/srv/harness/plugins/dsh-directory-guard/cordis.patch.yml
+Environment=HGW_DEFAULT_ENV_FILE=/srv/harness/gateway-data/company.env
+ExecStart=/usr/local/bin/node --import tsx/esm src/index.ts
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

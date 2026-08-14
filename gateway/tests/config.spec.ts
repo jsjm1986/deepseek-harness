@@ -22,6 +22,21 @@ describe('loadConfig', () => {
     expect(cfg.dshCommand).toContain('/opt/harness/apps/cli/src/bin.ts')
   })
 
+  it('resolves the tsx loader to an absolute file for the real repo (instances spawn outside it)', () => {
+    const cfg = loadConfig({})
+    const importIndex = cfg.dshCommand.indexOf('--import')
+    const loader = cfg.dshCommand[importIndex + 1] as string
+    expect(isAbsolute(loader)).toBe(true)
+    expect(loader).toMatch(/tsx.*esm.*\.mjs$/)
+  })
+
+  it('derives the directory-guard patch from the repo root, honors overrides, and accepts off', () => {
+    expect(loadConfig({ HGW_DSH_REPO_ROOT: '/opt/harness' }).guardPatch)
+      .toBe('/opt/harness/plugins/dsh-directory-guard/cordis.patch.yml')
+    expect(loadConfig({ HGW_GUARD_PATCH: '/x/guard.yml' }).guardPatch).toBe('/x/guard.yml')
+    expect(loadConfig({ HGW_GUARD_PATCH: 'off' }).guardPatch).toBe('')
+  })
+
   it('honors HGW_ environment overrides', () => {
     const cfg = loadConfig({
       HGW_PORT: '9001',
