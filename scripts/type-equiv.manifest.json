@@ -68,6 +68,16 @@
     },
     {
       "doc": "docs/subsystems/llm-streaming.md",
+      "symbol": "ModelAccessTarget",
+      "source": "packages/llm/model-access/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/llm-streaming.md",
+      "symbol": "ModelAccessDecision",
+      "source": "packages/llm/model-access/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmModelContext",
       "source": "packages/llm/llm/src/types.ts"
     },

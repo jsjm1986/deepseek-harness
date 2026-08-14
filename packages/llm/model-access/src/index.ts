@@ -20,7 +20,11 @@ export type ModelAccessDecision =
 
 /** Runtime face published as `ctx.modelAccess`. Implementations may be plain objects. */
 export interface ModelAccessService {
-  /** Decide whether one exact route is authorized. */
+  /**
+   * Decide whether one exact route is authorized.
+   * @param target - provider and provider-owned model id.
+   * @returns the authorization decision and a display-safe denial reason.
+   */
   decide(target: ModelAccessTarget): ModelAccessDecision
 }
 

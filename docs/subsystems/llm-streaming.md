@@ -172,7 +172,12 @@ type StreamChunk =
   | { type: 'reasoning-delta'; index: number; text: string }
   | { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
   | { type: 'block-end'; index: number; block: ContentBlock }
-  | { type: 'usage'; usage: TokenUsage }
+  | {
+    type: 'usage'
+    usage: TokenUsage
+    /** Non-secret credential-resolution source used for cost attribution. */
+    credentialSource?: string
+  }
   | {
     type: 'finish'
     reason: FinishReason
@@ -316,6 +321,23 @@ One model call is a fully-assembled `GenerateOptions`. The adapter answers with 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
 Provider and model discovery uses small provider-neutral descriptors. A model catalog is advisory: routing still keys on a registered provider, and an adapter may accept unlisted model ids.
+
+Deployment policy can authorize an exact `(provider, model)` route. Consumers use the same decision when presenting catalogs, selecting a model, and executing a call; if no policy service is mounted, the deployment has no model authorization filter.
+
+```ts type-equiv
+/** Exact provider/model route presented to the policy. */
+interface ModelAccessTarget {
+  provider: string
+  model: string
+}
+```
+
+```ts type-equiv
+/** Authorization decision for one exact model route. */
+type ModelAccessDecision =
+  | { allowed: true }
+  | { allowed: false; reason: string }
+```
 
 Registering an adapter returns a handle: the disposer, plus the atomic route replacement a plugin whose route set is user-configurable needs.
 
@@ -836,6 +858,23 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
 Source: [`packages/llm/llm/src/index.ts:284`](../../packages/llm/llm/src/index.ts)
+
+<a id="ctxmodelaccess--modelaccessservice"></a>
+
+### `ctx.modelAccess` — `ModelAccessService`
+
+Runtime face published as `ctx.modelAccess`. Implementations may be plain objects.
+
+```ts cordis-catalog
+/**
+ * Decide whether one exact route is authorized.
+ * @param target - provider and provider-owned model id.
+ * @returns the authorization decision and a display-safe denial reason.
+ */
+decide(target: ModelAccessTarget): ModelAccessDecision
+```
+
+Source: [`packages/llm/model-access/src/index.ts:22`](../../packages/llm/model-access/src/index.ts)
 
 <a id="llm-events"></a>
 

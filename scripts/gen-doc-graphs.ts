@@ -115,6 +115,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Adapters register provider implementations; the loop and compaction call the provider-neutral stream service.',
   },
   {
+    key: 'modelAccess',
+    pkg: 'model-access',
+    title: 'Model-route authorization policy',
+    mode: 'seam',
+    consumers: ['apiproxy'],
+    note: 'An optional deployment-owned policy decides exact provider/model routes; the gateway instance supplies the implementation, while apiproxy uses the decision for catalog and selection checks.',
+  },
+  {
     key: 'tokenMeter',
     pkg: 'token-meter',
     title: 'Replay token measurement',

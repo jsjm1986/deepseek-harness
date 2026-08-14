@@ -2,8 +2,11 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import { UsageAlert } from './UsageAlert.tsx'
 
+/** One durable quota threshold crossing returned by the Gateway account API. */
 export interface UsageAlert { metric: 'tokens' | 'company-cost'; threshold: 80 | 100; createdAt: number }
+/** Account usage fields required by the shell alert overlay. */
 export interface UsageView { month: string; alerts: UsageAlert[] }
+/** Apply-side loader injected into the usage-alert presentation component. */
 export interface UsageAlertInjected { loadUsage: () => Promise<UsageView | null> }
 
 export const inject = ['slots']
