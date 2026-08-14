@@ -80,6 +80,8 @@ export type DirectoryPickingInjected = {
    * List one host directory level. Absent `path` is the browse default
    * (OS home, or grant roots when the host has a grants file). Optional so a
    * composition that never injects it skips the existing-workspace grant check.
+   * Native Hosts that inject this and then reject with
+   * `directory-picker-unavailable` also skip the check.
    */
   listDirectory?: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
 }
