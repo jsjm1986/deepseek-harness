@@ -9,14 +9,14 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   width: calc(100% + 8px);
   height: 34px;
-  margin: 4px -4px 4px;
+  margin: var(--dsw-space-1) -4px var(--dsw-space-1);
   padding: 6px 2px 6px 10px;
   box-sizing: border-box;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: transparent;
   cursor: pointer;
   overflow: hidden;
@@ -34,7 +34,7 @@
 .trigger.rail {
   width: 36px;
   height: 36px;
-  margin: 8px 0 10px;
+  margin: var(--dsw-space-2) 0 10px;
   justify-content: center;
   gap: 0;
   padding: 0;
@@ -98,13 +98,13 @@
   flex-direction: column;
   gap: 18px;
   width: 188px;
-  padding: 22px 12px 0;
+  padding: 22px var(--dsw-space-3) 0;
   box-sizing: border-box;
 }
 
 /* Title row (figma 501:29959): 16/500 lh24, 12px side padding. */
 .navTitle {
-  padding: 0 12px;
+  padding: 0 var(--dsw-space-3);
   font-size: 16px;
   line-height: 24px;
   font-weight: 500;
@@ -115,7 +115,7 @@
 .navList {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--dsw-space-1);
 }
 
 /* Nav cell (figma .Setting-nav-cell 501:29962): 164x40, r12, pad
@@ -123,12 +123,12 @@
 .navCell {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   height: 40px;
-  padding: 9px 16px 9px 12px;
+  padding: 9px var(--dsw-space-4) 9px var(--dsw-space-3);
   box-sizing: border-box;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: transparent;
   cursor: pointer;
   font-family: inherit;
@@ -173,9 +173,9 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   height: 54px;
-  padding: 20px 14px 8px 10px;
+  padding: var(--dsw-space-5) 14px var(--dsw-space-2) 10px;
   box-sizing: border-box;
 }
 
@@ -184,7 +184,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   margin-left: auto;
 }
 
@@ -211,7 +211,7 @@
 .options {
   flex: 1;
   min-height: 0;
-  padding: 0 24px 24px;
+  padding: 0 var(--dsw-space-6) var(--dsw-space-6);
   overflow-y: auto;
 }
 
@@ -223,4 +223,50 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+/* Compact viewports (below the 768 medium boundary, docs/web-styling.md):
+   the centered card fills the screen and the nav rail folds into a
+   horizontally scrolling tab strip above the content column. */
+@media (max-width: 767px) {
+  .overlay {
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .panel {
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    border-radius: 0;
+  }
+
+  .nav {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    gap: var(--dsw-space-2);
+    padding: calc(var(--dsw-space-3) + var(--dsw-safe-top)) var(--dsw-space-3) 0;
+    overflow-x: auto;
+  }
+
+  .navTitle {
+    display: none;
+  }
+
+  .navList {
+    flex-direction: row;
+    gap: var(--dsw-space-1);
+  }
+
+  .navCell {
+    height: 36px;
+    padding: 6px var(--dsw-space-3);
+    white-space: nowrap;
+  }
+
+  .options {
+    padding: 0 var(--dsw-space-4) calc(var(--dsw-space-4) + var(--dsw-safe-bottom));
+  }
 }

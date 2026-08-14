@@ -14,7 +14,7 @@
   width: max-content;
   max-width: 50vw;
   padding: 3px 7px;
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-tooltip-bg);
   color: var(--dsw-static-neutral-bluish-00);
   font-size: 13px;
@@ -45,5 +45,13 @@
 @media (prefers-reduced-motion: reduce) {
   .bubble {
     animation: none;
+  }
+}
+
+/* Touch-primary devices have no hover: the bubble would only ghost in from
+   tap-driven focus, so it stays hidden (anchors keep their aria-labels). */
+@media (pointer: coarse) {
+  .bubble {
+    display: none;
   }
 }

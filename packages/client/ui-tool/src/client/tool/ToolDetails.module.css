@@ -18,8 +18,8 @@
 
 .code {
   margin: 0;
-  padding: 16px;
-  border-radius: 12px;
+  padding: var(--dsw-space-4);
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-alias-markdown-code-block);
   font-family: var(--ds-font-family-code);
   font-size: 13px;
@@ -39,7 +39,7 @@
 }
 
 .empty {
-  padding: 8px 0;
+  padding: var(--dsw-space-2) 0;
   font-size: 13px;
   line-height: 20px;
   color: var(--dsw-alias-label-tertiary);

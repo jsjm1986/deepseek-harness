@@ -20,6 +20,14 @@ Global style sheets belong in `ui-theme/src/styles/`. Component styles live besi
 - Put presentation in CSS. Inline React styles may pass component-local custom-property values but must not encode theme branches.
 - Preserve keyboard focus visibility and reduced-motion behavior when adding transitions or hover-only controls.
 
+## Responsive layout
+
+The shell stamps its active viewport class on the frame root as `data-viewport`: `compact` below 768px, `medium` below 1024px, `expanded` below 1440px, and `wide` from there up, with the thresholds in [`viewport.ts`](../packages/client/ui-layout/src/client/viewport.ts). Component CSS inside the frame branches on that stamp (`[data-viewport='compact'] &`) instead of measuring windows or hardcoding width breakpoints.
+
+A panel that adapts to its own width rather than the whole frame declares `container-type: inline-size` on its root and queries it anonymously (`@container (max-width: …)`) at the shared step widths 480, 560, and 720. CSS Modules hash `container-name` per module, so cross-module queries stay anonymous; never declare `container-type` on an ancestor of `position: fixed` content it does not own, because layout containment re-parents the fixed element's containing block.
+
+Take spacing and radii from the metric tokens (`--dsw-space-*`, `--dsw-radius-*`) and device insets from `--dsw-safe-*` (metrics.css). On coarse pointers, hover-revealed controls need an always-visible `@media (pointer: coarse)` fallback and interactive targets keep at least `--dsw-touch-target`; hover-only affordances live under `@media (hover: hover)`. Portaled surfaces never see the frame stamp — they branch in JS with ui-primitives' `useMediaQuery` against the same thresholds.
+
 ## Changing the system
 
 Add or change a shared token in the owning `ui-theme` sheet, then consume its semantic alias from feature packages. Update the owning package reference when a public styling contract changes. Visual behavior follows the [testing policy](testing.md); the [styling-system Agent Note](../.agents/notes/implemented/process/2026-07-19-web-styling-system.md) records framework rationale.

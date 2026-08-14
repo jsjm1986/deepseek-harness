@@ -45,7 +45,7 @@
   flex: none;
   width: 2px;
   height: 2px;
-  margin: 0 8px;
+  margin: 0 var(--dsw-space-2);
   border-radius: 1px;
   background: var(--dsw-alias-label-caption);
 }
@@ -66,7 +66,7 @@
 }
 
 .thinkBody {
-  padding: 4px 0 4px 22px;
+  padding: var(--dsw-space-1) 0 var(--dsw-space-1) 22px;
   color: var(--dsw-alias-label-tertiary);
   font-size: 14px;
   line-height: 24px;

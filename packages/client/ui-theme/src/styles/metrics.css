@@ -1,0 +1,32 @@
+/* Layout metric tokens shared by every client package: the spacing scale
+ * (4px base step), corner radii, device safe-area insets, and the minimum
+ * coarse-pointer target size. Theme-invariant, so they live on :root while
+ * the color sheets vary on body[data-ds-dark-theme]. Component CSS consumes
+ * these instead of hardcoding px values (docs/web-styling.md). */
+:root {
+  --dsw-space-1: 4px;
+  --dsw-space-2: 8px;
+  --dsw-space-3: 12px;
+  --dsw-space-4: 16px;
+  --dsw-space-5: 20px;
+  --dsw-space-6: 24px;
+  --dsw-space-7: 28px;
+  --dsw-space-8: 32px;
+
+  --dsw-radius-xs: 4px;
+  --dsw-radius-sm: 6px;
+  --dsw-radius-md: 8px;
+  --dsw-radius-lg: 12px;
+  --dsw-radius-xl: 16px;
+  --dsw-radius-full: 9999px;
+
+  /* 0px everywhere except notched/home-indicator devices; the env() values
+     only become nonzero under viewport-fit=cover (apps/web/index.html). */
+  --dsw-safe-top: env(safe-area-inset-top, 0px);
+  --dsw-safe-right: env(safe-area-inset-right, 0px);
+  --dsw-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --dsw-safe-left: env(safe-area-inset-left, 0px);
+
+  /* Minimum interactive target edge on coarse pointers (WCAG 2.5.5-derived). */
+  --dsw-touch-target: 44px;
+}

@@ -45,12 +45,12 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   height: 36px;
-  padding-left: 4px;
-  margin-bottom: 4px;
+  padding-left: var(--dsw-space-1);
+  margin-bottom: var(--dsw-space-1);
   box-sizing: border-box;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
 }
@@ -109,7 +109,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   max-width: 60px;
   opacity: 1;
   overflow: hidden;
@@ -159,7 +159,7 @@
   width: calc(100% + 4px);
   height: 30px;
   margin-inline: -2px;
-  padding: 0 4px 0 0;
+  padding: 0 var(--dsw-space-1) 0 0;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 10px;
   background: transparent;
@@ -245,7 +245,7 @@
 .rail .sectionHeader {
   gap: 0;
   padding-left: 0;
-  margin-bottom: 12px;
+  margin-bottom: var(--dsw-space-3);
   justify-content: flex-start;
 }
 
@@ -263,7 +263,7 @@
   width: 36px;
   height: 36px;
   padding: 0;
-  margin: 0 0 12px;
+  margin: 0 0 var(--dsw-space-3);
   gap: 0;
   border-color: transparent;
   background: transparent;
@@ -287,7 +287,7 @@
   flex-direction: column;
   margin-left: -4px;
   margin-right: calc(-1 * var(--dsh-session-list-edge-inset));
-  padding-left: 4px;
+  padding-left: 4px; /* cancels the -4px pull above — a literal pair, not spacing-scale usage */
   /* The list remains the scroll clip. This seat stays visible so the
      absolutely positioned first-boundary marker can occupy the header gap. */
   overflow: visible;
@@ -339,7 +339,7 @@
   overflow-y: auto;
   margin-left: -4px;
   margin-right: var(--dsh-session-list-scrollbar-offset);
-  padding-left: 4px;
+  padding-left: 4px; /* cancels the -4px pull above — a literal pair, not spacing-scale usage */
   padding-right: calc(
     var(--dsh-session-list-edge-inset)
     - var(--dsh-session-list-scrollbar-width)
@@ -347,7 +347,7 @@
   );
   /* Clears the compact bottom fade overlay: at scroll end the last row sits
      above the gradient instead of under it. */
-  padding-bottom: 16px;
+  padding-bottom: var(--dsw-space-4);
   scrollbar-gutter: stable;
 }
 
@@ -359,7 +359,7 @@
 
 .searchStatus,
 .searchWarning {
-  padding: 10px 12px;
+  padding: 10px var(--dsw-space-3);
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
@@ -375,7 +375,7 @@
 }
 
 .groupSection + .groupSection {
-  margin-top: 4px;
+  margin-top: 4px; /* asserted literally by the spacing-contract spec beside the 2px row gap */
 }
 
 .listTopDropIndicator,
@@ -430,8 +430,8 @@
   width: 100%;
   height: 28px;
   border: none;
-  border-radius: 8px;
-  padding: 0 12px 0 28px;
+  border-radius: var(--dsw-radius-md);
+  padding: 0 var(--dsw-space-3) 0 var(--dsw-space-7);
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -449,7 +449,7 @@
 }
 
 .empty {
-  padding: 16px 12px;
+  padding: var(--dsw-space-4) var(--dsw-space-3);
   color: var(--dsw-alias-label-tertiary);
   font-size: 13px;
 }
@@ -475,7 +475,7 @@
 }
 
 .renameError {
-  margin-top: 8px;
+  margin-top: var(--dsw-space-2);
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-state-error-primary);

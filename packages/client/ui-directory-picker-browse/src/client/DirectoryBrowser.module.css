@@ -32,9 +32,9 @@
 .header {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   flex: none;
-  padding: 16px 14px 8px 24px;
+  padding: var(--dsw-space-4) 14px var(--dsw-space-2) var(--dsw-space-6);
   border-bottom: 1px solid var(--dsw-alias-border-l3);
 }
 
@@ -57,13 +57,13 @@
 .crumbBar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   box-sizing: border-box;
   min-height: 24px;
   margin-left: -9px;
-  padding: 0 8px;
+  padding: 0 var(--dsw-space-2);
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
 }
 
 /* Lit by the affordance the row belongs to, never by a crumb: a crumb's hover
@@ -89,7 +89,7 @@
   /* 12px of row gap on each side of the divider; the left side reads wider
    * by the column's trailing 8px scrollbar clearance, which is deliberate —
    * the thumb needs that room, the right pane's rows do not. */
-  gap: 12px;
+  gap: var(--dsw-space-3);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -97,7 +97,7 @@
 .crumbTrail {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
@@ -107,7 +107,7 @@
 .crumbSeat {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   flex: none;
   min-width: 0;
 }
@@ -199,7 +199,7 @@
   position: relative;
   /* Right inset is slimmer than the left: the trailing column's own 8px
    * scrollbar clearance makes up the optical difference. */
-  padding: 16px 16px 16px 24px;
+  padding: var(--dsw-space-4) var(--dsw-space-4) var(--dsw-space-4) var(--dsw-space-6);
 }
 
 /* Columns split the row evenly around the divider (a solo column takes the
@@ -216,7 +216,7 @@
   /* The themed scrollbar occupies the column's edge (styled scrollbars are
    * classic, gutter-taking ones); the extra clearance keeps the row pills
    * clear of the thumb. */
-  padding-right: 8px;
+  padding-right: var(--dsw-space-2);
 }
 
 .divider {
@@ -234,12 +234,12 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   height: 28px;
   flex: none;
-  padding: 4px;
+  padding: var(--dsw-space-1);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -284,7 +284,7 @@
 
 .status,
 .error {
-  padding: 4px;
+  padding: var(--dsw-space-1);
   /* The loading pill occupies the opposite corner while a stale status stays
    * visible. Reserve its widest localized footprint so wrapped text cannot
    * run underneath it on a narrow card. */
@@ -314,7 +314,7 @@
   position: absolute;
   right: 16px;
   bottom: 8px;
-  padding: 2px 8px;
+  padding: 2px var(--dsw-space-2);
   background: var(--dsw-alias-bg-layer-2);
 }
 
@@ -326,9 +326,9 @@
   /* Narrow viewports wrap the confirm/cancel pair onto their own row
    * instead of clipping Open past the card's hidden overflow. */
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   flex: none;
-  padding: 16px 24px;
+  padding: var(--dsw-space-4) var(--dsw-space-6);
   border-top: 1px solid var(--dsw-alias-border-l3);
 }
 
@@ -339,7 +339,7 @@
 .showHiddenToggle {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   border: none;
   background: transparent;
   padding: 0;
@@ -382,8 +382,8 @@
 .createBody {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 22px 24px 20px;
+  gap: var(--dsw-space-3);
+  padding: 22px var(--dsw-space-6) var(--dsw-space-5);
 }
 
 .createTitle {
@@ -423,6 +423,6 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--dsw-space-2);
+  margin-top: var(--dsw-space-2);
 }

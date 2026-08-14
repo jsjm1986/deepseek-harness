@@ -2,7 +2,9 @@
 
 [English](README.md) | 中文
 
-纯 React 原子组件（零 cordis）：StateDot、DisclosureRow、ic_ds_* 图标、Button/Pill/Menu/Modal/Input、Toast 短时横幅、OnboardingSurface 首次使用接管层（portal 到 body 的遮罩加不透明展示层，在且仅在自身生命周期内保持 `#root` 为 `inert`）、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` 钩子（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、TerminalBlock、DiffBlock、ReadBlock、SearchBlock，以及 WebBlock。
+纯 React 原子组件（零 cordis）：StateDot、DisclosureRow、ic_ds_* 图标、Button/Pill/Menu/Modal/Input、Toast 短时横幅、OnboardingSurface 首次使用接管层（portal 到 body 的遮罩加不透明展示层，在且仅在自身生命周期内保持 `#root` 为 `inert`）、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` 钩子（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、供 portal 表面与指针能力分支使用的 `useMediaQuery` 订阅钩子、TerminalBlock、DiffBlock、ReadBlock、SearchBlock，以及 WebBlock。
+
+这些原子组件承载 [web-styling](../../../docs/web-styling.md) 规定的触控基线：compact 视口下 Modal 变为底部面板、Menu 子菜单改为内联展开；粗指针设备上菜单行与关闭控件放大到共享触控目标、Input 文字保持 16px（避免 iOS 聚焦缩放）、Tooltip 保持隐藏（锚点保留各自的 aria-label）。
 
 ## 悬浮卡片
 

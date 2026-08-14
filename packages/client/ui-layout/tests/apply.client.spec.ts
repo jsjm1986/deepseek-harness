@@ -8,7 +8,7 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as themeApply, inject as themeInject, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
@@ -18,6 +18,10 @@ import * as invariant from '@deepseek-ai/dsh-client-ui-layout/invariant'
 
 beforeEach(() => {
   document.head.querySelectorAll('meta[name="theme-color"]').forEach((node) => { node.remove() })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 async function bench() {
@@ -37,7 +41,7 @@ async function bench() {
 
 describe('ui-layout client apply', () => {
   it('declares its service dependencies', () => {
-    expect(inject).toEqual(['slots', 'theme'])
+    expect(inject).toEqual(['slots', 'theme', 'locale'])
   })
 
   it('provides ctx.layout and registers AppFrame into root with the three child declarations', async () => {
@@ -90,6 +94,34 @@ describe('ui-layout client apply', () => {
     theme.setTheme('dark')
     expect(document.documentElement.style.colorScheme).toBe('')
     expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
+  })
+
+  it('visual viewport variable tracks resize, folds pinch scale out, and unwinds on dispose', async () => {
+    const listeners = new Set<() => void>()
+    const viewportStub = {
+      height: 800,
+      scale: 1,
+      addEventListener: (_type: string, fn: () => void) => { listeners.add(fn) },
+      removeEventListener: (_type: string, fn: () => void) => { listeners.delete(fn) },
+    }
+    vi.stubGlobal('visualViewport', viewportStub)
+    const { ctx } = await bench()
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const readVar = () => document.documentElement.style.getPropertyValue('--dsw-viewport-height')
+    expect(readVar()).toBe('800px')
+    viewportStub.height = 500
+    listeners.forEach((fn) => { fn() })
+    expect(readVar()).toBe('500px')
+    // Pinch zoom shrinks the visual height while scale rises; the product
+    // height * scale keeps tracking the layout viewport.
+    viewportStub.height = 250
+    viewportStub.scale = 2
+    listeners.forEach((fn) => { fn() })
+    expect(readVar()).toBe('500px')
+    await fiber.dispose()
+    expect(readVar()).toBe('')
+    expect(listeners.size).toBe(0)
   })
 
   it('teardown unwinds the service, the root registration, and the child declarations', async () => {

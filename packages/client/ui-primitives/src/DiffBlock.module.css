@@ -9,7 +9,7 @@
   --dsl-diff-line-height: 22px;
 
   position: relative;
-  margin: 16px 0;
+  margin: var(--dsw-space-4) 0;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-markdown-code-block);
   border-radius: var(--dsl-diff-radius);
@@ -34,7 +34,7 @@
 }
 
 .body {
-  padding: 12px 14px;
+  padding: var(--dsw-space-3) 14px;
   font: var(--dsw-font-markdown-code-block);
   overflow-x: auto;
   overflow-y: hidden;
@@ -101,7 +101,7 @@
 /* The change summary, dim under the body: `└ +A -R · N file(s)`, the same
    footer the TUI transcript's diff card draws. */
 .footer {
-  padding: 0 14px 12px;
+  padding: 0 14px var(--dsw-space-3);
   font: var(--dsw-font-markdown-code-block);
   color: var(--dsw-alias-label-tertiary);
 }

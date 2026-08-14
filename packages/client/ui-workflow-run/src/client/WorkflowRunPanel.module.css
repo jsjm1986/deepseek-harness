@@ -11,8 +11,8 @@
   width: 100%;
   min-width: 0;
   height: 32px;
-  padding: 0 8px;
-  border-radius: 8px;
+  padding: 0 var(--dsw-space-2);
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-module-platform);
 }
 
@@ -60,7 +60,7 @@
   flex: none;
   height: 20px;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   overflow: hidden;
   font-size: 11px;
   font-weight: 510;
@@ -82,7 +82,7 @@
 .phaseHeader:focus-visible {
   outline: 2px solid var(--dsw-alias-state-business-primary);
   outline-offset: -2px;
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
 }
 
 .phaseLeading {
@@ -142,9 +142,9 @@
 .phaseList {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   min-width: 0;
-  padding: 4px 0 0 16px;
+  padding: var(--dsw-space-1) 0 0 var(--dsw-space-4);
 }
 
 .phase {
@@ -156,20 +156,20 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  padding: 0 0 0 16px;
+  padding: 0 0 0 var(--dsw-space-4);
 }
 
 .memberRow,
 .memberButton {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   width: 100%;
   min-width: 0;
   min-height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font: inherit;
@@ -213,7 +213,7 @@
   height: 24px;
   align-items: center;
   padding: 0 2px;
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
 }
 
 .memberLabel {
@@ -246,9 +246,10 @@
   padding: 0;
 }
 
-@media (max-width: 560px) {
+/* Compact-viewport tightening (below the 768 medium boundary, docs/web-styling.md). */
+@media (max-width: 767px) {
   .phaseList,
   .members {
-    padding-left: 12px;
+    padding-left: var(--dsw-space-3);
   }
 }

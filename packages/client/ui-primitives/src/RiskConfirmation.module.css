@@ -39,7 +39,7 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin-top: 20px;
+  margin-top: var(--dsw-space-5);
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
   line-height: 22px;

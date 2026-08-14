@@ -1,27 +1,35 @@
 /**
- * Three-column shell frame, registered into the built-in 'root' slot (the web
- * shell renders only 'root'). Owns the grid tracks (sidebar | center |
- * details), the drag handles (pointer capture + rAF throttle), the concession
- * chain (columns.ts), and the child-slot render decisions: the sidebar slot
- * renders HERE with live parameters from the concession solve, and the
- * session-aware occupants render in fixed column positions; strict entries
- * gate themselves on current-session availability while session-maybe
- * entries retain identity. Pure component: everything arrives
- * through the three framework shares — zero cordis or framework imports,
- * zero self-made hooks.
+ * Shell frame, registered into the built-in 'root' slot (the web shell
+ * renders only 'root'). One frame, three viewport modes (viewport.ts):
+ * expanded/wide keep the three grid columns (sidebar | center | details),
+ * the drag handles (pointer capture + rAF throttle), and the concession
+ * chain (columns.ts); medium keeps the rail-or-squeezed sidebar column but
+ * lifts details into a right-edge overlay above the center; compact renders
+ * a single column under a shell topbar, with the sidebar as a left drawer
+ * and details as a full-frame overlay, both scrim-dismissed. Slots stay
+ * mounted across open/close inside one mode (overlays hide by transform);
+ * crossing a mode boundary may re-seat the sidebar and details subtrees.
+ * The sidebar slot renders with live parameters from the mode decision, and
+ * the session-aware occupants render in fixed positions; strict entries gate
+ * themselves on current-session availability while session-maybe entries
+ * retain identity. Pure component: everything arrives through the framework
+ * shares — zero cordis or framework imports, zero self-made hooks.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
-import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import { computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
+import type { CSSProperties, ReactNode } from 'react'
+import type { PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import { IconPanelLeftOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { computeColumns, DETAILS_DEFAULT, SIDEBAR_DEFAULT } from './columns.ts'
+import { viewportClassOf } from './viewport.ts'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
 
-/** Full composed props: runtime share + child-slot render share + store share. */
+/** Full composed props: runtime share + child-slot render share + store share + locale seat. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
   & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
+  & PropsLocale<'layout'>
 
 /** Center column grid item (session-body building block). */
 function CenterColumn(props: { children?: ReactNode }) {
@@ -83,20 +91,27 @@ function DragHandle(props: { side: 'sidebar' | 'details'; left: number; onStart:
   )
 }
 
-/** The three-column frame (see module doc). */
+/** The mode-switching shell frame (see module doc). */
 export function AppFrame({
   useStore,
   useSessions,
   actions,
   renderSlot,
+  t,
 }: AppFrameProps) {
   const panels = useStore(s => s)
   const detailsSession = useSessions((s) => {
     const current = s.current
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
   })
+  const currentSession = useSessions(s => s.current)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
+  const mode = viewportClassOf(viewport)
+  // compact and medium lift details out of the grid into an overlay; the
+  // sidebar column survives into medium (rail or squeezed-open) while
+  // compact re-seats it as the drawer.
+  const overlayPanels = mode === 'compact' || mode === 'medium'
 
   const lastSession = useRef(detailsSession)
   useLayoutEffect(() => {
@@ -106,6 +121,28 @@ export function AppFrame({
     }
     lastSession.current = detailsSession
   }, [actions, detailsSession])
+
+  // Compact session navigation dismisses the drawer: tapping a session in it
+  // must land on the conversation, not stay under the still-open drawer.
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+  const lastNavigation = useRef(currentSession)
+  useEffect(() => {
+    if (lastNavigation.current === currentSession) return
+    lastNavigation.current = currentSession
+    if (modeRef.current === 'compact') actions.collapseNarrow()
+  }, [actions, currentSession])
+
+  // Shrinking INTO compact drops the narrow override: a medium squeeze-open
+  // sidebar must not reappear as the modal drawer blocking the content
+  // (narrow itself does not flip across that boundary, so setNarrow cannot).
+  const lastMode = useRef(mode)
+  useEffect(() => {
+    if (lastMode.current === mode) return
+    const entered = mode === 'compact' && lastMode.current !== 'compact'
+    lastMode.current = mode
+    if (entered) actions.collapseNarrow()
+  }, [actions, mode])
 
   // Track the frame's own box (not the window): rAF-throttled ResizeObserver.
   useEffect(() => {
@@ -127,21 +164,25 @@ export function AppFrame({
     }
   }, [])
 
-  // Narrow viewports auto-collapse the sidebar; the store mirror keeps
-  // toggleSidebar's semantics right (narrow toggles flip the manual
-  // re-expand override, stores.ts). Collapsed is decided here, so the
-  // solver stays breakpoint-free: a narrow re-expand passes the preference
+  // Narrow viewports (compact + medium) auto-collapse the sidebar; the store
+  // mirror keeps toggleSidebar's semantics right (narrow toggles flip the
+  // manual open override, stores.ts). Collapsed is decided here, so the
+  // solver stays breakpoint-free: a medium re-expand passes the preference
   // (or the default when the wide preference is closed) and the center
-  // absorbs the squeeze.
-  const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
+  // absorbs the squeeze, while compact renders the override as the drawer.
+  const narrow = overlayPanels
   useEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
   const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
   const sidebarPreference = sidebarCollapsed
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+  // Overlay modes keep details out of the track solve (the chain would
+  // auto-close it against the narrow width); its open state is the overlay's.
+  const cols = computeColumns(viewport, sidebarPreference, overlayPanels || detailsSession === undefined ? 0 : panels.details)
   const colsRef = useRef(cols)
   colsRef.current = cols
+  const drawerOpen = mode === 'compact' && panels.narrowExpanded
+  const detailsOpen = overlayPanels && detailsSession !== undefined && panels.details > 0
 
   // The drag base is the rendered width captured at drag start (grabbing a
   // concession-clamped panel must not jump back to the stored preference);
@@ -165,36 +206,87 @@ export function AppFrame({
     <div
       ref={frameRef}
       className={css.frame}
-      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
+      // The compact template is CSS-owned (topbar row + single column); the
+      // wider modes drive their column tracks from the mode decision here.
+      style={mode === 'compact'
+        ? undefined
+        : {
+          gridTemplateColumns: overlayPanels
+            ? `${cols.sidebar}px minmax(0, 1fr)`
+            : `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px`,
+        }}
+      data-viewport={mode}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
-      data-details-collapsed={cols.details === 0 || undefined}
+      data-details-collapsed={(overlayPanels ? !detailsOpen : cols.details === 0) || undefined}
       data-dragging={dragging || undefined}
     >
-      <div className={css.sidebarCol}>
-        {/* Render-site slot call with live concession output: a closed
-            sidebar keeps the mounted slot at the compact-rail width, and the
-            component sees its rendered state as owner params decided here
-            (collapsed follows the resolved rail, so a derived auto-collapse
-            renders the rail UI too). */}
-        {renderSlot('sidebar', {
-          collapsed: sidebarCollapsed,
-          width: cols.sidebar,
-        })}
-      </div>
-      <>
-        {/* Both column occupants stay at fixed tree positions from first
-            paint — no loading gate: a bare status line reads worse than
-            the shell's own pending rendering. The conversation
-            is session-maybe; the strict details entry naturally renders
-            empty while no session is current. */}
-        <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
-        <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
-      </>
+      {mode === 'compact' && (
+        <div className={css.topbar}>
+          {/* The compact mode has no rail, so the shell owns the drawer
+              affordance; ui-sidebar's own toggle serves the wider modes. */}
+          <button
+            type="button"
+            className={css.topbarToggle}
+            aria-label={drawerOpen ? t('drawer.close') : t('drawer.open')}
+            aria-expanded={drawerOpen}
+            onClick={() => { actions.toggleSidebar() }}
+          >
+            <IconPanelLeftOutline16 />
+          </button>
+        </div>
+      )}
+      {mode === 'compact'
+        ? (
+          <>
+            {/* Drawer pair: the scrim owns pointer dismissal (keyboard users
+                  close through the topbar toggle); the drawer keeps the sidebar
+                  slot mounted across open/close and slides by transform. */}
+            <div className={css.scrim} data-open={drawerOpen || undefined} aria-hidden onClick={() => { actions.collapseNarrow() }} />
+            <div className={css.drawer} data-open={drawerOpen || undefined}>
+              {renderSlot('sidebar', { collapsed: false, width: SIDEBAR_DEFAULT })}
+            </div>
+          </>
+        )
+        : (
+          <div className={css.sidebarCol}>
+            {/* Render-site slot call with live concession output: a closed
+                  sidebar keeps the mounted slot at the compact-rail width, and the
+                  component sees its rendered state as owner params decided here
+                  (collapsed follows the resolved rail, so a derived auto-collapse
+                  renders the rail UI too). */}
+            {renderSlot('sidebar', {
+              collapsed: sidebarCollapsed,
+              width: cols.sidebar,
+            })}
+          </div>
+        )}
+      {/* Both occupants stay at fixed tree positions from first paint — no
+          loading gate: a bare status line reads worse than the shell's own
+          pending rendering. The conversation is session-maybe; the strict
+          details entry naturally renders empty while no session is current. */}
+      <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
+      {overlayPanels
+        ? (
+          <>
+            <div className={css.scrim} data-open={detailsOpen || undefined} aria-hidden onClick={() => { actions.closeDetails() }} />
+            <div
+              className={css.detailsOverlay}
+              data-open={detailsOpen || undefined}
+              // Medium caps the overlay at the details contract default;
+              // compact stretches it edge to edge (AppFrame.module.css).
+              style={{ '--frame-details-overlay-width': `${DETAILS_DEFAULT}px` } as CSSProperties}
+            >
+              {renderSlot('details', {})}
+            </div>
+          </>
+        )
+        : <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>}
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}
       </div>
-      {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {/* The collapsed rail is fixed-width and the compact drawer is not a
+          column: resize handles belong to the wider modes only. */}
+      {mode !== 'compact' && !sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )

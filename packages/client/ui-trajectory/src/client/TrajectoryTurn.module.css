@@ -12,5 +12,5 @@
   width: 100%;
   max-width: 880px;
   margin: 0 auto;
-  padding: 8px 16px 22px;
+  padding: var(--dsw-space-2) var(--dsw-space-4) 22px;
 }

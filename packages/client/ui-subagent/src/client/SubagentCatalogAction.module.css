@@ -9,7 +9,7 @@
   min-height: 28px;
   padding: 3px 2px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
@@ -52,9 +52,9 @@
   width: 336px;
   max-width: min(400px, calc(100vw - 32px));
   max-height: min(560px, calc(100vh - 140px));
-  padding: 4px;
+  padding: var(--dsw-space-1);
   overflow: auto;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-specific-menu);
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
@@ -73,13 +73,13 @@
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   box-sizing: border-box;
   width: 100%;
   min-height: 50px;
-  padding: 7px 8px 7px 11px;
+  padding: 7px var(--dsw-space-2) 7px 11px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   background: transparent;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
@@ -100,16 +100,16 @@
   flex: 1;
   align-self: stretch;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   min-width: 0;
   margin: -7px -8px -7px;
-  padding: 7px 8px;
-  border-radius: 8px;
+  padding: 7px var(--dsw-space-2);
+  border-radius: var(--dsw-radius-md);
 }
 
 .row > :global([data-state]),
 .clickarea > :global([data-state]) {
-  margin-top: 4px;
+  margin-top: var(--dsw-space-1);
 }
 
 .disabled {
@@ -199,7 +199,7 @@
 .children {
   position: relative;
   margin-left: 18px;
-  padding-left: 4px;
+  padding-left: var(--dsw-space-1);
 }
 
 .children::before,
@@ -241,7 +241,7 @@
 
 .notice,
 .error {
-  padding: 10px 12px;
+  padding: 10px var(--dsw-space-3);
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
@@ -251,7 +251,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   color: var(--dsw-alias-state-error-primary);
 }
 
@@ -259,10 +259,10 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
+  gap: var(--dsw-space-1);
+  padding: var(--dsw-space-1) 6px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   color: inherit;
   cursor: pointer;

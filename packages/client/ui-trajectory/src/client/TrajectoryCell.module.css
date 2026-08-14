@@ -6,9 +6,9 @@
   align-items: center;
   box-sizing: border-box;
   height: 38px;
-  padding: 0 8px 0 20px;
-  gap: 24px;
-  border-radius: 8px;
+  padding: 0 var(--dsw-space-2) 0 var(--dsw-space-5);
+  gap: var(--dsw-space-6);
+  border-radius: var(--dsw-radius-md);
   border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-3);
   min-width: 0;
@@ -40,8 +40,8 @@
   box-sizing: border-box;
   height: 22px;
   max-width: 100%;
-  padding: 0 4px;
-  border-radius: 6px;
+  padding: 0 var(--dsw-space-1);
+  border-radius: var(--dsw-radius-sm);
   font: var(--dsw-font-xs-strong-13);
   white-space: nowrap;
 }
@@ -103,7 +103,7 @@
 }
 
 .root[data-kind='subtool'] {
-  padding-left: 28px;
+  padding-left: var(--dsw-space-7);
 }
 
 .text {
@@ -123,7 +123,7 @@
   align-items: center;
   justify-content: flex-end;
   width: 320px;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   min-width: 0;
 }
 

@@ -14,14 +14,14 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 8px 0 0;
-  padding-top: 8px;
+  margin: var(--dsw-space-2) 0 0;
+  padding-top: var(--dsw-space-2);
   border-top: 1px solid var(--dsw-alias-line-secondary);
 }
 
 .field {
   display: flex;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   min-width: 0;
 }
 
@@ -43,8 +43,8 @@
 .files {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
-  margin: 0 0 8px;
+  gap: var(--dsw-space-1) var(--dsw-space-3);
+  margin: 0 0 var(--dsw-space-2);
   padding: 0;
   list-style: none;
 }
@@ -75,7 +75,7 @@
 .entries {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -83,7 +83,7 @@
 
 .entry {
   display: flex;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   min-width: 0;
 }
 
@@ -105,7 +105,7 @@
 .sections {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   margin: 0;
 }
 
@@ -139,14 +139,14 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 0 0 8px;
+  margin: 0 0 var(--dsw-space-2);
   padding: 0;
   list-style: none;
 }
 
 .recall {
   display: flex;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   min-width: 0;
 }
 

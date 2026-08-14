@@ -146,7 +146,7 @@
   z-index: 3;
   box-sizing: border-box;
   height: 30px;
-  padding: 0 8px;
+  padding: 0 var(--dsw-space-2);
   overflow: hidden;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-tertiary);
@@ -160,14 +160,14 @@
 }
 
 .eventHeader {
-  padding-right: 4px !important;
+  padding-right: var(--dsw-space-1) !important;
   text-align: right !important;
 }
 
 .table td {
   box-sizing: border-box;
   height: 30px;
-  padding: 0 8px;
+  padding: 0 var(--dsw-space-2);
   overflow: hidden;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
   text-overflow: ellipsis;
@@ -266,7 +266,7 @@
   top: 2px;
   left: 17px;
   width: max-content;
-  padding: 0 4px;
+  padding: 0 var(--dsw-space-1);
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 2px;
   color: var(--dsw-alias-label-secondary);
@@ -383,7 +383,7 @@
 
 .event {
   overflow: visible !important;
-  padding-right: 4px !important;
+  padding-right: var(--dsw-space-1) !important;
   padding-left: 36px !important;
 }
 
@@ -454,7 +454,7 @@
 }
 
 .content {
-  padding-left: 4px !important;
+  padding-left: var(--dsw-space-1) !important;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -466,7 +466,7 @@
   height: 19px;
   padding: 0 5px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   font-size: 10px;
   line-height: 16px;
   font-weight: 650;
@@ -499,14 +499,15 @@
   width: 100%;
 }
 
-@container trajectory-table (max-width: 620px) {
+/* 720 container step (docs/web-styling.md). */
+@container trajectory-table (max-width: 720px) {
   .eventColumn {
     width: 50px;
   }
 
   .event {
     padding-right: 3px !important;
-    padding-left: 28px !important;
+    padding-left: var(--dsw-space-7) !important;
   }
 
   .requestBoundaryControl {
@@ -614,7 +615,7 @@
 }
 
 .compactedSummary {
-  margin-top: 12px;
+  margin-top: var(--dsw-space-3);
   padding: 0 0 14px;
   font: var(--dsw-font-xs-13);
 }
@@ -783,7 +784,7 @@
     minmax(0, 1fr);
   align-items: center;
   min-width: 0;
-  gap: 8px;
+  gap: var(--dsw-space-2);
 }
 
 .resultRequest,
@@ -831,7 +832,7 @@
 
 .arrow {
   flex: none;
-  margin-right: 8px;
+  margin-right: var(--dsw-space-2);
   color: var(--dsw-alias-label-caption);
 }
 
@@ -900,7 +901,7 @@
   justify-content: space-between;
   box-sizing: border-box;
   height: 42px;
-  padding: 0 8px 0 12px;
+  padding: 0 var(--dsw-space-2) 0 var(--dsw-space-3);
   border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
@@ -908,7 +909,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -943,7 +944,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   color: var(--dsw-alias-label-secondary);
   background: transparent;
   cursor: pointer;
@@ -964,7 +965,7 @@
   min-width: 0;
   max-width: 100%;
   height: 34px;
-  padding: 0 8px;
+  padding: 0 var(--dsw-space-2);
   overflow-x: auto;
   overflow-y: hidden;
   gap: 1px;
@@ -1062,7 +1063,7 @@
 
 .overview {
   margin: 0;
-  padding: 8px 0;
+  padding: var(--dsw-space-2) 0;
   font: var(--dsw-font-xs-13);
 }
 
@@ -1111,20 +1112,20 @@
 }
 
 .overview > .requestTokenDetail dt {
-  padding-left: 12px;
+  padding-left: var(--dsw-space-3);
 }
 
 .usagePanel {
-  padding: 4px 0 10px;
+  padding: var(--dsw-space-1) 0 10px;
 }
 
 .usageGroup + .usageGroup {
-  margin-top: 8px;
+  margin-top: var(--dsw-space-2);
 }
 
 .usageHeading {
   margin: 0;
-  padding: 4px 14px 1px;
+  padding: var(--dsw-space-1) 14px 1px;
   color: var(--dsw-alias-label-secondary);
   font: var(--dsw-font-xs-strong-13);
   user-select: none;
@@ -1179,7 +1180,7 @@
 }
 
 .overviewSection + .overviewSection {
-  padding-top: 8px;
+  padding-top: var(--dsw-space-2);
 }
 
 .overviewHeading {
@@ -1269,7 +1270,7 @@
 
 .markdownPreview > div,
 .markdownPayload > div {
-  gap: 8px;
+  gap: var(--dsw-space-2);
   font: var(--dsw-font-xs-13);
 }
 
@@ -1307,7 +1308,7 @@
 }
 
 .markdownPreview > div :where(h1, h2, h3) {
-  margin: 12px 0 6px;
+  margin: var(--dsw-space-3) 0 6px;
 }
 
 .markdownPreview > div :where(h4, h5, h6) {
@@ -1315,7 +1316,7 @@
 }
 
 .markdownPreview > div :where(p, ul, ol) {
-  margin: 8px 0;
+  margin: var(--dsw-space-2) 0;
 }
 
 .markdownPreview > div li:not(:first-child) {
@@ -1323,7 +1324,7 @@
 }
 
 .markdownPreview > div blockquote {
-  margin-top: 8px;
+  margin-top: var(--dsw-space-2);
 }
 
 .markdownPreview > div hr {
@@ -1340,7 +1341,7 @@
 }
 
 .thinkingQuote {
-  margin: 6px 14px 0 12px;
+  margin: 6px 14px 0 var(--dsw-space-3);
   padding-left: 6px;
   border-left: 2px solid var(--dsw-alias-markdown-citation);
   color: var(--dsw-alias-label-secondary);
@@ -1348,7 +1349,7 @@
 }
 
 .thinkingQuoteOnlyPreview {
-  margin-bottom: 8px;
+  margin-bottom: var(--dsw-space-2);
 }
 
 .detailBody > .assistantContentRendered .thinkingQuote {
@@ -1402,7 +1403,7 @@
 }
 
 .markdownPreview {
-  padding: 6px 14px 8px;
+  padding: 6px 14px var(--dsw-space-2);
 }
 
 .markdownPayload {
@@ -1428,7 +1429,7 @@
 }
 
 .schemaIntro {
-  padding: 12px 14px 6px;
+  padding: var(--dsw-space-3) 14px 6px;
 }
 
 .schemaPreview .schemaIntro {
@@ -1454,14 +1455,14 @@
 
 .schemaParametersTitle {
   margin: 0;
-  padding: 4px 14px 2px;
+  padding: var(--dsw-space-1) 14px 2px;
   color: var(--dsw-alias-label-tertiary);
   font: 600 11px/16px var(--dsw-font-family);
   user-select: none;
 }
 
 .schemaTree {
-  margin: 0 6px 8px 0;
+  margin: 0 6px var(--dsw-space-2) 0;
 }
 
 .payload {
@@ -1479,13 +1480,13 @@
 
 .payloadPreview {
   min-height: 0;
-  padding: 6px 14px 8px;
+  padding: 6px 14px var(--dsw-space-2);
 }
 
 .sourceBlocks {
   box-sizing: border-box;
   min-height: 100%;
-  padding: 12px 14px;
+  padding: var(--dsw-space-3) 14px;
 }
 
 .sourceBlock + .sourceBlock {
@@ -1550,7 +1551,7 @@
   width: auto;
   max-width: 100%;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   cursor: zoom-in;
 }
 
@@ -1577,19 +1578,19 @@
 .messageImages {
   display: flex;
   flex-direction: column;
-  margin: 8px 14px 14px;
-  gap: 8px;
+  margin: var(--dsw-space-2) 14px 14px;
+  gap: var(--dsw-space-2);
 }
 
 .messageImagesPreview {
-  margin: 6px 14px 8px;
+  margin: 6px 14px var(--dsw-space-2);
   gap: 6px;
 }
 
 .assistantToolCalls {
   box-sizing: border-box;
   max-width: 100%;
-  margin: 2px 14px 12px;
+  margin: 2px 14px var(--dsw-space-3);
   padding: 0;
   color: var(--dsw-alias-label-secondary);
   font: 11px/17px var(--ds-font-family-code);
@@ -1598,7 +1599,7 @@
 
 .assistantToolCallsPreview {
   margin-top: 2px;
-  margin-bottom: 8px;
+  margin-bottom: var(--dsw-space-2);
 }
 
 .assistantToolCalls li {
@@ -1614,7 +1615,7 @@
   height: 19px;
   align-items: center;
   margin-left: -4px;
-  padding: 0 4px;
+  padding: 0 var(--dsw-space-1);
   border-radius: 3px;
   cursor: pointer;
 }
@@ -1669,7 +1670,7 @@
 
 .toolCatalog {
   min-height: 100%;
-  padding: 8px 0 16px;
+  padding: var(--dsw-space-2) 0 var(--dsw-space-4);
 }
 
 .toolCatalogItem {
@@ -1682,7 +1683,7 @@
   align-items: center;
   box-sizing: border-box;
   min-height: 30px;
-  padding: 4px 12px;
+  padding: var(--dsw-space-1) var(--dsw-space-3);
   gap: 5px;
   cursor: pointer;
   list-style: none;
@@ -1731,13 +1732,13 @@
 }
 
 .toolCatalogDefinition {
-  padding: 0 0 8px 29px;
+  padding: 0 0 var(--dsw-space-2) 29px;
   background: var(--dsw-alias-bg-base);
 }
 
 .toolCatalogFullDescription {
   margin: 0;
-  padding: 7px 14px 4px 0;
+  padding: 7px 14px var(--dsw-space-1) 0;
   color: var(--dsw-alias-label-secondary);
   font: var(--dsw-font-xs-13);
   white-space: pre-wrap;
@@ -1759,7 +1760,7 @@
 
 .resultBlocksPreview {
   min-height: 0;
-  padding: 6px 14px 8px;
+  padding: 6px 14px var(--dsw-space-2);
   gap: 6px;
 }
 
@@ -1774,7 +1775,7 @@
 }
 
 .overviewPreview .noPayload {
-  padding: 6px 14px 8px;
+  padding: 6px 14px var(--dsw-space-2);
 }
 
 .noPayload {
@@ -1784,7 +1785,8 @@
   font: var(--dsw-font-xs-13);
 }
 
-@media (max-width: 760px) {
+/* Compact-viewport tightening (below the 768 medium boundary, docs/web-styling.md). */
+@media (max-width: 767px) {
   .details {
     position: absolute;
     z-index: 5;

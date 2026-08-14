@@ -16,7 +16,7 @@
   --dsl-terminal-font: var(--dsw-font-markdown-code-block-small);
   --dsl-terminal-line-height: 18px;
   --dsl-terminal-output-max-height: 224px;
-  margin: 4px 0 4px 4px;
+  margin: var(--dsw-space-1) 0 var(--dsw-space-1) var(--dsw-space-1);
   border: 1px solid var(--dsw-alias-border-l1);
 }
 
@@ -26,9 +26,9 @@
 .ioCard {
   display: flex;
   flex-direction: column;
-  margin: 4px 0 4px 4px;
+  margin: var(--dsw-space-1) 0 var(--dsw-space-1) var(--dsw-space-1);
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-alias-markdown-code-block);
   font: var(--dsw-font-markdown-code-block-small);
 }
@@ -38,7 +38,7 @@
   grid-template-columns: max-content 1fr;
   column-gap: 14px;
   align-items: baseline;
-  padding: 12px 16px;
+  padding: var(--dsw-space-3) var(--dsw-space-4);
   max-height: 150px;
   overflow-y: auto;
 }
@@ -46,7 +46,7 @@
 .ioSection::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   background-clip: padding-box;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
 }
 
 .ioSection::-webkit-scrollbar-track {
@@ -168,7 +168,7 @@
   width: 2px;
   height: 2px;
   border-radius: 1px;
-  margin: 0 8px;
+  margin: 0 var(--dsw-space-2);
   background: var(--dsw-alias-label-caption);
 }
 
@@ -201,9 +201,9 @@
   display: inline-flex;
   align-self: flex-start;
   align-items: center;
-  gap: 4px;
-  margin: 4px 0 2px 4px;
-  padding: 2px 8px;
+  gap: var(--dsw-space-1);
+  margin: var(--dsw-space-1) 0 2px var(--dsw-space-1);
+  padding: 2px var(--dsw-space-2);
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 999px;
   /* Base background, not bg-overlay: the overlay token reads too heavy. */

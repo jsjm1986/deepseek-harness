@@ -4,8 +4,8 @@
 .row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 16px 0;
+  gap: var(--dsw-space-2);
+  padding: var(--dsw-space-4) 0;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
@@ -14,7 +14,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   padding-right: 48px;
 }
 
@@ -29,7 +29,7 @@
 .selector {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--dsw-space-3);
   height: 36px;
   padding: 0 14px;
   border: none;

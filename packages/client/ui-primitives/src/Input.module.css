@@ -3,9 +3,9 @@
   align-items: center;
   gap: 6px;
   height: 32px;
-  padding: 0 8px;
+  padding: 0 var(--dsw-space-2);
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-1);
 }
 
@@ -35,4 +35,18 @@
 
 .input::placeholder {
   color: var(--dsw-alias-label-dimmed);
+}
+
+/* Coarse pointers: 16px text keeps iOS Safari from zooming the page on
+   focus (it zooms any control below 16px); the wrap grows to fit. */
+@media (pointer: coarse) {
+  .wrap {
+    height: auto;
+    min-height: 40px;
+  }
+
+  .input {
+    font-size: 16px;
+    line-height: 24px;
+  }
 }

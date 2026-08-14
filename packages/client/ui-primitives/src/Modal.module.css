@@ -6,7 +6,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: var(--dsw-space-6);
 }
 
 /* User/spec mask: rgba(0,0,0,0.24) + blur(2px) via --dsw-alias-bg-mask-1 /
@@ -24,9 +24,9 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--dsw-space-5);
   width: min(380px, 100%);
-  padding: 0 0 24px;
+  padding: 0 0 var(--dsw-space-6);
   overflow: hidden;
   border: 1px solid var(--dsw-alias-border-inverted);
   border-radius: 24px;
@@ -46,8 +46,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 22px 14px 12px 24px;
+  gap: var(--dsw-space-2);
+  padding: 22px 14px var(--dsw-space-3) var(--dsw-space-6);
 }
 
 .title {
@@ -66,7 +66,7 @@
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-secondary);
@@ -76,10 +76,37 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/* Compact viewports (below the 768 medium boundary, docs/web-styling.md):
+   the centered card becomes a bottom sheet — full width, top-only radius,
+   home-indicator clearance. Portal surface, so the threshold is a media
+   query rather than the frame's data-viewport stamp. */
+@media (max-width: 767px) {
+  .root {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .dialog {
+    width: 100%;
+    max-height: calc(100% - var(--dsw-space-8) - var(--dsw-safe-top));
+    padding-bottom: calc(var(--dsw-space-6) + var(--dsw-safe-bottom));
+    border-bottom: none;
+    border-radius: var(--dsw-radius-xl) var(--dsw-radius-xl) 0 0;
+  }
+}
+
+/* Coarse pointers get the full touch target on the close control. */
+@media (pointer: coarse) {
+  .close {
+    width: var(--dsw-touch-target);
+    height: var(--dsw-touch-target);
+  }
+}
+
 /* Description and body share the 332px content column (24px side pads). */
 .description {
   margin: 0;
-  padding: 0 24px;
+  padding: 0 var(--dsw-space-6);
   font-size: 14px;
   line-height: 22px;
   font-weight: 400;
@@ -90,14 +117,14 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  margin-top: 20px;
-  padding: 0 24px;
+  margin-top: var(--dsw-space-5);
+  padding: 0 var(--dsw-space-6);
 }
 
 .footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 0 24px;
+  gap: var(--dsw-space-2);
+  padding: 0 var(--dsw-space-6);
 }

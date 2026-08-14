@@ -656,9 +656,11 @@ describe('web e2e: long Chat scroll contract', () => {
 
       await world.page.getByRole('tab', { name: 'Trajectory', exact: true }).click()
       await world.page.getByLabel('Trajectory timeline').waitFor({ timeout: 30_000 })
-      await world.page.setViewportSize({ width: 700, height: 900 })
-      // The narrow breakpoint auto-collapses the sidebar. Re-open it because
-      // this scenario switches sessions while pinning the narrow Chat scroll owner.
+      // Medium width (768–1023): the rail auto-collapses but a re-opened
+      // sidebar squeezes beside the content, so session switches stay
+      // clickable while pinning the narrow Chat scroll owner. Compact
+      // (<768) would instead open the modal drawer over the content.
+      await world.page.setViewportSize({ width: 800, height: 900 })
       await world.page.getByRole('button', { name: 'Open sidebar', exact: true }).click()
       await world.page.getByRole('tab', { name: 'Chat', exact: true }).click()
       await nextPaint(world.page)

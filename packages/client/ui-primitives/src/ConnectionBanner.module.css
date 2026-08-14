@@ -4,7 +4,7 @@
   left: 0;
   right: 0;
   z-index: 100;
-  padding: 4px 12px;
+  padding: var(--dsw-space-1) var(--dsw-space-3);
   text-align: center;
   font-size: 12px;
   line-height: 18px;

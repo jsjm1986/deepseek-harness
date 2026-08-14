@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 12px 0;
+  padding: var(--dsw-space-3) 0;
 }
 
 .field + .field {
@@ -14,7 +14,7 @@
 .head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--dsw-space-2);
 }
 
 .label {
@@ -29,12 +29,12 @@
 .badges {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--dsw-space-2);
 }
 
 .badge {
   border-radius: 999px;
-  padding: 1px 8px;
+  padding: 1px var(--dsw-space-2);
   font-size: 11px;
   line-height: 17px;
   white-space: nowrap;
@@ -45,7 +45,7 @@
 
 .badgeMuted {
   border-radius: 999px;
-  padding: 1px 8px;
+  padding: 1px var(--dsw-space-2);
   font-size: 11px;
   line-height: 17px;
   white-space: nowrap;
@@ -73,9 +73,9 @@
 
 .input {
   height: 34px;
-  padding: 0 12px;
+  padding: 0 var(--dsw-space-3);
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-3);
   font: inherit;
   font-size: 13px;

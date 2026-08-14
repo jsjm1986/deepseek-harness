@@ -22,7 +22,7 @@
   max-width: min(100%, 1600px);
   max-height: calc(100vh - 80px);
   object-fit: contain;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-specific-input-major);
   box-shadow: var(--dsw-shadow-lv3);
 }

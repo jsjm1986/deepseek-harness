@@ -3,7 +3,7 @@
 .card {
   list-style: none;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-lg);
   background: var(--dsw-alias-bg-layer-3);
   transition: border-color .16s, background .16s;
 }
@@ -29,9 +29,9 @@
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 12px;
+  gap: var(--dsw-space-3);
+  padding: 14px var(--dsw-space-4);
+  border-radius: var(--dsw-radius-lg);
 }
 
 .header:focus-visible {
@@ -46,7 +46,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--dsw-space-1);
 }
 
 .name {
@@ -74,12 +74,12 @@
 
 .body {
   border-top: 1px solid var(--dsw-alias-border-l2);
-  margin: 0 16px;
-  padding-bottom: 8px;
+  margin: 0 var(--dsw-space-4);
+  padding-bottom: var(--dsw-space-2);
 }
 
 .readOnly {
-  margin: 12px 0 0;
+  margin: var(--dsw-space-3) 0 0;
   font-size: 12px;
   line-height: 1.5;
   color: var(--dsw-alias-label-tertiary);
@@ -89,7 +89,7 @@
 .pending {
   flex: none;
   border-radius: 999px;
-  padding: 1px 8px;
+  padding: 1px var(--dsw-space-2);
   font-size: 11px;
   line-height: 17px;
   font-weight: 500;
@@ -102,8 +102,8 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 0 4px;
+  gap: var(--dsw-space-2);
+  padding: var(--dsw-space-3) 0 var(--dsw-space-1);
   border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
@@ -120,7 +120,7 @@
 .save {
   appearance: none;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-md);
   padding: 5px 14px;
   font: inherit;
   font-size: 13px;

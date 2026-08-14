@@ -9,9 +9,9 @@
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--dsw-space-1);
   min-width: 34px;
-  padding: 2px 8px;
+  padding: 2px var(--dsw-space-2);
   border: none;
   border-radius: 999px;
   background: var(--dsw-alias-state-warn-tertiary);

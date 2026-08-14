@@ -14,7 +14,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: var(--dsw-space-4);
 }
 
 .wordmark {
@@ -48,7 +48,7 @@
   max-width: 480px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--dsw-space-2);
 }
 
 .failedTitle {

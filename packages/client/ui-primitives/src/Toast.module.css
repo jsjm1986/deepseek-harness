@@ -19,7 +19,7 @@
   align-items: center;
   gap: 10px;
   max-width: min(560px, calc(100vw - 48px));
-  padding: 12px 16px;
+  padding: var(--dsw-space-3) var(--dsw-space-4);
   border-radius: 14px;
   background: var(--dsw-alias-button-contrast-fill);
   color: var(--dsw-alias-label-primary-inverted);

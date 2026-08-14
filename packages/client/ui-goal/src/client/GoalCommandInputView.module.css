@@ -15,7 +15,7 @@
 
 .bubble {
   max-width: 100%;
-  padding: 10px 16px;
+  padding: 10px var(--dsw-space-4);
   overflow-wrap: anywhere;
   border-radius: 22px;
   background: var(--dsw-specific-bubble);

@@ -8,8 +8,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  border-radius: 8px;
-  padding: 0 8px;
+  border-radius: var(--dsw-radius-md);
+  padding: 0 var(--dsw-space-2);
   cursor: pointer;
   user-select: none;
   color: var(--dsw-alias-label-primary);
@@ -32,8 +32,8 @@
   min-height: 48px;
   box-sizing: border-box;
   border: none;
-  border-radius: 8px;
-  padding: 4px 8px;
+  border-radius: var(--dsw-radius-md);
+  padding: var(--dsw-space-1) var(--dsw-space-2);
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -56,7 +56,7 @@
 
 .searchResultTitle {
   min-width: 0;
-  margin-left: 4px;
+  margin-left: var(--dsw-space-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -69,7 +69,7 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  margin-left: 20px;
+  margin-left: var(--dsw-space-5);
 }
 
 .searchResultWorkspace,
@@ -114,7 +114,7 @@
 }
 
 .sessionRow .title {
-  margin: 0 6px 0 4px;
+  margin: 0 6px 0 var(--dsw-space-1);
 }
 
 .flatSessionRowWithoutStatus .title {
@@ -186,7 +186,7 @@
   line-height: 20px;
   padding: 0 2px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-button-elevated-fill);
   color: inherit;
   outline: none;
@@ -222,7 +222,7 @@
   flex: none;
   display: none;
   align-items: center;
-  gap: 12px;
+  gap: var(--dsw-space-3);
 }
 
 .projectRow:hover .rowActions,
@@ -290,7 +290,7 @@
 .hoverContent {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--dsw-space-2);
 }
 
 .hoverTitle {
@@ -316,7 +316,7 @@
 .hoverStatus {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--dsw-space-2);
   font-size: 12px;
   line-height: 20px;
   color: #ADB2B8;
@@ -330,7 +330,7 @@
   width: 16px;
   height: 16px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-xs);
   padding: 0;
   background: transparent;
   cursor: pointer;
