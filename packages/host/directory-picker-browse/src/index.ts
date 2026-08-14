@@ -9,9 +9,10 @@
  * @module @deepseek-ai/dsh-host-directory-picker-browse
  */
 
+import { readFileSync, realpathSync } from 'node:fs'
 import { mkdir, opendir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join, posix, resolve, win32 } from 'node:path'
+import { basename, dirname, join, posix, resolve, sep, win32 } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import {
@@ -51,6 +52,95 @@ export function fullyQualified(path: string, platform: NodeJS.Platform = process
   return platform === 'win32'
     ? win32.isAbsolute(path) && /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/]+[^\\/]+)/.test(path)
     : posix.isAbsolute(path)
+}
+
+/** One authorized browse root from the gateway grants file. */
+interface GrantRoot {
+  /** realpath-normalized grant path. */
+  path: string
+  /** Access mode; browse fences on presence, not on ro vs rw. */
+  mode: 'ro' | 'rw'
+  /** Listing row name: JSON `label` when a non-empty string, otherwise basename. */
+  name: string
+}
+
+/** True when `target` is `root` itself or a descendant of it (segment-aware). */
+function contains(root: string, target: string): boolean {
+  if (target === root) return true
+  const prefix = root.endsWith(sep) ? root : root + sep
+  return target.startsWith(prefix)
+}
+
+/**
+ * Mode of the first containing grant, or `none` when no grant contains `target`.
+ * @param grants - grant roots loaded at plugin construction.
+ * @param target - absolute path to classify.
+ */
+function classify(grants: readonly GrantRoot[], target: string): GrantRoot['mode'] | 'none' {
+  for (const grant of grants) {
+    if (contains(grant.path, target)) return grant.mode
+  }
+  return 'none'
+}
+
+/** Grants file path: `DSH_DIRECTORY_GRANTS`, else `$DSH_HOME/directory-grants.json`. */
+function grantsFilePath(): string {
+  return process.env.DSH_DIRECTORY_GRANTS
+    ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'directory-grants.json')
+}
+
+/**
+ * Load grant roots from the gateway grants file. Unknown fields other than
+ * `label` are ignored; `realpath` failures skip that entry. A missing file,
+ * unreadable JSON, or empty valid list yields no roots (OS-home listing).
+ */
+function loadGrantRoots(): GrantRoot[] {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(grantsFilePath(), 'utf8'))
+  } catch {
+    // Missing or unreadable file: standalone dsh web keeps OS-home listing.
+    return []
+  }
+  if (!Array.isArray(raw)) return []
+  const roots: GrantRoot[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const record = entry as { path?: unknown; mode?: unknown; label?: unknown }
+    if (typeof record.path !== 'string' || (record.mode !== 'ro' && record.mode !== 'rw')) continue
+    try {
+      const path = realpathSync(record.path)
+      const name = typeof record.label === 'string' && record.label !== ''
+        ? record.label
+        : basename(path)
+      roots.push({ path, mode: record.mode, name })
+    } catch {
+      // Granted directory no longer exists on disk; skip it.
+    }
+  }
+  return roots
+}
+
+/** realpath when the path exists; otherwise the unresolved path (for classify). */
+function canonicalize(path: string): string {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+
+/**
+ * Ancestor crumbs from the containing grant root to `target` inclusive —
+ * never the filesystem root above that grant.
+ */
+function crumbsFromGrantRoot(target: string, root: string): DirectoryEntry[] {
+  const crumbs = ancestryCrumbs(target)
+  const index = crumbs.findIndex(crumb => crumb.path === root || canonicalize(crumb.path) === root)
+  /* v8 ignore start -- classify already required containment; ancestry that cannot name the grant root is not a listed target. */
+  if (index === -1) return crumbs
+  /* v8 ignore stop */
+  return crumbs.slice(index)
 }
 
 /** One streamed listing candidate: the dirent facts a row needs, nothing else retained. */
@@ -206,6 +296,8 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
     super(ctx)
   }
 
+  private readonly grantRoots: GrantRoot[] = loadGrantRoots()
+
   /**
    * The browse interaction capability.
    * @returns the stable `browse` capability object.
@@ -215,7 +307,18 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
   }
 
   private async list(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
-    const home = homedir()
+    const roots = this.grantRoots
+    const first = roots[0]
+    if (path === undefined && first !== undefined) {
+      return {
+        path: first.path,
+        home: first.path,
+        crumbs: [],
+        entries: roots.map(root => ({ name: root.name, path: root.path, hidden: false })),
+        truncated: false,
+      }
+    }
+    const home = first?.path ?? homedir()
     // The seam contract takes fully qualified paths only; resolve() would
     // silently rebase a relative or empty wire value under the host process
     // cwd (or, for rooted drive-less Windows forms, its current drive).
@@ -223,6 +326,9 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
       throw new DirectoryPickerError('directory-unreadable', path, `cannot list "${path}": not a fully qualified path`)
     }
     const target = resolve(path ?? home)
+    if (roots.length > 0 && classify(roots, canonicalize(target)) === 'none') {
+      throw new DirectoryPickerError('directory-unreadable', target, `cannot list ${target}: outside authorized directories`)
+    }
     // Stream the level (opendir, one dirent at a time) into a name-sorted
     // window of maxEntries + 1 candidates: memory stays bounded no matter how
     // many children the directory holds, the window keeps the name-sorted
@@ -293,7 +399,9 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
       }
       entries.push(row)
     }
-    return { path: target, home, crumbs: ancestryCrumbs(target), entries, truncated }
+    const containing = roots.find(root => contains(root.path, canonicalize(target)))
+    const crumbs = containing === undefined ? ancestryCrumbs(target) : crumbsFromGrantRoot(target, containing.path)
+    return { path: target, home, crumbs, entries, truncated }
   }
 
   private async createDirectory(path: string, name: string): Promise<string> {
@@ -303,6 +411,9 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
       throw new DirectoryPickerError('directory-create-failed', path, `cannot create under "${path}": not a fully qualified parent path`)
     }
     const parent = resolve(path)
+    if (this.grantRoots.length > 0 && classify(this.grantRoots, canonicalize(parent)) === 'none') {
+      throw new DirectoryPickerError('directory-create-failed', parent, `cannot create under ${parent}: outside authorized directories`)
+    }
     // The backend owns segment validation (the wire schema also refuses these,
     // but direct service consumers must hit the same fence).
     if (name.trim() === '' || name === '.' || name === '..' || /[/\\]/.test(name)) {

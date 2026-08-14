@@ -14,13 +14,21 @@ import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
-  WorkspaceId, WorkspaceListState, WorkspaceView,
+  DirectoryListing, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from './contract/slots.ts'
 import css from './WorkspacePicker.module.css'
 
 const ADD_WORKSPACE = '::add-workspace'
+
+/** Segment-aware prefix: `target` is `root` or a descendant (same as directory-guard `contains`). */
+function containsRoot(root: string, target: string): boolean {
+  if (target === root) return true
+  const slash = root.includes('\\') && !root.includes('/') ? '\\' : '/'
+  const prefix = root.endsWith(slash) ? root : root + slash
+  return target.startsWith(prefix)
+}
 
 /** Core flow props: the owner supplies popover control and pick semantics. */
 export interface WorkspacePickFlowProps {
@@ -48,6 +56,11 @@ export interface WorkspacePickFlowProps {
   side?: 'bottom' | 'top' | 'right'
   /** Currently active workspace (trailing check in the picker list). */
   selectedId?: WorkspaceId | undefined
+  /**
+   * Absent-path listing used to fence existing-workspace picks against grant
+   * roots. Omitted compositions skip the check (standalone dsh web).
+   */
+  listDirectory?: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
 }
 
 /**
@@ -68,6 +81,7 @@ export function WorkspacePickFlow({
   addOnly = false,
   side = 'bottom',
   selectedId,
+  listDirectory,
 }: WorkspacePickFlowProps) {
   const workspaceSnapshot = useWorkspaces(state => state)
   const workspaces = workspaceSnapshot.items
@@ -177,7 +191,30 @@ export function WorkspacePickFlow({
       openDirectoryFlow()
       return
     }
-    onPick(id as WorkspaceId)
+    const workspaceId = id as WorkspaceId
+    const workspace = workspaces.find(item => item.workspaceId === id)
+    if (listDirectory === undefined || workspace === undefined) {
+      onPick(workspaceId)
+      return
+    }
+    void listDirectory().then((listing) => {
+      // Grant-root listings advertise empty crumbs; an OS-home listing keeps
+      // ancestry crumbs and must not fence standalone dsh web.
+      if (listing.crumbs.length > 0) {
+        onPick(workspaceId)
+        return
+      }
+      const allowed = listing.entries.some(entry => containsRoot(entry.path, workspace.path))
+      if (!allowed) {
+        setModalError(t('menu.workspaceUnauthorized'))
+        setErrorOpen(true)
+        return
+      }
+      onPick(workspaceId)
+    }).catch((reason: unknown) => {
+      setModalError(reason instanceof Error ? reason.message : String(reason))
+      setErrorOpen(true)
+    })
   }
 
   return (
@@ -233,6 +270,7 @@ export function WorkspacePicker({
   useDirectoryFlow,
   renderSlot,
   t,
+  listDirectory,
 }: WorkspacePickerProps) {
   return (
     <WorkspacePickFlow
@@ -246,6 +284,7 @@ export function WorkspacePicker({
       selectedId={selectedId}
       onPick={onPick}
       onClose={onClose}
+      listDirectory={listDirectory}
     />
   )
 }

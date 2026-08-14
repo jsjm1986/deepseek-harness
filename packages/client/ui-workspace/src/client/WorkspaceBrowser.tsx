@@ -760,6 +760,7 @@ export function WorkspaceBrowser({
   useDirectoryFlow,
   renderSlot,
   t,
+  listDirectory,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
   const workspacePhase = useWorkspaces(state => state.phase)
@@ -1082,6 +1083,7 @@ export function WorkspaceBrowser({
             startSession(workspaceId)
           }}
           onClose={() => { setWsPickerOpen(false) }}
+          listDirectory={listDirectory}
         />
       </div>
 

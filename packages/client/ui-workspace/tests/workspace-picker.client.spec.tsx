@@ -81,6 +81,7 @@ function mount(
   items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')],
   createWorkspace = vi.fn(),
   occupancy = occupancySource(),
+  listDirectory?: WorkspacePickerProps['listDirectory'],
 ) {
   const onPick = vi.fn()
   const onClose = vi.fn()
@@ -98,6 +99,7 @@ function mount(
       useDirectoryFlow={occupancy.useDirectoryFlow}
       renderSlot={renderSlot}
       t={t}
+      listDirectory={listDirectory}
     />
   )
   const view = render(
@@ -303,5 +305,68 @@ describe('WorkspacePicker', () => {
     expect(b.probe.owner!.open).toBe(false)
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Alpha' }).disabled).toBe(false)
     expect(screen.queryByRole('menuitem', { name: '添加工作区…' })).toBeNull()
+  })
+
+  it('refuses to open an existing workspace whose path is outside the authorized roots', async () => {
+    const revoked = { ...workspace('revoked', 'Revoked'), path: '/revoked' }
+    const listDirectory = vi.fn(async () => ({
+      path: '/allowed',
+      home: '/allowed',
+      crumbs: [],
+      entries: [{ name: 'allowed', path: '/allowed', hidden: false }],
+      truncated: false,
+    }))
+    const b = mount([revoked], vi.fn(), occupancySource(), listDirectory)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Revoked' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: '无法打开文件夹' })).toBeTruthy()
+    })
+    expect(screen.getByRole('alert').textContent).toBe('此工作区已不在授权范围内，无法打开。')
+    expect(b.onPick).not.toHaveBeenCalled()
+    expect(listDirectory).toHaveBeenCalledWith()
+  })
+
+  it('opens an existing workspace that sits on an authorized root', async () => {
+    const nested = { ...workspace('ok', 'Ok'), path: '/allowed/child' }
+    const listDirectory = vi.fn(async () => ({
+      path: '/allowed',
+      home: '/allowed',
+      crumbs: [],
+      entries: [{ name: 'allowed', path: '/allowed', hidden: false }],
+      truncated: false,
+    }))
+    const b = mount([nested], vi.fn(), occupancySource(), listDirectory)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Ok' }))
+    await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(wid('ok')) })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('skips the grant check when listDirectory returns a normal home listing', async () => {
+    const outside = { ...workspace('out', 'Out'), path: '/revoked' }
+    const listDirectory = vi.fn(async () => ({
+      path: '/home/u',
+      home: '/home/u',
+      crumbs: [
+        { name: '/', path: '/', hidden: false },
+        { name: 'u', path: '/home/u', hidden: false },
+      ],
+      entries: [{ name: 'docs', path: '/home/u/docs', hidden: false }],
+      truncated: false,
+    }))
+    const b = mount([outside], vi.fn(), occupancySource(), listDirectory)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Out' }))
+    await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(wid('out')) })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('reports a listDirectory failure in the folder-error surface', async () => {
+    const revoked = { ...workspace('revoked', 'Revoked'), path: '/revoked' }
+    const listDirectory = vi.fn(async () => { throw new Error('roots unavailable') })
+    const b = mount([revoked], vi.fn(), occupancySource(), listDirectory)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Revoked' }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('roots unavailable')
+    })
+    expect(b.onPick).not.toHaveBeenCalled()
   })
 })

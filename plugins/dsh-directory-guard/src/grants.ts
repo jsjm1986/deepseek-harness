@@ -11,9 +11,10 @@ export interface Grant {
 /**
  * Load the per-instance directory grants written by the gateway. Each entry's
  * path is realpath-normalized (so symlinked grant roots compare canonically);
- * entries whose directory no longer exists are dropped. Results are sorted by
- * path length descending so {@link classify} can take the first (most specific)
- * containing match. A missing or unreadable file yields no grants.
+ * entries whose directory no longer exists are dropped. Extra fields such as
+ * `label` are ignored. Results are sorted by path length descending so
+ * {@link classify} can take the first (most specific) containing match. A
+ * missing or unreadable file yields no grants.
  */
 export function loadGrants(file: string): Grant[] {
   let raw: unknown

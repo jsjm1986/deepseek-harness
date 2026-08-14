@@ -28,7 +28,7 @@ import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, Props
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
+  DirectoryListing, SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
@@ -76,6 +76,12 @@ export type DirectoryPickingInjected = {
     /** True while this surface's directory-flow hole is occupied. */
     directoryFlow: HostObservable<boolean>
   }
+  /**
+   * List one host directory level. Absent `path` is the browse default
+   * (OS home, or grant roots when the host has a grants file). Optional so a
+   * composition that never injects it skips the existing-workspace grant check.
+   */
+  listDirectory?: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
 }
 
 /** Component-side view of the picking share: the bound occupancy selector hook. */
