@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 设计文档：`docs/superpowers/specs/2026-08-14-project-centric-admin-design.md`。登录/代理/实例生命周期仍以 `docs/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md` 为准。
+- 设计文档：`.agents/superpowers/specs/2026-08-14-project-centric-admin-design.md`。登录/代理/实例生命周期仍以 `.agents/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md` 为准。
 - 管理 UI 只活在网关 `/admin`，不做成 dsh 客户端插件，不进入 `packages/` workspace。
 - 不做组、自助建项目、改项目路径、销号、SSO、用量、Linux systemd 挂载验收。
 - 项目 `path` 必须已存在且为目录，经 `realpathSync`；不得等于任何用户 `home_path` 或 `$DSH_HOME`（`usersRoot/<username>/dsh`）。
@@ -661,7 +661,7 @@ EOF
 ### Task 9: 文档收口与手工验收清单
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-08-14-project-centric-admin-design.md` 状态改为已实施（仅状态行，不改合同）
+- Modify: `.agents/superpowers/specs/2026-08-14-project-centric-admin-design.md` 状态改为已实施（仅状态行，不改合同）
 - 不改原 Phase 2 计划
 
 - [ ] **Step 1: Confirm spec coverage**
@@ -689,7 +689,7 @@ Expected: 全绿
 - [ ] **Step 4: Commit leftover doc nits only if the status line changed**
 
 ```bash
-git add docs/superpowers/specs/2026-08-14-project-centric-admin-design.md
+git add .agents/superpowers/specs/2026-08-14-project-centric-admin-design.md
 git commit -m "$(cat <<'EOF'
 docs: mark project-centric admin spec implemented
 

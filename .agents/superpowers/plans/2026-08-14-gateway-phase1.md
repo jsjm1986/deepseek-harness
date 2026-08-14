@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 设计文档：`docs/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md`（本计划实现其 §12 Phase 1；上游同步策略见 §15）。
+- 设计文档：`.agents/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md`（本计划实现其 §12 Phase 1；上游同步策略见 §15）。
 - **上游解耦（§15）**：最终代码归属独立仓库 `harness-platform`，dsh 以钉死版本 npm 依赖进入，不 vendored 源码、不改 `packages/`/`apps/`。本计划路径 `gateway/`、`plugins/` 均相对该独立仓库根；当前 dsh clone 仅供调研，实施启动即迁出。
 - 开发期实例可用源码运行（`HGW_DSH_COMMAND` 指向 clone 的 `apps/cli/src/bin.ts`）；生产期该变量指向 npm 安装的 `@deepseek-ai/dsh` 二进制——同一配置项切换，无代码差异。
 - TypeScript strict；`"type": "module"`；相对导入带 `.ts` 后缀由 tsx/vitest 解析。
@@ -1317,7 +1317,7 @@ git add gateway/src/admin.ts gateway/src/index.ts gateway/tests/admin.spec.ts &&
 - [ ] **Step 5: 提交验收记录**
 
 ```bash
-git add docs/superpowers/plans/2026-08-14-gateway-phase1.md && git commit -m "docs(gateway): phase 1 acceptance record"
+git add .agents/superpowers/plans/2026-08-14-gateway-phase1.md && git commit -m "docs(gateway): phase 1 acceptance record"
 ```
 
 ---
