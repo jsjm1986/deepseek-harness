@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:17.6-bookworm@sha256:f3bd19c606e442c3d7bdfa8002e03fe260a1023351e0ea4598032022b68dd6e3
+    container_name: harness-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: harness
+      POSTGRES_USER: harness_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    secrets:
+      - postgres_password
+    ports:
+      - "127.0.0.1:${HGW_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - harness_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harness_owner -d harness"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    shm_size: 256mb
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+
+volumes:
+  harness_postgres_data:
+    name: harness_postgres_data

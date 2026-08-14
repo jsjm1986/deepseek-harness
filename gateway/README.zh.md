@@ -42,6 +42,10 @@ DeepSeek Harness 公网化门户网关：登录/会话、用户/项目/目录授
 
 管理 SPA 提供“模型”和“用量”页面。模型以精确 `(provider, model)` 路由标识；全局启用开关、角色默认（`admin` / `user`）和按用户 `允许` / `拒绝` / `继承` 例外共同决定有效策略。策略变化会原子重写 `$DSH_HOME/model-governance.json`（权限 `0600`），且只重启已经运行的受影响实例。实例插件提供 `ctx.modelAccess`；`apiproxy` 过滤目录并拒绝选择/发送 RPC，而 `llm/stream` 中间件是聊天、标题、压缩和直接调用进入适配器前的最终强制点。
 
+## PostgreSQL 迁移基线
+
+可运行的 PostgreSQL 17 基线位于 [`deploy/postgres/`](deploy/postgres/README.md)。它使用类型化关系控制表与 JSONB 会话事件，超大内容继续留在本机文件系统。生产仍使用 SQLite，直到异步 Repository 迁移完成并另行批准切换。
+
 每次调用都会先以 UUID 写入实例本地的崩溃安全 outbox。仅回环的 intake 在 SQLite 中按 UUID 去重，按调用时间选择生效价格版本，并根据非秘密凭据来源标签归属公司成本（`file`/`project-env`/`request` 为个人，启动环境来源为公司，未知来源按公司成本保守计入）。账本不写 API Key、提示词或回复内容。自然月使用 `HGW_USAGE_TIME_ZONE`；Token 与公司成本额度支持角色默认以及按用户继承/不限/自定义。额度只在 80% 和 100% 提醒，不阻断调用。用户在 Web shell 看到持久阈值提醒；管理员看到按用户自然月汇总、缺失计量次数、估算成本和公司成本。
 
 ## 目录强制的分层

@@ -42,6 +42,10 @@ Production install, cutover, and acceptance live in [deploy/README.md](deploy/RE
 
 The admin SPA has **Models** and **Usage** pages. Models are identified by exact `(provider, model)` routes. A global enabled flag, role defaults (`admin` / `user`), and per-user `allow` / `deny` / `inherit` exceptions determine the effective policy. A policy change atomically rewrites `$DSH_HOME/model-governance.json` (mode `0600`) and restarts only an already-running affected instance. The instance plugin provides `ctx.modelAccess`; `apiproxy` filters catalogs and rejects selection/prompt RPCs, while the `llm/stream` middleware is the final adapter-dispatch enforcement point for chat, title, compaction, and direct calls.
 
+## PostgreSQL migration baseline
+
+A runnable PostgreSQL 17 baseline lives in [`deploy/postgres/`](deploy/postgres/README.md). It uses typed relational control tables plus JSONB conversation events and keeps oversized content on the local filesystem. Production still uses SQLite until the asynchronous repository migration and a separately approved cutover are complete.
+
 Every call produces one UUID-keyed usage record in a crash-safe per-instance outbox. The loopback intake deduplicates UUIDs in SQLite, applies the price version effective at the call timestamp, and attributes company cost from a non-secret credential source label (`file`/`project-env`/`request` are personal; launch environment sources are company; unknown remains company-conservative). No API key, prompt, or response content enters the ledger. Natural months use `HGW_USAGE_TIME_ZONE`; token and company-cost quotas support role defaults and per-user inherit/unlimited/custom overrides. Quotas warn at 80% and 100% but do not block calls. Users see durable crossings in the Web shell; admins see per-user monthly summaries, missing-usage counts, estimated cost, and company cost.
 
 ## Layered directory enforcement
