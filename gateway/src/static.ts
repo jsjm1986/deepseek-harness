@@ -26,6 +26,15 @@ function send(res: ServerResponse, status: number, body: string | Buffer, type: 
 }
 
 /**
+ * True for `/admin` and `/admin/...` only. `/adminfoo` is not admin.
+ * @param pathname - already-parsed URL pathname
+ * @returns whether the path is the admin SPA or `/admin/api`
+ */
+export function isAdminPath(pathname: string): boolean {
+  return pathname === '/admin' || pathname.startsWith('/admin/')
+}
+
+/**
  * Serves the admin SPA shell and `/admin/assets/*` from `root`.
  * @param req - used for GET/HEAD only
  * @param res - written on a hit (200 or 404)
@@ -39,7 +48,7 @@ export function serveAdmin(
   pathname: string,
   root = DEFAULT_ADMIN_ROOT,
 ): boolean {
-  if (!pathname.startsWith('/admin') || pathname.startsWith('/admin/api')) return false
+  if (!isAdminPath(pathname) || pathname.startsWith('/admin/api')) return false
   const method = req.method ?? 'GET'
   if (method !== 'GET' && method !== 'HEAD') return false
 

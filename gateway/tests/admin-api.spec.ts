@@ -68,7 +68,22 @@ describe('admin JSON API', () => {
       body: JSON.stringify({ mode: 'ro' }),
     })).status).toBe(204)
     const workerCookie = await login(base, 'worker', 'pw-12345678')
-    expect((await fetch(`${base}/admin/api/users`, { headers: { cookie: workerCookie } })).status).toBe(403)
+    const forbidden = await fetch(`${base}/admin/api/users`, { headers: { cookie: workerCookie } })
+    expect(forbidden.status).toBe(403)
+    expect(forbidden.headers.get('content-type')).toMatch(/json/)
+    expect(await forbidden.json()).toEqual({ error: 'forbidden' })
+  })
+
+  it('returns JSON { error: "origin not allowed" } for /admin/api CSRF failures', async () => {
+    const { base, cookie } = await setup()
+    const res = await fetch(`${base}/admin/api/users`, {
+      method: 'POST',
+      headers: { cookie, origin: 'https://evil.example', 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(res.status).toBe(403)
+    expect(res.headers.get('content-type')).toMatch(/json/)
+    expect(await res.json()).toEqual({ error: 'origin not allowed' })
   })
 
   it('returns 409 when patching the last admin away', async () => {

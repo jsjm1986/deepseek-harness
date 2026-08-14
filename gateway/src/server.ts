@@ -7,7 +7,7 @@ import type { GatewayConfig } from './config.ts'
 import { loginPage, passwordPage } from './html.ts'
 import type { InstanceManager } from './instances.ts'
 import type { ProjectService } from './projects.ts'
-import { serveAdmin } from './static.ts'
+import { isAdminPath, serveAdmin } from './static.ts'
 import type { UserService } from './users.ts'
 
 export interface GatewayDeps {
@@ -60,6 +60,14 @@ function send(res: ServerResponse, status: number, body: string, type = 'text/ht
   res.end(body)
 }
 
+function sendAdminGate(res: ServerResponse, pathname: string, error: string): void {
+  if (pathname.startsWith('/admin/api')) {
+    send(res, 403, JSON.stringify({ error }), 'application/json')
+    return
+  }
+  send(res, 403, error, 'text/plain')
+}
+
 function redirect(res: ServerResponse, location: string, cookies: string[] = []): void {
   res.writeHead(302, { location, ...(cookies.length > 0 ? { 'set-cookie': cookies } : {}) })
   res.end()
@@ -105,7 +113,7 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
 
     if (pathname === '/healthz') { send(res, 200, '{"ok":true}', 'application/json'); return }
 
-    if (!csrfOk(req, cfg, pathname)) { send(res, 403, 'origin not allowed', 'text/plain'); return }
+    if (!csrfOk(req, cfg, pathname)) { sendAdminGate(res, pathname, 'origin not allowed'); return }
 
     if (pathname === '/login') {
       if (req.method === 'GET') { send(res, 200, loginPage()); return }
@@ -154,8 +162,8 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
       }
     }
 
-    if (pathname.startsWith('/admin')) {
-      if (user.role !== 'admin') { send(res, 403, 'forbidden', 'text/plain'); return }
+    if (isAdminPath(pathname)) {
+      if (user.role !== 'admin') { sendAdminGate(res, pathname, 'forbidden'); return }
       const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await readBody(req)
       if (handlers.admin !== undefined && await handlers.admin(req, res, user, pathname, body)) return
       if (serveAdmin(req, res, pathname, handlers.adminRoot)) return

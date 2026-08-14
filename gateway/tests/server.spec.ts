@@ -69,6 +69,8 @@ describe('gateway server', () => {
       headers: { cookie, origin: 'https://evil.example' },
     })
     expect(evil.status).toBe(403)
+    expect(evil.headers.get('content-type')).toMatch(/text\/plain/)
+    expect(await evil.text()).toBe('origin not allowed')
     const out = await fetch(`${base}/logout`, {
       method: 'POST', redirect: 'manual', headers: { cookie, origin: base },
     })
@@ -92,5 +94,13 @@ describe('gateway server', () => {
     expect(change.status).toBe(302)
     const proxied = await fetch(`${base}/`, { redirect: 'manual', headers: { cookie, accept: 'text/html' } })
     expect(proxied.status).toBe(503)
+  })
+
+  it('does not steal the proxy for /adminfoo', async () => {
+    const { base } = await setup()
+    const cookie = await login(base, 'root-admin', 'pw-12345678')
+    const res = await fetch(`${base}/adminfoo`, { headers: { cookie } })
+    expect(res.status).toBe(503)
+    expect(await res.json()).toEqual({ error: 'proxy-not-configured' })
   })
 })

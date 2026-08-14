@@ -70,8 +70,19 @@ describe('admin static hosting', () => {
   it('rejects a non-admin before serving static files', async () => {
     const { base } = await setupWithAdminAssets()
     const workerCookie = await login(base, 'worker', 'pw-12345678')
-    expect((await fetch(`${base}/admin`, { headers: { cookie: workerCookie, accept: 'text/html' } })).status).toBe(403)
+    const page = await fetch(`${base}/admin`, { headers: { cookie: workerCookie, accept: 'text/html' } })
+    expect(page.status).toBe(403)
+    expect(page.headers.get('content-type')).toMatch(/text\/plain/)
+    expect(await page.text()).toBe('forbidden')
     expect((await fetch(`${base}/admin/projects/1`, { headers: { cookie: workerCookie, accept: 'text/html' } })).status).toBe(403)
+  })
+
+  it('does not treat /adminfoo as admin', async () => {
+    const { base } = await setupWithAdminAssets()
+    const workerCookie = await login(base, 'worker', 'pw-12345678')
+    const res = await fetch(`${base}/adminfoo`, { headers: { cookie: workerCookie, accept: 'text/html' } })
+    expect(res.status).toBe(503)
+    expect(await res.json()).toEqual({ error: 'proxy-not-configured' })
   })
 
   it('serves /admin/assets with a content-type and 404s escaped paths', async () => {
