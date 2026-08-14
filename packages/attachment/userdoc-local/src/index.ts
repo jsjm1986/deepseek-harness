@@ -8,6 +8,7 @@ import { UserDocStore } from '@deepseek-ai/dsh-userdoc'
 import type {
   ResolveUserDocTarget,
   StoredUserDoc,
+  UserDocId,
   UserDocLimits,
   UserDocRef,
   UserDocTarget,
@@ -110,19 +111,19 @@ export class LocalUserDocStore extends UserDocStore {
     return listDocFiles(this.root, signal)
   }
 
-  async stat(docId: string, signal?: AbortSignal): Promise<UserDocRef> {
+  async stat(docId: UserDocId, signal?: AbortSignal): Promise<UserDocRef> {
     return statDocFile(this.root, docId, signal)
   }
 
-  async read(docId: string, signal?: AbortSignal): Promise<StoredUserDoc> {
+  async read(docId: UserDocId, signal?: AbortSignal): Promise<StoredUserDoc> {
     return readDocFile(this.root, docId, signal)
   }
 
-  async openRead(docId: string): Promise<{ ref: UserDocRef; body: ReadableStream<Uint8Array> }> {
+  async openRead(docId: UserDocId): Promise<{ ref: UserDocRef; body: ReadableStream<Uint8Array> }> {
     return openDocFile(this.root, docId)
   }
 
-  async remove(docId: string, signal?: AbortSignal): Promise<void> {
+  async remove(docId: UserDocId, signal?: AbortSignal): Promise<void> {
     await removeDocFile(this.root, docId, signal)
   }
 }

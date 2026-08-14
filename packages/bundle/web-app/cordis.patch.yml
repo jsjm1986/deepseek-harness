@@ -99,6 +99,18 @@
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
 
+    # User-uploaded documents are ordinary files below the user's home. The
+    # HTTP consumer registers its streaming subtree through Connection, so the
+    # shared Host/Origin trust check runs without buffering upload bodies.
+    - id: userdoc-local
+      name: '@deepseek-ai/dsh-userdoc-local'
+
+    - id: userdoc-context
+      name: '@deepseek-ai/dsh-userdoc-context'
+
+    - id: userdoc-http
+      name: '@deepseek-ai/dsh-host-userdoc-http'
+
     - id: cordis-host-runner
       name: '@deepseek-ai/dsh-cordis-host-runner'
 

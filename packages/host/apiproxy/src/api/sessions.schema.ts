@@ -17,6 +17,7 @@ import type {
 import type { ToolEventView } from './events.ts'
 import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { WorkspaceId } from './workspace.ts'
+import type { UserDocIdType } from '@deepseek-ai/dsh-userdoc'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
   SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
@@ -282,6 +283,7 @@ export const imageMediaTypeSchema = z.union([
 export const promptContentPartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }),
   z.object({ type: z.literal('image'), mediaType: imageMediaTypeSchema, data: z.string(), name: z.string().optional() }),
+  z.object({ type: z.literal('document'), docId: z.string().min(1) as unknown as z.ZodType<UserDocIdType> }),
 ])
 
 /** session.prompt request payload, including optional browser-local request provenance. */

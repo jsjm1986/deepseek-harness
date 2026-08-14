@@ -2,6 +2,9 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  DOCUMENT_DELETE_FAILED_CODE, DOCUMENT_NOT_FOUND_CODE, DOCUMENT_READ_FAILED_CODE, DOCUMENT_WRITE_FAILED_CODE,
+} from '@deepseek-ai/dsh-userdoc'
 
 // Storage failures other than "absent" are the paths a real disk produces and a
 // temp directory cannot: a read that fails after its stat succeeded, a listing
@@ -11,8 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const failures = vi.hoisted(() => ({
   lstat: undefined as NodeJS.ErrnoException | undefined,
   readdir: undefined as NodeJS.ErrnoException | undefined,
-  stat: undefined as NodeJS.ErrnoException | undefined,
-  readFile: undefined as NodeJS.ErrnoException | undefined,
+  open: undefined as NodeJS.ErrnoException | undefined,
   unlink: undefined as NodeJS.ErrnoException | undefined,
 }))
 
@@ -28,13 +30,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       if (failures.readdir !== undefined) throw failures.readdir
       return actual.readdir(...args)
     },
-    async stat(...args: Parameters<typeof actual.stat>) {
-      if (failures.stat !== undefined) throw failures.stat
-      return actual.stat(...args)
-    },
-    async readFile(...args: Parameters<typeof actual.readFile>) {
-      if (failures.readFile !== undefined) throw failures.readFile
-      return actual.readFile(...args)
+    async open(...args: Parameters<typeof actual.open>) {
+      if (failures.open !== undefined) throw failures.open
+      return actual.open(...args)
     },
     async unlink(...args: Parameters<typeof actual.unlink>) {
       if (failures.unlink !== undefined) throw failures.unlink
@@ -76,8 +74,7 @@ beforeEach(async () => {
 afterEach(async () => {
   failures.lstat = undefined
   failures.readdir = undefined
-  failures.stat = undefined
-  failures.readFile = undefined
+  failures.open = undefined
   failures.unlink = undefined
   await rm(scratch, { recursive: true, force: true })
 })
@@ -90,28 +87,28 @@ describe('storage failures other than absence', () => {
 
   it('fails the listing rather than reporting a partial set', async () => {
     failures.readdir = errno('EACCES')
-    await expect(listDocFiles(root)).rejects.toMatchObject({ code: 'DOC_READ_FAILED' })
+    await expect(listDocFiles(root)).rejects.toMatchObject({ code: DOCUMENT_READ_FAILED_CODE })
   })
 
   it('reports an unreadable entry as a read failure, not as absence', async () => {
     const target = await resolveDocTarget(root, 'notes.txt', new Date())
     await saveDocFile(root, target, streamOf('body'), LIMITS)
-    failures.stat = errno('EACCES')
-    await expect(statDocFile(root, String(target.docId))).rejects.toMatchObject({ code: 'DOC_READ_FAILED' })
+    failures.open = errno('EACCES')
+    await expect(statDocFile(root, target.docId)).rejects.toMatchObject({ code: DOCUMENT_READ_FAILED_CODE })
   })
 
   it('reports a read that fails after its probe succeeded', async () => {
     const target = await resolveDocTarget(root, 'notes.txt', new Date())
     await saveDocFile(root, target, streamOf('body'), LIMITS)
-    failures.readFile = errno('EIO')
-    await expect(readDocFile(root, String(target.docId))).rejects.toMatchObject({ code: 'DOC_READ_FAILED' })
+    failures.open = errno('EIO')
+    await expect(readDocFile(root, target.docId)).rejects.toMatchObject({ code: DOCUMENT_READ_FAILED_CODE })
   })
 
   it('passes a caller signal through to the read', async () => {
     const target = await resolveDocTarget(root, 'notes.txt', new Date())
     await saveDocFile(root, target, streamOf('body'), LIMITS)
     const controller = new AbortController()
-    const stored = await readDocFile(root, String(target.docId), controller.signal)
+    const stored = await readDocFile(root, target.docId, controller.signal)
     expect(new TextDecoder().decode(stored.data)).toBe('body')
   })
 
@@ -120,15 +117,15 @@ describe('storage failures other than absence', () => {
     await saveDocFile(root, target, streamOf('body'), LIMITS)
     const controller = new AbortController()
     controller.abort(new Error('caller went away'))
-    failures.readFile = errno('EIO')
-    await expect(readDocFile(root, String(target.docId), controller.signal)).rejects.toThrow(/caller went away/)
+    failures.open = errno('EIO')
+    await expect(readDocFile(root, target.docId, controller.signal)).rejects.toThrow(/caller went away/)
   })
 
   it('reports a failed deletion instead of claiming the document is gone', async () => {
     const target = await resolveDocTarget(root, 'notes.txt', new Date())
     await saveDocFile(root, target, streamOf('body'), LIMITS)
     failures.unlink = errno('EPERM')
-    await expect(removeDocFile(root, String(target.docId))).rejects.toMatchObject({ code: 'DOC_DELETE_FAILED' })
+    await expect(removeDocFile(root, target.docId)).rejects.toMatchObject({ code: DOCUMENT_DELETE_FAILED_CODE })
   })
 
   it('treats a write failure as a storage failure and leaves no partial file', async () => {
@@ -138,8 +135,8 @@ describe('storage failures other than absence', () => {
         controller.error(errno('EIO'))
       },
     })
-    await expect(saveDocFile(root, target, body, LIMITS)).rejects.toMatchObject({ code: 'DOC_WRITE_FAILED' })
-    await expect(statDocFile(root, String(target.docId))).rejects.toMatchObject({ code: 'DOC_NOT_FOUND' })
+    await expect(saveDocFile(root, target, body, LIMITS)).rejects.toMatchObject({ code: DOCUMENT_WRITE_FAILED_CODE })
+    await expect(statDocFile(root, target.docId)).rejects.toMatchObject({ code: DOCUMENT_NOT_FOUND_CODE })
   })
 
   it('skips an in-progress partial file when listing', async () => {

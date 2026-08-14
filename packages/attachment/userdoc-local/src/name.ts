@@ -1,7 +1,13 @@
 /** Upload-name sanitization and target resolution. */
 
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { UserDocError, UserDocId } from '@deepseek-ai/dsh-userdoc'
+import {
+  DOCUMENT_NAME_EXHAUSTED_CODE,
+  INVALID_DOCUMENT_NAME_CODE,
+  INVALID_DOCUMENT_REF_CODE,
+  UserDocError,
+  UserDocId,
+} from '@deepseek-ai/dsh-userdoc'
 import type { UserDocTarget } from '@deepseek-ai/dsh-userdoc'
 
 /** Maximum bytes of a sanitized leaf name, the common filesystem limit. */
@@ -9,6 +15,12 @@ const MAX_NAME_BYTES = 255
 
 /** Names a POSIX filesystem accepts as entries but which never denote a file. */
 const RESERVED_NAMES = new Set(['', '.', '..'])
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  const encoded = new TextEncoder().encode(value)
+  if (encoded.byteLength <= maxBytes) return value
+  return new TextDecoder().decode(encoded.subarray(0, maxBytes)).replace(/\uFFFD$/, '')
+}
 
 /**
  * Reduce untrusted client text to a leaf file name that cannot escape a
@@ -20,7 +32,7 @@ const RESERVED_NAMES = new Set(['', '.', '..'])
  * a file literally named `C:\Users\...`.
  * @param value - client-supplied name, treated as untrusted text.
  * @returns the sanitized leaf name.
- * @throws UserDocError with code `INVALID_DOC_NAME` when nothing usable remains.
+ * @throws UserDocError with `INVALID_DOCUMENT_NAME` when nothing usable remains.
  */
 export function sanitizeName(value: string): string {
   const leaf = value.slice(Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\')) + 1)
@@ -32,13 +44,10 @@ export function sanitizeName(value: string): string {
   // Truncate by bytes, not code units: the limit filesystems enforce is bytes,
   // and a multi-byte name (a Chinese document title) hits it at a quarter the
   // character count. Trailing partial sequences are dropped by the decoder.
-  const encoded = new TextEncoder().encode(clean)
-  if (encoded.byteLength > MAX_NAME_BYTES) {
-    clean = new TextDecoder().decode(encoded.subarray(0, MAX_NAME_BYTES)).replace(/\uFFFD$/, '')
-  }
+  clean = truncateUtf8(clean, MAX_NAME_BYTES)
   // A name of only dots would resolve to this directory or its parent.
   if (RESERVED_NAMES.has(clean) || /^\.+$/.test(clean)) {
-    throw new UserDocError('Upload name is not a usable file name.', 'INVALID_DOC_NAME')
+    throw new UserDocError('Upload name is not a usable file name.', INVALID_DOCUMENT_NAME_CODE)
   }
   return clean
 }
@@ -63,7 +72,9 @@ function splitName(name: string): { stem: string; extension: string } {
 export function suffixName(name: string, occurrence: number): string {
   if (occurrence === 1) return name
   const { stem, extension } = splitName(name)
-  return `${stem} (${String(occurrence)})${extension}`
+  const suffix = ` (${String(occurrence)})`
+  const reserved = new TextEncoder().encode(suffix + extension).byteLength
+  return `${truncateUtf8(stem, Math.max(0, MAX_NAME_BYTES - reserved))}${suffix}${extension}`
 }
 
 /**
@@ -88,11 +99,11 @@ export function isInside(root: string, candidate: string): boolean {
  * Assert a path lies inside the upload root.
  * @param root - absolute upload root.
  * @param candidate - absolute path to test.
- * @throws UserDocError with code `DOC_OUTSIDE_ROOT` when the path escapes.
+ * @throws UserDocError with `INVALID_DOCUMENT_REF` when the path escapes.
  */
 export function assertInside(root: string, candidate: string): void {
   if (!isInside(root, candidate)) {
-    throw new UserDocError('Document path lies outside the upload root.', 'DOC_OUTSIDE_ROOT')
+    throw new UserDocError('Document path lies outside the upload root.', INVALID_DOCUMENT_REF_CODE)
   }
 }
 
@@ -119,14 +130,14 @@ export function docIdFor(root: string, path: string): UserDocId {
  * @param root - absolute upload root.
  * @param docId - identifier as carried on the wire or in a session log.
  * @returns the absolute path inside the root.
- * @throws UserDocError with code `INVALID_DOC_ID` or `DOC_OUTSIDE_ROOT`.
+ * @throws UserDocError with `INVALID_DOCUMENT_REF` when the identifier is malformed or escapes.
  */
 export function pathForDocId(root: string, docId: string): string {
   const segments = docId.split('/')
   const usable = segments.length > 0
     && segments.every(segment => segment !== '' && segment !== '.' && segment !== '..'
       && !segment.includes('\\') && basename(segment) === segment)
-  if (!usable) throw new UserDocError('Document identifier is invalid.', 'INVALID_DOC_ID')
+  if (!usable) throw new UserDocError('Document identifier is invalid.', INVALID_DOCUMENT_REF_CODE)
   const path = resolve(join(resolve(root), ...segments))
   assertInside(root, path)
   return path
@@ -160,5 +171,5 @@ export async function resolveTargetIn(
     assertInside(root, path)
     if (!await taken(path)) return { path, name: leaf, docId: docIdFor(root, path) }
   }
-  throw new UserDocError('Too many documents share this name.', 'DOC_NAME_EXHAUSTED')
+  throw new UserDocError('Too many documents share this name.', DOCUMENT_NAME_EXHAUSTED_CODE)
 }

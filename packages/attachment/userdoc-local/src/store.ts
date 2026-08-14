@@ -1,16 +1,59 @@
 /** Real-file document storage below a per-user upload root. */
 
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, readdir, readFile, rename, stat, unlink } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { lstat, link, mkdir, open, readdir, realpath, unlink } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
-import { UserDocError } from '@deepseek-ai/dsh-userdoc'
-import type { StoredUserDoc, UserDocLimits, UserDocRef, UserDocTarget } from '@deepseek-ai/dsh-userdoc'
+import {
+  DOCUMENT_DELETE_FAILED_CODE,
+  DOCUMENT_NOT_FOUND_CODE,
+  DOCUMENT_READ_FAILED_CODE,
+  DOCUMENT_TARGET_CONFLICT_CODE,
+  DOCUMENT_TOO_LARGE_CODE,
+  DOCUMENT_WRITE_FAILED_CODE,
+  INVALID_DOCUMENT_REF_CODE,
+  UserDocError,
+} from '@deepseek-ai/dsh-userdoc'
+import type { StoredUserDoc, UserDocId, UserDocLimits, UserDocRef, UserDocTarget } from '@deepseek-ai/dsh-userdoc'
 import { mediaTypeFor } from './media-type.ts'
 import { assertInside, docIdFor, pathForDocId, resolveTargetIn } from './name.ts'
 
-/** Suffix of the in-progress file a streaming save writes before its atomic rename. */
+/** Suffix identifying an unpublished random staging file. */
 const PARTIAL_SUFFIX = '.part'
+const NOFOLLOW = constants.O_NOFOLLOW ?? 0
+
+async function assertRealParent(root: string, path: string): Promise<void> {
+  const [canonicalRoot, canonicalParent] = await Promise.all([
+    realpath(root),
+    realpath(dirname(path)),
+  ])
+  assertInside(canonicalRoot, canonicalParent)
+}
+
+async function openDocument(root: string, path: string) {
+  try {
+    await assertRealParent(root, path)
+    const entry = await lstat(path)
+    if (entry.isSymbolicLink()) {
+      throw new UserDocError('Document not found.', DOCUMENT_NOT_FOUND_CODE)
+    }
+    const handle = await open(path, constants.O_RDONLY | NOFOLLOW)
+    const info = await handle.stat()
+    if (!info.isFile()) {
+      await handle.close()
+      throw new UserDocError('Document not found.', DOCUMENT_NOT_FOUND_CODE)
+    }
+    return { handle, info }
+  } catch (error) {
+    if (error instanceof UserDocError) throw error
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ELOOP') {
+      throw new UserDocError('Document not found.', DOCUMENT_NOT_FOUND_CODE)
+    }
+    throw new UserDocError('Unable to read the stored document.', DOCUMENT_READ_FAILED_CODE, { cause: error })
+  }
+}
 
 /**
  * Date-stamped subdirectory (`YYYY-MM-DD`) that groups one day's uploads.
@@ -49,9 +92,9 @@ export async function resolveDocTarget(root: string, name: string, now: Date): P
 /**
  * Stream one document to its resolved target and publish it atomically.
  *
- * The bytes land in a sibling `.part` file created with `O_EXCL` — which never
- * follows an existing symlink, so a pre-planted link cannot redirect the write
- * outside the root — and only a completed, synced file is renamed into place.
+ * The bytes land in a random sibling `.part` file created with `O_EXCL`. A
+ * completed, synced staging inode is hard-linked to the resolved target, so an
+ * occupied target fails instead of replacing an earlier upload.
  * A stream that exceeds `maxFileBytes` is cut off mid-flight and its partial
  * file removed, so an oversized upload cannot fill the disk by streaming past
  * the limit.
@@ -61,7 +104,7 @@ export async function resolveDocTarget(root: string, name: string, now: Date): P
  * @param root - absolute upload root, re-proved before the write.
  * @param signal - optional cancellation.
  * @returns the durable reference.
- * @throws UserDocError with `DOC_TOO_LARGE`, or `DOC_WRITE_FAILED` for storage failures.
+ * @throws UserDocError with `DOCUMENT_TOO_LARGE`, `DOCUMENT_TARGET_CONFLICT`, or `DOCUMENT_WRITE_FAILED`.
  */
 export async function saveDocFile(
   root: string,
@@ -72,12 +115,17 @@ export async function saveDocFile(
 ): Promise<UserDocRef> {
   signal?.throwIfAborted()
   assertInside(root, target.path)
+  if (pathForDocId(root, String(target.docId)) !== resolve(target.path)
+    || basename(target.path) !== target.name) {
+    throw new UserDocError('Resolved document target is inconsistent.', INVALID_DOCUMENT_REF_CODE)
+  }
   await mkdir(dirname(target.path), { recursive: true, mode: 0o700 })
-  const partial = `${target.path}${PARTIAL_SUFFIX}`
+  await assertRealParent(root, target.path)
+  const partial = join(dirname(target.path), `.userdoc-${randomBytes(12).toString('hex')}${PARTIAL_SUFFIX}`)
   let handle
   let bytes = 0
   try {
-    handle = await open(partial, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
+    handle = await open(partial, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | NOFOLLOW, 0o600)
     const reader = body.getReader()
     try {
       while (true) {
@@ -86,7 +134,7 @@ export async function saveDocFile(
         if (done) break
         bytes += value.byteLength
         if (bytes > limits.maxFileBytes) {
-          throw new UserDocError('Document exceeds the configured byte limit.', 'DOC_TOO_LARGE')
+          throw new UserDocError('Document exceeds the configured byte limit.', DOCUMENT_TOO_LARGE_CODE)
         }
         await handle.write(value)
       }
@@ -96,7 +144,16 @@ export async function saveDocFile(
     await handle.sync()
     await handle.close()
     handle = undefined
-    await rename(partial, target.path)
+    await assertRealParent(root, target.path)
+    try {
+      await link(partial, target.path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new UserDocError('Document target became occupied before publication.', DOCUMENT_TARGET_CONFLICT_CODE)
+      }
+      throw error
+    }
+    await unlink(partial)
   } catch (error) {
     if (handle !== undefined) {
       await handle.close().catch(
@@ -110,9 +167,10 @@ export async function saveDocFile(
     )
     if (error instanceof UserDocError) throw error
     signal?.throwIfAborted()
-    throw new UserDocError('Unable to store the uploaded document.', 'DOC_WRITE_FAILED', { cause: error })
+    throw new UserDocError('Unable to store the uploaded document.', DOCUMENT_WRITE_FAILED_CODE, { cause: error })
   }
-  const info = await stat(target.path)
+  const { handle: published, info } = await openDocument(root, target.path)
+  await published.close()
   return {
     docId: target.docId,
     path: target.path,
@@ -144,7 +202,7 @@ export async function listDocFiles(root: string, signal?: AbortSignal): Promise<
       // An absent root means nothing has been uploaded yet, which is an empty
       // list rather than a failure.
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
-      throw new UserDocError('Unable to list stored documents.', 'DOC_READ_FAILED', { cause: error })
+      throw new UserDocError('Unable to list stored documents.', DOCUMENT_READ_FAILED_CODE, { cause: error })
     }
     for (const entry of entries) {
       const path = join(directory, entry.name)
@@ -157,7 +215,8 @@ export async function listDocFiles(root: string, signal?: AbortSignal): Promise<
       // to a file outside it.
       if (!entry.isFile()) continue
       if (entry.name.endsWith(PARTIAL_SUFFIX)) continue
-      const info = await stat(path)
+      const { handle, info } = await openDocument(root, path)
+      await handle.close()
       refs.push({
         docId: docIdFor(root, path),
         path,
@@ -177,21 +236,13 @@ export async function listDocFiles(root: string, signal?: AbortSignal): Promise<
  * @param docId - identifier from a client or session log.
  * @param signal - optional cancellation.
  * @returns the reference.
- * @throws UserDocError with `INVALID_DOC_ID`, `DOC_OUTSIDE_ROOT`, or `DOC_NOT_FOUND`.
+ * @throws UserDocError with `INVALID_DOCUMENT_REF`, `DOCUMENT_NOT_FOUND`, or `DOCUMENT_READ_FAILED`.
  */
-export async function statDocFile(root: string, docId: string, signal?: AbortSignal): Promise<UserDocRef> {
+export async function statDocFile(root: string, docId: UserDocId, signal?: AbortSignal): Promise<UserDocRef> {
   signal?.throwIfAborted()
   const path = pathForDocId(root, docId)
-  let info
-  try {
-    info = await stat(path)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new UserDocError('Document not found.', 'DOC_NOT_FOUND')
-    }
-    throw new UserDocError('Unable to read the stored document.', 'DOC_READ_FAILED', { cause: error })
-  }
-  if (!info.isFile()) throw new UserDocError('Document not found.', 'DOC_NOT_FOUND')
+  const { handle, info } = await openDocument(root, path)
+  await handle.close()
   const name = basename(path)
   return {
     docId: docIdFor(root, path),
@@ -211,13 +262,22 @@ export async function statDocFile(root: string, docId: string, signal?: AbortSig
  * @returns the reference and its bytes.
  * @throws UserDocError when the identifier is invalid or the file is unreadable.
  */
-export async function readDocFile(root: string, docId: string, signal?: AbortSignal): Promise<StoredUserDoc> {
-  const ref = await statDocFile(root, docId, signal)
+export async function readDocFile(root: string, docId: UserDocId, signal?: AbortSignal): Promise<StoredUserDoc> {
+  signal?.throwIfAborted()
+  const path = pathForDocId(root, docId)
+  const { handle, info } = await openDocument(root, path)
+  const name = basename(path)
+  const ref: UserDocRef = {
+    docId: docIdFor(root, path), path, name, bytes: info.size,
+    mediaType: mediaTypeFor(name), modifiedAt: info.mtimeMs,
+  }
   try {
-    return { ref, data: new Uint8Array(await readFile(ref.path, signal === undefined ? undefined : { signal })) }
+    return { ref, data: new Uint8Array(await handle.readFile(signal === undefined ? undefined : { signal })) }
   } catch (error) {
     signal?.throwIfAborted()
-    throw new UserDocError('Unable to read the stored document.', 'DOC_READ_FAILED', { cause: error })
+    throw new UserDocError('Unable to read the stored document.', DOCUMENT_READ_FAILED_CODE, { cause: error })
+  } finally {
+    await handle.close()
   }
 }
 
@@ -234,10 +294,15 @@ export async function readDocFile(root: string, docId: string, signal?: AbortSig
  */
 export async function openDocFile(
   root: string,
-  docId: string,
+  docId: UserDocId,
 ): Promise<{ ref: UserDocRef; body: ReadableStream<Uint8Array> }> {
-  const ref = await statDocFile(root, docId)
-  const handle = await open(ref.path, constants.O_RDONLY)
+  const path = pathForDocId(root, docId)
+  const { handle, info } = await openDocument(root, path)
+  const name = basename(path)
+  const ref: UserDocRef = {
+    docId: docIdFor(root, path), path, name, bytes: info.size,
+    mediaType: mediaTypeFor(name), modifiedAt: info.mtimeMs,
+  }
   // The handle's own stream closes the descriptor when the consumer cancels or
   // reaches the end, so an abandoned download cannot leak it.
   return { ref, body: Readable.toWeb(handle.createReadStream()) as ReadableStream<Uint8Array> }
@@ -253,13 +318,13 @@ export async function openDocFile(
  * @throws UserDocError when the identifier is invalid or deletion fails for any
  * reason other than absence.
  */
-export async function removeDocFile(root: string, docId: string, signal?: AbortSignal): Promise<void> {
+export async function removeDocFile(root: string, docId: UserDocId, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   const path = pathForDocId(root, docId)
   try {
     await unlink(path)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-    throw new UserDocError('Unable to delete the stored document.', 'DOC_DELETE_FAILED', { cause: error })
+    throw new UserDocError('Unable to delete the stored document.', DOCUMENT_DELETE_FAILED_CODE, { cause: error })
   }
 }

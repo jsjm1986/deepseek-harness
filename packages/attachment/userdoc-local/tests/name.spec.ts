@@ -1,6 +1,11 @@
 import { join, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { UserDocError } from '@deepseek-ai/dsh-userdoc'
+import {
+  DOCUMENT_NAME_EXHAUSTED_CODE,
+  INVALID_DOCUMENT_NAME_CODE,
+  INVALID_DOCUMENT_REF_CODE,
+  UserDocError,
+} from '@deepseek-ai/dsh-userdoc'
 import {
   assertInside,
   docIdFor,
@@ -115,9 +120,9 @@ describe('assertInside', () => {
     expect(() => { assertInside(ROOT, join(ROOT, 'a.txt')) }).not.toThrow()
   })
 
-  it('rejects an escaping path with DOC_OUTSIDE_ROOT', () => {
+  it('rejects an escaping path', () => {
     expect(() => { assertInside(ROOT, join(sep, 'etc', 'passwd')) })
-      .toThrow(expect.objectContaining({ code: 'DOC_OUTSIDE_ROOT' }))
+      .toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }))
   })
 })
 
@@ -134,32 +139,32 @@ describe('pathForDocId', () => {
 
   it('rejects a traversal segment', () => {
     expect(() => pathForDocId(ROOT, '../../etc/passwd'))
-      .toThrow(expect.objectContaining({ code: 'INVALID_DOC_ID' }))
+      .toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }))
   })
 
   it('rejects an absolute spelling', () => {
     expect(() => pathForDocId(ROOT, '/etc/passwd'))
-      .toThrow(expect.objectContaining({ code: 'INVALID_DOC_ID' }))
+      .toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }))
   })
 
   it('rejects a Windows separator, which POSIX would treat as an ordinary character', () => {
     expect(() => pathForDocId(ROOT, '..\\..\\etc\\passwd'))
-      .toThrow(expect.objectContaining({ code: 'INVALID_DOC_ID' }))
+      .toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }))
   })
 
   it('rejects a current-directory segment', () => {
     expect(() => pathForDocId(ROOT, './a.pdf'))
-      .toThrow(expect.objectContaining({ code: 'INVALID_DOC_ID' }))
+      .toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }))
   })
 
   it('rejects an empty identifier', () => {
     expect(() => pathForDocId(ROOT, ''))
-      .toThrow(expect.objectContaining({ code: 'INVALID_DOC_ID' }))
+      .toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }))
   })
 
   it('rejects an empty segment from a doubled separator', () => {
     expect(() => pathForDocId(ROOT, '2026-08-14//a.pdf'))
-      .toThrow(expect.objectContaining({ code: 'INVALID_DOC_ID' }))
+      .toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }))
   })
 })
 
@@ -188,16 +193,22 @@ describe('resolveTargetIn', () => {
 
   it('rejects a directory outside the root before touching the name', async () => {
     await expect(resolveTargetIn(ROOT, join(sep, 'tmp'), 'a.pdf', free))
-      .rejects.toThrow(expect.objectContaining({ code: 'DOC_OUTSIDE_ROOT' }))
+      .rejects.toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }))
   })
 
   it('gives up rather than scanning without bound when every candidate is taken', async () => {
     await expect(resolveTargetIn(ROOT, join(ROOT, 'day'), 'a.pdf', async () => true))
-      .rejects.toThrow(expect.objectContaining({ code: 'DOC_NAME_EXHAUSTED' }))
+      .rejects.toThrow(expect.objectContaining({ code: DOCUMENT_NAME_EXHAUSTED_CODE }))
   })
 
   it('propagates an unusable name', async () => {
     await expect(resolveTargetIn(ROOT, join(ROOT, 'day'), '..', free))
-      .rejects.toThrow(expect.objectContaining({ code: 'INVALID_DOC_NAME' }))
+      .rejects.toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_NAME_CODE }))
+  })
+
+  it('keeps a collision suffix within the filesystem byte limit', () => {
+    const name = suffixName(`${'年'.repeat(85)}.pdf`, 1000)
+    expect(new TextEncoder().encode(name).byteLength).toBeLessThanOrEqual(255)
+    expect(name).toMatch(/ \(1000\)\.pdf$/)
   })
 })

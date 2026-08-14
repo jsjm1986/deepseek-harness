@@ -169,7 +169,7 @@ abstract list(signal?: AbortSignal): Promise<UserDocRef[]>
  * @returns the current reference.
  * @throws UserDocError when the identifier is malformed, escapes the upload root, or names no file.
  */
-abstract stat(docId: string, signal?: AbortSignal): Promise<UserDocRef>
+abstract stat(docId: UserDocId, signal?: AbortSignal): Promise<UserDocRef>
 
 /**
  * Read one stored document in full.
@@ -178,7 +178,7 @@ abstract stat(docId: string, signal?: AbortSignal): Promise<UserDocRef>
  * @returns the bytes and the reference they were read through.
  * @throws the signal reason when aborted, or a UserDocError when the identifier does not resolve to a file.
  */
-abstract read(docId: string, signal?: AbortSignal): Promise<StoredUserDoc>
+abstract read(docId: UserDocId, signal?: AbortSignal): Promise<StoredUserDoc>
 
 /**
  * Open one stored document as a byte stream, for a download response that must
@@ -187,7 +187,7 @@ abstract read(docId: string, signal?: AbortSignal): Promise<StoredUserDoc>
  * @returns the reference and its byte stream.
  * @throws UserDocError when the identifier does not resolve to a file.
  */
-abstract openRead(docId: string): Promise<{ ref: UserDocRef; body: ReadableStream<Uint8Array> }>
+abstract openRead(docId: UserDocId): Promise<{ ref: UserDocRef; body: ReadableStream<Uint8Array> }>
 
 /**
  * Delete one stored document. Deleting an already-absent document succeeds, so
@@ -198,8 +198,8 @@ abstract openRead(docId: string): Promise<{ ref: UserDocRef; body: ReadableStrea
  * @throws UserDocError when the identifier is malformed or escapes the upload
  * root, or the deletion fails for any reason other than absence.
  */
-abstract remove(docId: string, signal?: AbortSignal): Promise<void>
+abstract remove(docId: UserDocId, signal?: AbortSignal): Promise<void>
 ```
 
-Source: [`packages/attachment/userdoc/src/index.ts:44`](../../packages/attachment/userdoc/src/index.ts)
+Source: [`packages/attachment/userdoc/src/index.ts:62`](../../packages/attachment/userdoc/src/index.ts)
 <!-- END GENERATED cordis-surface -->

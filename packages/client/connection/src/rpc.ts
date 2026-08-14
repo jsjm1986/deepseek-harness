@@ -52,12 +52,6 @@ export interface HostConnectionRpc {
   ): () => Promise<void>
 }
 
-/** Host `ctx.connection` shape consumed by transport-independent adapters. */
-export interface HostConnectionHandle {
-  /** Generic RPC channel registry. */
-  readonly rpc: HostConnectionRpc
-}
-
 /** Client caller for logical RPC channels carried by the current transport. */
 export interface ClientConnectionRpc {
   /**

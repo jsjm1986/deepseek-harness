@@ -280,7 +280,9 @@ export class ReactLoopAgent implements Agent {
         phase.step = step
         try {
           for (const message of decision.messages) {
-            this.session.append('user/message', message, { surfaceOp: 'append' })
+            const event = this.session.append('user/message', message, { surfaceOp: 'append' })
+            await this.dispatch.serial('agent/message-entered', { event, turn, step, signal })
+            signal.throwIfAborted()
           }
           // max-tokens is sticky: once any step hits the ceiling, later steps
           // that complete normally must not downgrade the turn outcome.

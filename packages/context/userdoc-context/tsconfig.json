@@ -1,0 +1,13 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../attachment/userdoc" },
+    { "path": "../../llm/llm" },
+    { "path": "../../core/session" },
+    { "path": "../../core/agent" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

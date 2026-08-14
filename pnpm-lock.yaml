@@ -731,6 +731,12 @@ importers:
       '@deepseek-ai/dsh-user-questions':
         specifier: workspace:*
         version: link:../packages/interaction/user-questions
+      '@deepseek-ai/dsh-userdoc-context':
+        specifier: workspace:*
+        version: link:../packages/context/userdoc-context
+      '@deepseek-ai/dsh-userdoc-local':
+        specifier: workspace:*
+        version: link:../packages/attachment/userdoc-local
       '@deepseek-ai/dsh-web':
         specifier: workspace:*
         version: link:../packages/web/web
@@ -1430,6 +1436,9 @@ importers:
       '@deepseek-ai/dsh-host-plugin-inventory':
         specifier: workspace:^
         version: link:../../host/plugin-inventory
+      '@deepseek-ai/dsh-host-userdoc-http':
+        specifier: workspace:^
+        version: link:../../host/userdoc-http
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
@@ -1454,6 +1463,12 @@ importers:
       '@deepseek-ai/dsh-storage-json':
         specifier: workspace:^
         version: link:../../storage/storage-json
+      '@deepseek-ai/dsh-userdoc-context':
+        specifier: workspace:^
+        version: link:../../context/userdoc-context
+      '@deepseek-ai/dsh-userdoc-local':
+        specifier: workspace:^
+        version: link:../../attachment/userdoc-local
       '@deepseek-ai/dsh-web-frontend':
         specifier: workspace:^
         version: link:../../../apps/web
@@ -3481,6 +3496,27 @@ importers:
         specifier: workspace:^
         version: link:../../core/system-prompt
 
+  packages/context/userdoc-context:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-userdoc':
+        specifier: workspace:^
+        version: link:../../attachment/userdoc
+
   packages/core/agent:
     devDependencies:
       '@deepseek-ai/cordis':
@@ -4804,6 +4840,12 @@ importers:
       '@deepseek-ai/dsh-user-questions':
         specifier: workspace:^
         version: link:../../interaction/user-questions
+      '@deepseek-ai/dsh-userdoc':
+        specifier: workspace:^
+        version: link:../../attachment/userdoc
+      '@deepseek-ai/dsh-userdoc-context':
+        specifier: workspace:^
+        version: link:../../context/userdoc-context
       '@deepseek-ai/dsh-workspace':
         specifier: workspace:^
         version: link:../../workspace/workspace
@@ -4962,6 +5004,33 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../../typert/protocol
+
+  packages/host/userdoc-http:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../../client/connection
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../webserver
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-userdoc':
+        specifier: workspace:^
+        version: link:../../attachment/userdoc
+      '@deepseek-ai/dsh-userdoc-local':
+        specifier: workspace:^
+        version: link:../../attachment/userdoc-local
 
   packages/host/webserver:
     dependencies:

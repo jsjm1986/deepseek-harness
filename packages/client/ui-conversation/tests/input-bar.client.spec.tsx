@@ -14,8 +14,8 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
-import type { ComposerAttachment } from '../src/client/contract/slots.ts'
-import type { DraftAttachmentId } from '../src/client/input/contract.ts'
+import type { ComposerAttachment, ComposerDocument } from '../src/client/contract/slots.ts'
+import type { DraftAttachmentId, DraftDocumentId } from '../src/client/input/contract.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -85,7 +85,9 @@ interface BenchOptions {
   leftItems?: React.ReactNode
   rightItems?: React.ReactNode
   attachments?: readonly ComposerAttachment[]
+  documents?: readonly ComposerDocument[]
   addImages?: (files: readonly File[]) => string | null
+  addDocuments?: (files: readonly File[]) => string | null
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
   toggleCommandMenu?: (selection: { start: number; end: number }) => void
@@ -96,6 +98,19 @@ function row(id: string): ConversationSnapshot['queue'][number] {
   return {
     id: id as never, messageId: `message-${id}` as never, placement: 'queued',
     content: [{ type: 'text', text: id }], preview: id, text: id,
+  }
+}
+
+function documentDraft(overrides: Partial<ComposerDocument> = {}): ComposerDocument {
+  return {
+    kind: 'document',
+    id: 'document-1' as DraftDocumentId,
+    name: 'notes.md',
+    bytes: 128,
+    mediaType: 'text/markdown',
+    status: 'ready',
+    progress: 1,
+    ...overrides,
   }
 }
 
@@ -131,8 +146,12 @@ function bench(over?: BenchOptions) {
   })
   if (over?.draft !== undefined && over.draft !== '') shell.setDraft(over.draft)
   if (over?.attachments !== undefined) shell.addImages(over.attachments.map(attachment => attachment.id))
+  if (over?.documents !== undefined) shell.addDocuments(over.documents.map(document => document.id))
   const stop = vi.fn()
   const removeImage = vi.fn((id: DraftAttachmentId) => { shell.removeImage(id) })
+  const removeDocument = vi.fn((id: DraftDocumentId) => { shell.removeDocument(id) })
+  const retryDocument = vi.fn()
+  const documentStore = createSnapshotStore<readonly ComposerDocument[]>(over?.documents ?? [])
   const menuLauncher = createSnapshotStore<string | null>(over?.commandMenuOpen === true ? 'command' : null)
   const slotCalls: { key: string; owner: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
@@ -161,7 +180,10 @@ function bench(over?: BenchOptions) {
     inputActions: shell.actions,
     keyboard: shell,
     addImages: over?.addImages ?? (() => null),
+    addDocuments: over?.addDocuments ?? (() => null),
     removeImage,
+    removeDocument,
+    retryDocument,
     draftImages: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
       return attachment === undefined ? [] : [attachment]
@@ -175,6 +197,7 @@ function bench(over?: BenchOptions) {
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(menuLauncher),
+    useDocuments: bindSnapshotSelector(documentStore),
     stop,
     command: over?.command ?? (() => Promise.resolve(true)),
     // Mirrors the real lookup chain (conversation namespace, then common).
@@ -198,7 +221,20 @@ function bench(over?: BenchOptions) {
   )!
   const interruptButton = view.container.querySelector<HTMLButtonElement>('button[aria-label="停止生成"]')
   return {
-    view, textarea, button, interruptButton, props, sink, shell, wiring: shell, session, stop, removeImage, slotCalls,
+    view,
+    textarea,
+    button,
+    interruptButton,
+    props,
+    sink,
+    shell,
+    wiring: shell,
+    session,
+    stop,
+    removeImage,
+    removeDocument,
+    retryDocument,
+    slotCalls,
     menuLauncher,
     steerQueue: over?.steerQueue,
   }
@@ -297,10 +333,12 @@ describe('image draft rail', () => {
     expect(within.view.queryByRole('alert')).toBeNull()
   })
 
-  it('announces the format problem before any limit when the batch holds a non-image', () => {
-    const addImages = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
+  it('routes non-image drops to the document intake without applying image limits', () => {
+    const addImages = vi.fn(() => null)
+    const addDocuments = vi.fn(() => null)
     const { view } = bench({
       addImages,
+      addDocuments,
       imageLimits: {
         maxImageBytes: 8,
         maxImagesPerMessage: 1,
@@ -309,14 +347,15 @@ describe('image draft rail', () => {
         mediaTypes: ['image/png'] as const,
       },
     })
-    // Oversized AND over-count AND wrong type: the format rejection wins.
+    // Oversized and over-count as images, but valid document files.
     const files = [
       new File([new ArrayBuffer(64)], 'a.pdf', { type: 'application/pdf' }),
       new File([new ArrayBuffer(64)], 'b.pdf', { type: 'application/pdf' }),
     ]
     fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files, dropEffect: 'none' } })
-    expect(addImages).toHaveBeenCalledWith(files)
-    expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+    expect(addImages).not.toHaveBeenCalled()
+    expect(addDocuments).toHaveBeenCalledWith(files)
+    expect(view.queryByRole('alert')).toBeNull()
   })
 
   it('shows the projected limits in the drop overlay desc line', () => {
@@ -371,7 +410,7 @@ describe('image draft rail', () => {
     const { view, textarea, sink, removeImage } = bench({ attachments: [attachment] })
     expect((view.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(false)
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('', ['draft-1'], 'queue')
+    expect(sink).toHaveBeenCalledWith('', ['draft-1'], [], 'queue')
     fireEvent.click(view.getByRole('button', { name: '移除图片 pixel.png' }))
     expect(removeImage).toHaveBeenCalledWith('draft-1')
   })
@@ -389,8 +428,8 @@ describe('image draft rail', () => {
   it('announces an image-intake rejection as a fading toast, repeatable for the same reason', () => {
     vi.useFakeTimers()
     try {
-      const addImages = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
-      const { view, textarea } = bench({ addImages })
+      const addDocuments = vi.fn(() => '文档上传失败')
+      const { view, textarea } = bench({ addDocuments })
       const paste = () => {
         fireEvent.paste(textarea, {
           clipboardData: {
@@ -400,12 +439,12 @@ describe('image draft rail', () => {
         })
       }
       paste()
-      expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+      expect(view.getByRole('alert').textContent).toContain('文档上传失败')
       act(() => { vi.advanceTimersByTime(4000) })
       expect(view.queryByRole('alert')).toBeNull()
       // The identical rejection re-announces: the toast is keyed per show.
       paste()
-      expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+      expect(view.getByRole('alert').textContent).toContain('文档上传失败')
     } finally {
       vi.useRealTimers()
     }
@@ -418,6 +457,42 @@ describe('image draft rail', () => {
     const dataTransfer = { types: ['Files'], files: [new File([Uint8Array.of(1)], 'x.png', { type: 'image/png' })], dropEffect: 'none' }
     fireEvent.drop(card, { dataTransfer })
     expect(view.getByRole('alert').textContent).toContain('图片读取服务不可用')
+  })
+})
+
+describe('document draft rail', () => {
+  it('shows upload progress and blocks submission until the upload settles', () => {
+    const document = documentDraft({ status: 'uploading', progress: 0.42 })
+    const { view, textarea, sink, removeDocument } = bench({ documents: [document], draft: '带文档' })
+    const item = view.container.querySelector('[data-document-id="document-1"]')!
+    expect(item.getAttribute('data-document-status')).toBe('uploading')
+    expect(item.textContent).toContain('上传中 42%')
+    expect((view.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(sink).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole('button', { name: '移除文档 notes.md' }))
+    expect(removeDocument).toHaveBeenCalledWith('document-1')
+  })
+
+  it('shows failure details and exposes retry and remove actions', () => {
+    const document = documentDraft({ status: 'failed', progress: 0, error: '文件类型不受支持' })
+    const { view, retryDocument, removeDocument } = bench({ documents: [document], draft: '失败文档' })
+    const item = view.container.querySelector('[data-document-id="document-1"]')!
+    expect(item.getAttribute('data-document-status')).toBe('failed')
+    expect(item.textContent).toContain('文件类型不受支持')
+    expect((view.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(view.getByRole('button', { name: '重试上传 notes.md' }))
+    fireEvent.click(view.getByRole('button', { name: '移除文档 notes.md' }))
+    expect(retryDocument).toHaveBeenCalledWith('document-1')
+    expect(removeDocument).toHaveBeenCalledWith('document-1')
+  })
+
+  it('includes ready document ids in the submitted message', () => {
+    const document = documentDraft()
+    const { view, textarea, sink } = bench({ documents: [document], draft: '请阅读' })
+    expect((view.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(sink).toHaveBeenCalledWith('请阅读', [], ['document-1'], 'queue')
   })
 })
 
@@ -476,7 +551,7 @@ describe('Enter semantics', () => {
   it('plain Enter submits queue mode through the machine; repeat and empty are suppressed', () => {
     const { textarea, sink } = bench({ draft: 'hello' })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('hello', [], 'queue')
+    expect(sink).toHaveBeenCalledWith('hello', [], [], 'queue')
     fireEvent.keyDown(textarea, { key: 'Enter', repeat: true })
     expect(sink).toHaveBeenCalledTimes(1)
     const empty = bench({ draft: '   ' })
@@ -501,15 +576,15 @@ describe('Enter semantics', () => {
   it('Ctrl/Meta+Enter sends normally while idle and steers while running', () => {
     const idle = bench({ draft: 'hello' })
     fireEvent.keyDown(idle.textarea, { key: 'Enter', metaKey: true })
-    expect(idle.sink).toHaveBeenCalledWith('hello', [], 'queue')
+    expect(idle.sink).toHaveBeenCalledWith('hello', [], [], 'queue')
 
     const busyCtrl = bench({ running: true, draft: 'steer with ctrl' })
     fireEvent.keyDown(busyCtrl.textarea, { key: 'Enter', ctrlKey: true })
-    expect(busyCtrl.sink).toHaveBeenCalledWith('steer with ctrl', [], 'steer')
+    expect(busyCtrl.sink).toHaveBeenCalledWith('steer with ctrl', [], [], 'steer')
 
     const busyMeta = bench({ running: true, draft: 'steer with cmd' })
     fireEvent.keyDown(busyMeta.textarea, { key: 'Enter', metaKey: true })
-    expect(busyMeta.sink).toHaveBeenCalledWith('steer with cmd', [], 'steer')
+    expect(busyMeta.sink).toHaveBeenCalledWith('steer with cmd', [], [], 'steer')
   })
 
   it('empty-draft Cmd/Ctrl+Enter steers the whole queue instead of submitting', () => {
@@ -574,7 +649,7 @@ describe('Enter semantics', () => {
     const steerQueue = vi.fn()
     const { textarea, sink } = bench({ running: true, queue: [row('q-1')], draft: '插话', steerQueue })
     fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
-    expect(sink).toHaveBeenCalledWith('插话', [], 'steer')
+    expect(sink).toHaveBeenCalledWith('插话', [], [], 'steer')
     expect(steerQueue).not.toHaveBeenCalled()
   })
 
@@ -622,7 +697,7 @@ describe('running and lock semantics', () => {
     expect(textarea.disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队消息2' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队消息2', [], 'queue')
+    expect(sink).toHaveBeenCalledWith('排队消息2', [], [], 'queue')
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
@@ -631,17 +706,17 @@ describe('running and lock semantics', () => {
   it('running plain Enter follows the busy-state Steer preference', () => {
     const { textarea, sink } = bench({ running: true, busyEnter: 'steer', draft: '直接插话' })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('直接插话', [], 'steer')
+    expect(sink).toHaveBeenCalledWith('直接插话', [], [], 'steer')
   })
 
   it('running Cmd/Ctrl+Enter uses the opposite of the busy-state Enter preference', () => {
     const meta = bench({ running: true, busyEnter: 'steer', draft: '排到下一轮' })
     fireEvent.keyDown(meta.textarea, { key: 'Enter', metaKey: true })
-    expect(meta.sink).toHaveBeenCalledWith('排到下一轮', [], 'queue')
+    expect(meta.sink).toHaveBeenCalledWith('排到下一轮', [], [], 'queue')
 
     const ctrl = bench({ running: true, busyEnter: 'steer', draft: 'also queue' })
     fireEvent.keyDown(ctrl.textarea, { key: 'Enter', ctrlKey: true })
-    expect(ctrl.sink).toHaveBeenCalledWith('also queue', [], 'queue')
+    expect(ctrl.sink).toHaveBeenCalledWith('also queue', [], [], 'queue')
   })
 
   it('running continuable subagent keeps Send beside an independent Stop', () => {
@@ -661,7 +736,7 @@ describe('running and lock semantics', () => {
     expect(interruptButton).not.toBeNull()
     expect(textarea.disabled).toBe(false)
     fireEvent.click(button)
-    expect(sink).toHaveBeenCalledWith('后续消息', [], 'queue')
+    expect(sink).toHaveBeenCalledWith('后续消息', [], [], 'queue')
     fireEvent.click(interruptButton!)
     expect(stop).toHaveBeenCalledTimes(1)
   })
@@ -718,11 +793,11 @@ describe('running and lock semantics', () => {
     }
     const plain = bench({ running: true, busyEnter: 'steer', draft: 'plain', subagent })
     fireEvent.keyDown(plain.textarea, { key: 'Enter' })
-    expect(plain.sink).toHaveBeenCalledWith('plain', [], 'queue')
+    expect(plain.sink).toHaveBeenCalledWith('plain', [], [], 'queue')
 
     const accelerated = bench({ running: true, draft: 'accelerated', subagent })
     fireEvent.keyDown(accelerated.textarea, { key: 'Enter', metaKey: true })
-    expect(accelerated.sink).toHaveBeenCalledWith('accelerated', [], 'queue')
+    expect(accelerated.sink).toHaveBeenCalledWith('accelerated', [], [], 'queue')
   })
 
   it('disabled (session removed) locks the textarea and chrome', () => {
@@ -735,7 +810,7 @@ describe('running and lock semantics', () => {
   it('idle primary sends and disables on empty draft', () => {
     const { button, sink } = bench({ draft: 'go' })
     fireEvent.click(button)
-    expect(sink).toHaveBeenCalledWith('go', [], 'queue')
+    expect(sink).toHaveBeenCalledWith('go', [], [], 'queue')
     const empty = bench()
     expect(empty.button.disabled).toBe(true)
   })

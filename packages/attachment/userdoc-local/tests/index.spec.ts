@@ -1,4 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
+import { DOCUMENT_TOO_LARGE_CODE, INVALID_DOCUMENT_REF_CODE, UserDocId } from '@deepseek-ai/dsh-userdoc'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -86,16 +87,17 @@ describe('local user-document service', () => {
     const outside = join(service.root, '..', 'outside.txt')
     await writeFile(outside, 'secret')
     roots.push(outside)
-    await expect(service.stat('../outside.txt')).rejects.toMatchObject({ code: 'INVALID_DOC_ID' })
-    await expect(service.read('../outside.txt')).rejects.toMatchObject({ code: 'INVALID_DOC_ID' })
-    await expect(service.openRead('../outside.txt')).rejects.toMatchObject({ code: 'INVALID_DOC_ID' })
-    await expect(service.remove('../outside.txt')).rejects.toMatchObject({ code: 'INVALID_DOC_ID' })
+    const outsideId = UserDocId('../outside.txt')
+    await expect(service.stat(outsideId)).rejects.toMatchObject({ code: INVALID_DOCUMENT_REF_CODE })
+    await expect(service.read(outsideId)).rejects.toMatchObject({ code: INVALID_DOCUMENT_REF_CODE })
+    await expect(service.openRead(outsideId)).rejects.toMatchObject({ code: INVALID_DOCUMENT_REF_CODE })
+    await expect(service.remove(outsideId)).rejects.toMatchObject({ code: INVALID_DOCUMENT_REF_CODE })
   })
 
   it('cuts off a stream that exceeds the configured single-file limit', async () => {
     const service = await store({ maxFileBytes: 4 })
     const target = await service.resolveTarget({ name: 'over.txt' })
-    await expect(service.save(target, stream('12345'))).rejects.toMatchObject({ code: 'DOC_TOO_LARGE' })
+    await expect(service.save(target, stream('12345'))).rejects.toMatchObject({ code: DOCUMENT_TOO_LARGE_CODE })
     await expect(service.list()).resolves.toEqual([])
   })
 })

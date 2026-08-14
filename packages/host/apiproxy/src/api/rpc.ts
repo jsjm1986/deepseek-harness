@@ -52,6 +52,7 @@ export interface RpcErrorDetailsMap {
   'agent-preset-invalid': { agentPreset: string; reason: string }
   'agent-busy': { reason: string }
   'attachment-error': { reason: string }
+  'document-error': { reason: string }
   'queue-item-not-found': { itemId: MessageId }
   'steer-unavailable': { itemId: MessageId }
   /** A known slash command reported a usage/state error; the message is the command's own text. */

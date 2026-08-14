@@ -30,6 +30,18 @@ Four properties are deliberate:
 
 Storage is not content-addressed: two uploads of identical bytes are two files with two identifiers, and deleting one cannot affect the other — what a person expects of files in their own directory.
 
+### Host transport and prompt admission
+
+`packages/host/userdoc-http` registers a streaming `/api/documents` subtree through the Host Connection. The existing Host/Origin trust fence runs before the subtree handler; the upload body then stays out of the buffered JSON bridge. `POST` requires `x-dsh-document-upload: 1`, streams the raw body into `UserDocStore`, and rejects an oversized declared length before reading it. `GET` lists references and limits, `GET`/`HEAD` streams one content body with `nosniff` and attachment disposition, and `DELETE` is idempotent. Error responses expose stable document error codes without paths or bytes.
+
+The prompt API accepts document ids alongside text and images. `prepareUserDocAttachments` resolves every id before any prompt is committed, enforces the per-message count and aggregate-byte limits, and freezes one representation per document: strict UTF-8 content at or below `maxInlineTextBytes` is inlined, while other files are represented by their stored path. The host renders both forms as text blocks and copies the host-admitted snapshots into the user message source; client-supplied paths or inline text are never trusted. The web bundle composes the local store, prompt-context plugin, and streaming HTTP consumer together.
+
+The `userdoc-context` plugin listens after the exact `user/message` event is appended and records one `userdoc/attached` event per document, including the message id, order, metadata, and frozen representation. This keeps every document detail that reaches a model reconstructable from the session log without adding a new core `ContentBlock` kind.
+
+### Browser intake
+
+The conversation controller owns browser-only draft identities and metadata while the Host owns durable ids. Paste and drag-and-drop send image MIME types through the existing image path and every other file through the streaming document client. The input bar shows a document rail with upload progress, ready/failed states, retry, and removal. Submission waits for uploads to become ready; a failed prompt restores the document ids and draft text, while a successful prompt releases browser metadata but leaves the durable files in place. Removing a draft aborts an in-flight upload and best-effort deletes its durable file, and service teardown aborts all remaining uploads.
+
 ### Containment
 
 `.part` staging files are created with `O_EXCL`, which never follows an existing symlink, so a pre-planted link cannot redirect a write outside the root. Only a completed, synced file is renamed into place. Listing skips non-regular entries rather than following them, so a symlink planted inside the root cannot publish a reference to a file outside it. Name sanitization strips both separator styles by hand (a POSIX host treats `\` as an ordinary filename character, so `basename` alone would keep a Windows client's full local path), rejects `..` and all-dot names, strips control characters, and truncates to 255 **bytes** rather than code units — the limit filesystems enforce is bytes, and a Chinese document title reaches it at a quarter the character count.
@@ -58,10 +70,8 @@ Nothing verifies a document on read. A stored file is ordinary, so anything with
 
 ## Testing
 
-97 unit tests across the two packages, at the repository's per-file 100% coverage bar. Each containment rule has a rejection case: traversal via `..`, absolute and Windows-separator identifiers, all-dot names, a symlink planted at the target, a symlinked entry during listing, mid-stream limit overrun leaving no partial file, and identifier tampering. Failure paths that require a filesystem error other than absence are covered through a mocked `node:fs/promises`.
+The storage seam and local provider retain their 97 unit tests at the repository's per-file 100% coverage bar. The HTTP consumer, prompt admission, agent-event durability, Connection dispatch, and browser composer behavior add focused tests, and the headless keyless snapshot exercises the assembled user-document prompt path. The containment suite covers traversal via `..`, absolute and Windows-separator identifiers, all-dot names, a symlink planted at the target, a symlinked entry during listing, mid-stream limit overrun leaving no partial file, and identifier tampering. Failure paths that require a filesystem error other than absence are covered through a mocked `node:fs/promises`.
 
-## Deferred
+## Operational limits
 
-The seam and its local provider ship here. Not yet built: the streaming HTTP upload/download/list routes, the `userdoc/attached` session event and prompt-assembly split between inlined text and path-only reference, the composer intake that stops filtering non-images out, the standalone document view, and per-user disk quota in the gateway. The plan for those lives with this change's author; each is independently reviewable.
-
-The `/api` POST envelope cannot carry uploads: `packages/client/connection/src/http-bridge.ts` buffers the whole body in memory and `toFetchHandler` requires `application/json`. The upload route must be a separate streaming path, following the `DownloadsApi` precedent for host-only non-envelope channels.
+The `/api` JSON envelope still buffers request bodies and therefore does not carry uploads; the streaming subtree is deliberately separate. The store has no per-user disk quota or retention policy, so deployments must provide capacity and cleanup policy outside this seam. The browser exposes the current draft rail rather than a second historical document viewer; durable files remain ordinary workspace files and can be inspected through the agent's existing filesystem tools.

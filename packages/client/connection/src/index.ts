@@ -16,9 +16,13 @@ export type {
   ConnectionRpcEndpointMatcher,
   ConnectionRpcHandler,
   ConnectionRpcHandlerOptions,
-  HostConnectionHandle,
   HostConnectionRpc,
 } from './rpc.ts'
+export type {
+  ConnectionHttpHandler,
+  HostConnectionHandle,
+  HostConnectionHttp,
+} from './rpc-host.ts'
 export { HostConnectionService } from './rpc-host.ts'
 
 export { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
@@ -167,6 +171,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
         res.end('forbidden')
         return
       }
+      if (await connection.dispatchHttp(req, res)) return
       await bridge(req, res, fetchHandler, maxRequestBodyBytes)
     },
   }

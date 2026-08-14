@@ -33,6 +33,12 @@
       "path": "../../attachment/attachment"
     },
     {
+      "path": "../../attachment/userdoc"
+    },
+    {
+      "path": "../../context/userdoc-context"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

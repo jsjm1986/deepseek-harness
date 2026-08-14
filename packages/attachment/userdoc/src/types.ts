@@ -22,12 +22,11 @@ export interface UserDocRef {
   path: string
   /** Display name: the sanitized leaf actually written, which may differ from what was uploaded. */
   name: string
-  /** Exact byte length on disk. */
+  /** Byte length observed when this reference was created. */
   bytes: number
   /**
-   * Caller-declared media type, recorded verbatim and never verified against
-   * the bytes. It is metadata for presentation only; no admission decision,
-   * parse, or dispatch reads it.
+   * Extension-derived media type. It is presentation metadata only; no
+   * admission decision, parse, or dispatch reads it.
    */
   mediaType: string
   /** Storage modification time in epoch milliseconds. */
@@ -75,4 +74,17 @@ export interface ResolveUserDocTarget {
 export interface StoredUserDoc {
   ref: UserDocRef
   data: Uint8Array
+}
+
+/** Exact model-facing representation frozen when a document prompt is admitted. */
+export type UserDocPromptRepresentation =
+  | { readonly kind: 'inline'; readonly text: string }
+  | { readonly kind: 'path' }
+
+/** One document snapshot carried with a queued prompt until it enters the Session log. */
+export interface UserDocPromptAttachment {
+  /** Metadata observed while the Host admitted the prompt. */
+  readonly ref: UserDocRef
+  /** Inline text when the byte and UTF-8 policy admitted it; otherwise path-only. */
+  readonly representation: UserDocPromptRepresentation
 }

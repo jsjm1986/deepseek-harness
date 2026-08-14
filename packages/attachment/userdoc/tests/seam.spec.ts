@@ -1,6 +1,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import {
+  DOCUMENT_NOT_FOUND_CODE,
+  DOCUMENT_WRITE_FAILED_CODE,
   UserDocError,
   UserDocId,
   UserDocStore,
@@ -57,13 +59,13 @@ class MemoryUserDocStore extends UserDocStore {
   }
 
   async stat(docId: string): Promise<UserDocRef> {
-    if (!this.saved.has(docId)) throw new UserDocError('missing', 'DOC_NOT_FOUND')
+    if (!this.saved.has(docId)) throw new UserDocError('missing', DOCUMENT_NOT_FOUND_CODE)
     return ref(docId)
   }
 
   async read(docId: string): Promise<StoredUserDoc> {
     const data = this.saved.get(docId)
-    if (data === undefined) throw new UserDocError('missing', 'DOC_NOT_FOUND')
+    if (data === undefined) throw new UserDocError('missing', DOCUMENT_NOT_FOUND_CODE)
     return { ref: ref(docId), data }
   }
 
@@ -138,15 +140,15 @@ describe('user-document seam', () => {
     await store.save(target, streamOf('x'))
     await expect(store.remove(String(target.docId))).resolves.toBeUndefined()
     await expect(store.remove(String(target.docId))).resolves.toBeUndefined()
-    await expect(store.stat(String(target.docId))).rejects.toMatchObject({ code: 'DOC_NOT_FOUND' })
+    await expect(store.stat(String(target.docId))).rejects.toMatchObject({ code: DOCUMENT_NOT_FOUND_CODE })
   })
 
   it('routes failures on a stable code rather than on the message', () => {
     const cause = new Error('disk full')
-    const error = new UserDocError('Unable to store the uploaded document.', 'DOC_WRITE_FAILED', { cause })
+    const error = new UserDocError('Unable to store the uploaded document.', DOCUMENT_WRITE_FAILED_CODE, { cause })
     expect(error).toBeInstanceOf(Error)
     expect(error.name).toBe('UserDocError')
-    expect(error.code).toBe('DOC_WRITE_FAILED')
+    expect(error.code).toBe(DOCUMENT_WRITE_FAILED_CODE)
     expect(error.cause).toBe(cause)
   })
 

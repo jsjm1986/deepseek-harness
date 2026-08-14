@@ -8,15 +8,33 @@ import type {
   UserDocRef,
   UserDocTarget,
 } from './types.ts'
+import type { UserDocId } from './brand.ts'
 
 export { UserDocId } from './brand.ts'
-export { UserDocError } from './error.ts'
+export {
+  DOCUMENT_DELETE_FAILED_CODE,
+  DOCUMENT_NAME_EXHAUSTED_CODE,
+  DOCUMENT_NOT_FOUND_CODE,
+  DOCUMENT_READ_FAILED_CODE,
+  DOCUMENT_TARGET_CONFLICT_CODE,
+  DOCUMENT_STORE_UNAVAILABLE_CODE,
+  DOCUMENTS_TOO_LARGE_CODE,
+  DOCUMENT_TOO_LARGE_CODE,
+  DOCUMENT_WRITE_FAILED_CODE,
+  INVALID_DOCUMENT_NAME_CODE,
+  INVALID_DOCUMENT_REF_CODE,
+  TOO_MANY_DOCUMENTS_CODE,
+  UserDocError,
+} from './error.ts'
+export type { UserDocErrorCode } from './error.ts'
 export type {
   ResolveUserDocTarget,
   StoredUserDoc,
   UserDocId as UserDocIdType,
   UserDocLimits,
   UserDocRef,
+  UserDocPromptAttachment,
+  UserDocPromptRepresentation,
   UserDocTarget,
 } from './types.ts'
 
@@ -98,7 +116,7 @@ export abstract class UserDocStore extends Service {
    * @returns the current reference.
    * @throws UserDocError when the identifier is malformed, escapes the upload root, or names no file.
    */
-  abstract stat(docId: string, signal?: AbortSignal): Promise<UserDocRef>
+  abstract stat(docId: UserDocId, signal?: AbortSignal): Promise<UserDocRef>
 
   /**
    * Read one stored document in full.
@@ -107,7 +125,7 @@ export abstract class UserDocStore extends Service {
    * @returns the bytes and the reference they were read through.
    * @throws the signal reason when aborted, or a UserDocError when the identifier does not resolve to a file.
    */
-  abstract read(docId: string, signal?: AbortSignal): Promise<StoredUserDoc>
+  abstract read(docId: UserDocId, signal?: AbortSignal): Promise<StoredUserDoc>
 
   /**
    * Open one stored document as a byte stream, for a download response that must
@@ -116,7 +134,7 @@ export abstract class UserDocStore extends Service {
    * @returns the reference and its byte stream.
    * @throws UserDocError when the identifier does not resolve to a file.
    */
-  abstract openRead(docId: string): Promise<{ ref: UserDocRef; body: ReadableStream<Uint8Array> }>
+  abstract openRead(docId: UserDocId): Promise<{ ref: UserDocRef; body: ReadableStream<Uint8Array> }>
 
   /**
    * Delete one stored document. Deleting an already-absent document succeeds, so
@@ -127,7 +145,7 @@ export abstract class UserDocStore extends Service {
    * @throws UserDocError when the identifier is malformed or escapes the upload
    * root, or the deletion fails for any reason other than absence.
    */
-  abstract remove(docId: string, signal?: AbortSignal): Promise<void>
+  abstract remove(docId: UserDocId, signal?: AbortSignal): Promise<void>
 }
 
 export default UserDocStore

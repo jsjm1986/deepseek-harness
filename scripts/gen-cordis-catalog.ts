@@ -284,6 +284,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SaveImageAttachment: 'attachment.md',
   StoredImageAttachment: 'attachment.md',
   ResolveUserDocTarget: 'attachment.md',
+  UserDocId: 'attachment.md',
   StoredUserDoc: 'attachment.md',
   UserDocRef: 'attachment.md',
   UserDocTarget: 'attachment.md',

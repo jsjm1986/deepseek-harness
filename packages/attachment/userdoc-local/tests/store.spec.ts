@@ -2,7 +2,14 @@ import { mkdtemp, lstat, readFile, readdir, rm, stat, symlink, writeFile, mkdir 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { UserDocError } from '@deepseek-ai/dsh-userdoc'
+import {
+  DOCUMENT_NOT_FOUND_CODE,
+  DOCUMENT_TARGET_CONFLICT_CODE,
+  DOCUMENT_TOO_LARGE_CODE,
+  INVALID_DOCUMENT_REF_CODE,
+  UserDocId,
+  UserDocError,
+} from '@deepseek-ai/dsh-userdoc'
 import type { UserDocLimits } from '@deepseek-ai/dsh-userdoc'
 import {
   dayDirectory,
@@ -119,7 +126,7 @@ describe('saveDocFile', () => {
     const oversized = chunked(['x'.repeat(32), 'x'.repeat(32), 'x'.repeat(32)])
 
     await expect(saveDocFile(uploadRoot, target, oversized, LIMITS)).rejects.toThrow(
-      expect.objectContaining({ code: 'DOC_TOO_LARGE' }) as Error,
+      expect.objectContaining({ code: DOCUMENT_TOO_LARGE_CODE }) as Error,
     )
     expect(await readdir(join(uploadRoot, dayDirectory(new Date())))).toEqual([])
   })
@@ -129,22 +136,37 @@ describe('saveDocFile', () => {
     const target = await resolveDocTarget(uploadRoot, 'ok.txt', new Date())
 
     await expect(saveDocFile(uploadRoot, { ...target, path: join(uploadRoot, '..', 'escaped.txt') }, body('x'), LIMITS))
-      .rejects.toThrow(expect.objectContaining({ code: 'DOC_OUTSIDE_ROOT' }) as Error)
+      .rejects.toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }) as Error)
   })
 
-  it('never follows a symlink planted at the partial path', async () => {
+  it('publishes the same resolved target at most once under concurrent saves', async () => {
     const uploadRoot = await root()
-    const outside = join(uploadRoot, '..', 'outside.txt')
-    await writeFile(outside, 'original')
-    const target = await resolveDocTarget(uploadRoot, 'trap.txt', new Date())
-    await mkdir(join(uploadRoot, dayDirectory(new Date())), { recursive: true })
-    await symlink(outside, `${target.path}.part`)
+    const target = await resolveDocTarget(uploadRoot, 'race.txt', new Date())
+    const settled = await Promise.allSettled([
+      saveDocFile(uploadRoot, target, body('first'), LIMITS),
+      saveDocFile(uploadRoot, target, body('second'), LIMITS),
+    ])
 
-    await expect(saveDocFile(uploadRoot, target, body('overwritten'), LIMITS)).rejects.toThrow(
-      expect.objectContaining({ code: 'DOC_WRITE_FAILED' }) as Error,
-    )
-    // O_EXCL refused the existing link rather than writing through it.
-    expect(await readFile(outside, 'utf8')).toBe('original')
+    expect(settled.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(settled.filter(result => result.status === 'rejected')).toEqual([
+      expect.objectContaining({ reason: expect.objectContaining({ code: DOCUMENT_TARGET_CONFLICT_CODE }) }),
+    ])
+    expect(['first', 'second']).toContain(await readFile(target.path, 'utf8'))
+    expect((await readdir(join(uploadRoot, dayDirectory(new Date())))).filter(name => name.endsWith('.part'))).toEqual([])
+  })
+
+  it('refuses a date directory replaced by a symlink outside the upload root', async () => {
+    const uploadRoot = await root()
+    const outside = join(uploadRoot, '..', 'outside')
+    await mkdir(outside)
+    await mkdir(uploadRoot)
+    await symlink(outside, join(uploadRoot, dayDirectory(new Date())))
+    const target = await resolveDocTarget(uploadRoot, 'escaped.txt', new Date())
+
+    await expect(saveDocFile(uploadRoot, target, body('secret'), LIMITS)).rejects.toMatchObject({
+      code: INVALID_DOCUMENT_REF_CODE,
+    })
+    await expect(readFile(join(outside, 'escaped.txt'))).rejects.toThrow()
   })
 
   it('preserves cancellation instead of reporting a storage failure', async () => {
@@ -223,7 +245,7 @@ describe('statDocFile', () => {
     const uploadRoot = await root()
     const saved = await save(uploadRoot, 'notes.md', 'hello')
 
-    const ref = await statDocFile(uploadRoot, String(saved.docId))
+    const ref = await statDocFile(uploadRoot, saved.docId)
     expect(ref.path).toBe(saved.path)
     expect(ref.mediaType).toBe('text/markdown')
   })
@@ -231,16 +253,16 @@ describe('statDocFile', () => {
   it('rejects a traversal identifier', async () => {
     const uploadRoot = await root()
 
-    await expect(statDocFile(uploadRoot, '../outside.txt')).rejects.toThrow(
-      expect.objectContaining({ code: 'INVALID_DOC_ID' }) as Error,
+    await expect(statDocFile(uploadRoot, UserDocId('../outside.txt'))).rejects.toThrow(
+      expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }) as Error,
     )
   })
 
   it('reports a missing document', async () => {
     const uploadRoot = await root()
 
-    await expect(statDocFile(uploadRoot, '2026-08-14/absent.txt')).rejects.toThrow(
-      expect.objectContaining({ code: 'DOC_NOT_FOUND' }) as Error,
+    await expect(statDocFile(uploadRoot, UserDocId('2026-08-14/absent.txt'))).rejects.toThrow(
+      expect.objectContaining({ code: DOCUMENT_NOT_FOUND_CODE }) as Error,
     )
   })
 
@@ -248,8 +270,8 @@ describe('statDocFile', () => {
     const uploadRoot = await root()
     await save(uploadRoot, 'real.txt', 'real')
 
-    await expect(statDocFile(uploadRoot, dayDirectory(new Date()))).rejects.toThrow(
-      expect.objectContaining({ code: 'DOC_NOT_FOUND' }) as Error,
+    await expect(statDocFile(uploadRoot, UserDocId(dayDirectory(new Date())))).rejects.toThrow(
+      expect.objectContaining({ code: DOCUMENT_NOT_FOUND_CODE }) as Error,
     )
   })
 
@@ -258,7 +280,27 @@ describe('statDocFile', () => {
     const abort = new AbortController()
     abort.abort()
 
-    await expect(statDocFile(uploadRoot, 'x.txt', abort.signal)).rejects.toThrow(abort.signal.reason as Error)
+    await expect(statDocFile(uploadRoot, UserDocId('x.txt'), abort.signal)).rejects.toThrow(abort.signal.reason as Error)
+  })
+})
+
+
+it('refuses a document leaf replaced by a symlink', async () => {
+  const uploadRoot = await root()
+  const saved = await save(uploadRoot, 'linked.txt', 'inside')
+  const outside = join(uploadRoot, '..', 'outside.txt')
+  await writeFile(outside, 'outside')
+  await rm(saved.path)
+  await symlink(outside, saved.path)
+
+  await expect(statDocFile(uploadRoot, saved.docId)).rejects.toMatchObject({
+    code: DOCUMENT_NOT_FOUND_CODE,
+  })
+  await expect(readDocFile(uploadRoot, saved.docId)).rejects.toMatchObject({
+    code: DOCUMENT_NOT_FOUND_CODE,
+  })
+  await expect(openDocFile(uploadRoot, saved.docId)).rejects.toMatchObject({
+    code: DOCUMENT_NOT_FOUND_CODE,
   })
 })
 
@@ -267,7 +309,7 @@ describe('readDocFile', () => {
     const uploadRoot = await root()
     const saved = await save(uploadRoot, 'notes.txt', 'hello')
 
-    const stored = await readDocFile(uploadRoot, String(saved.docId))
+    const stored = await readDocFile(uploadRoot, saved.docId)
     expect(new TextDecoder().decode(stored.data)).toBe('hello')
     expect(stored.ref.docId).toBe(saved.docId)
   })
@@ -278,7 +320,7 @@ describe('readDocFile', () => {
     const abort = new AbortController()
     abort.abort()
 
-    await expect(readDocFile(uploadRoot, String(saved.docId), abort.signal)).rejects.toThrow(
+    await expect(readDocFile(uploadRoot, saved.docId, abort.signal)).rejects.toThrow(
       abort.signal.reason as Error,
     )
   })
@@ -289,7 +331,7 @@ describe('openDocFile', () => {
     const uploadRoot = await root()
     const saved = await save(uploadRoot, 'notes.txt', 'hello')
 
-    const { ref, body: stream } = await openDocFile(uploadRoot, String(saved.docId))
+    const { ref, body: stream } = await openDocFile(uploadRoot, saved.docId)
     const chunks: Uint8Array[] = []
     for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>) chunks.push(chunk)
     expect(Buffer.concat(chunks).toString('utf8')).toBe('hello')
@@ -299,8 +341,8 @@ describe('openDocFile', () => {
   it('rejects an identifier that escapes the upload root', async () => {
     const uploadRoot = await root()
 
-    await expect(openDocFile(uploadRoot, '../outside.txt')).rejects.toThrow(
-      expect.objectContaining({ code: 'INVALID_DOC_ID' }) as Error,
+    await expect(openDocFile(uploadRoot, UserDocId('../outside.txt'))).rejects.toThrow(
+      expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }) as Error,
     )
   })
 })
@@ -310,16 +352,16 @@ describe('removeDocFile', () => {
     const uploadRoot = await root()
     const saved = await save(uploadRoot, 'notes.txt', 'hello')
 
-    await removeDocFile(uploadRoot, String(saved.docId))
+    await removeDocFile(uploadRoot, saved.docId)
     await expect(lstat(saved.path)).rejects.toThrow()
   })
 
   it('succeeds when the document is already gone', async () => {
     const uploadRoot = await root()
     const saved = await save(uploadRoot, 'notes.txt', 'hello')
-    await removeDocFile(uploadRoot, String(saved.docId))
+    await removeDocFile(uploadRoot, saved.docId)
 
-    await expect(removeDocFile(uploadRoot, String(saved.docId))).resolves.toBeUndefined()
+    await expect(removeDocFile(uploadRoot, saved.docId)).resolves.toBeUndefined()
   })
 
   it('rejects a traversal identifier before touching the filesystem', async () => {
@@ -327,7 +369,7 @@ describe('removeDocFile', () => {
     const outside = join(uploadRoot, '..', 'outside.txt')
     await writeFile(outside, 'keep')
 
-    await expect(removeDocFile(uploadRoot, '../outside.txt')).rejects.toThrow(UserDocError)
+    await expect(removeDocFile(uploadRoot, UserDocId('../outside.txt'))).rejects.toThrow(UserDocError)
     expect(await readFile(outside, 'utf8')).toBe('keep')
   })
 
@@ -336,6 +378,6 @@ describe('removeDocFile', () => {
     const abort = new AbortController()
     abort.abort()
 
-    await expect(removeDocFile(uploadRoot, 'x.txt', abort.signal)).rejects.toThrow(abort.signal.reason as Error)
+    await expect(removeDocFile(uploadRoot, UserDocId('x.txt'), abort.signal)).rejects.toThrow(abort.signal.reason as Error)
   })
 })
