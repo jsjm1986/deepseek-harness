@@ -503,8 +503,10 @@ class Hmr extends Service {
       if (!runtime) return
       for (const oldFiber of runtime.fibers) {
         const fiber = oldFiber.parent.registry.plugin(plugin, oldFiber._config, this.getOuterStack)
-        fiber.entry = oldFiber.entry
-        if (fiber.entry) fiber.entry.fiber = fiber
+        if (oldFiber.entry) {
+          fiber.entry = oldFiber.entry
+          fiber.entry.fiber = fiber
+        }
       }
     }
 
