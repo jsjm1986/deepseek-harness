@@ -9,7 +9,8 @@
     "noEmit": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "baseUrl": ".",
+    // No `baseUrl`: removed in TypeScript 6.0. These `paths` are relative to
+    // this file, which is how a bare-specifier mapping resolves without it.
     "paths": {
       "@deepseek-ai/cordis": ["../../vendor/cordis/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-tools": ["../../packages/core/tools/lib/types/index.d.ts"]
