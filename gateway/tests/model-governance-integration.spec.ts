@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { writeModelGovernanceFile } from '../src/apply-model-governance.ts'
+import { applyModelGovernanceToUser, writeModelGovernanceFile } from '../src/apply-model-governance.ts'
 import { AuditService } from '../src/audit.ts'
 import { loadConfig } from '../src/config.ts'
 import { openDb } from '../src/db.ts'
@@ -64,6 +64,14 @@ describe('model governance integration', () => {
     const second = JSON.parse(readFileSync(path, 'utf8')) as typeof first
     expect(second.intakeToken).toBe(first.intakeToken)
     expect(second.models[0]?.allowed).toBe(true)
+  })
+
+  it('projects a changed policy without restarting the user instance', async () => {
+    const { cfg, user, users, governance } = await fixture()
+    governance.setUserAccess(user.id, 'p', 'm', false)
+    await expect(applyModelGovernanceToUser({ cfg, users, governance }, user.id)).resolves.toBeUndefined()
+    const path = join(cfg.usersRoot, user.username, 'dsh', 'model-governance.json')
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toMatchObject({ models: [{ allowed: false }] })
   })
 
   it('uses configured natural-month boundaries and supports per-metric inherit/unlimited/custom', async () => {

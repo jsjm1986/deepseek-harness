@@ -1,25 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { ReloadableModelAccess } from "./access.js";
 import { UsageOutbox } from "./outbox.js";
 import { loadPolicy } from "./policy.js";
+import { PolicyReloader } from "./reload.js";
 export const name = 'dsh-model-governance';
 export const inject = ['llm'];
-class StaticModelAccess {
-    defaultAllowed;
-    routes;
-    constructor(defaultAllowed, entries) {
-        this.defaultAllowed = defaultAllowed;
-        this.routes = new Map(entries.map(entry => [`${entry.provider}\0${entry.model}`, entry.allowed]));
-    }
-    decide(target) {
-        const allowed = this.routes.get(`${target.provider}\0${target.model}`) ?? this.defaultAllowed;
-        return allowed ? { allowed: true } : {
-            allowed: false,
-            reason: `Model "${target.provider}/${target.model}" is not authorized for this account.`,
-        };
-    }
-}
 function credentialClass(source) {
     if (source === 'file' || source === 'project-env' || source === 'request')
         return 'personal';
@@ -33,10 +20,32 @@ function terminalStatus(chunk) {
 /** Mount policy provider plus final llm/stream enforcement and metering. */
 export function apply(ctx) {
     const home = process.env.DSH_HOME ?? join(homedir(), '.dsh');
-    const policy = loadPolicy(process.env.DSH_MODEL_GOVERNANCE ?? join(home, 'model-governance.json'));
-    const access = new StaticModelAccess(policy.defaultAllowed, policy.models);
+    const policyPath = process.env.DSH_MODEL_GOVERNANCE ?? join(home, 'model-governance.json');
+    const policy = loadPolicy(policyPath);
+    const access = new ReloadableModelAccess(policy);
     ctx.provide('modelAccess', access);
     const outbox = new UsageOutbox(join(home, 'model-governance-outbox'), policy.intakeUrl, policy.intakeToken);
+    let reloader;
+    ctx.effect(() => async () => {
+        await reloader?.close();
+        await outbox.close();
+    }, 'model-governance: drain policy reload and usage outbox');
+    reloader = new PolicyReloader({
+        filename: policyPath,
+        onValid: next => {
+            access.replace(next);
+            outbox.setEndpoint(next.intakeUrl, next.intakeToken);
+        },
+        onInvalid: error => {
+            access.unavailable();
+            ctx.logger.warn(`model-governance: policy reload failed at ${policyPath}; denying new model requests`);
+            ctx.logger.warn(error);
+        },
+        onWatcherError: error => {
+            ctx.logger.warn(`model-governance: policy watcher failed at ${policyPath}`);
+            ctx.logger.warn(error);
+        },
+    });
     const enqueue = (record) => {
         try {
             outbox.enqueue(record);
@@ -46,7 +55,6 @@ export function apply(ctx) {
             ctx.logger.warn(error);
         }
     };
-    ctx.effect(() => async () => outbox.close());
     ctx.on('llm/stream', (options, next) => {
         const initiatorId = ctx.get('agents')?.currentInitiator()?.session.id;
         const explicitId = options.sessionId;

@@ -156,7 +156,7 @@ async function dispatch(
     if (status !== undefined && status !== 'active' && status !== 'disabled') { sendError(res, 400, 'invalid status'); return true }
     if (role !== undefined) {
       await deps.users.setRole(userId, role)
-      if (deps.governance !== undefined) await applyModelGovernanceToUser(deps, userId, admin.id)
+      if (deps.governance !== undefined) await applyModelGovernanceToUser(deps, userId)
       await write('admin.users.role', { id: userId, role })
     }
     if (status !== undefined) {
@@ -200,7 +200,7 @@ async function dispatch(
         cacheWriteMicrosPerMillion: integer('cacheWriteMicrosPerMillion'),
       })
       await write('admin.models.upsert', { provider, model })
-      for (const target of await deps.users.list()) await applyModelGovernanceToUser(deps, target.id, admin.id)
+      for (const target of await deps.users.list()) await applyModelGovernanceToUser(deps, target.id)
       sendNoContent(res); return true
     }
     return false
@@ -226,7 +226,7 @@ async function dispatch(
       }
       if (await deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
       await deps.governance.setUserAccess(userId, provider, model, allowed as boolean | null)
-      await applyModelGovernanceToUser(deps, userId, admin.id)
+      await applyModelGovernanceToUser(deps, userId)
       await write('admin.models.user-access', { userId, provider, model, allowed }); sendNoContent(res); return true
     }
     return false

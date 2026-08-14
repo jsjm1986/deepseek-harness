@@ -35,24 +35,13 @@ export async function writeModelGovernanceFile(
   return path
 }
 
-/** Rewrite policy and restart only an already-running instance. */
+/** Rewrite policy; a running instance applies it through the plugin's file watcher. */
 export async function applyModelGovernanceToUser(
-  deps: Pick<GatewayDeps, 'cfg' | 'governance' | 'users' | 'instances' | 'audit'>,
+  deps: Pick<GatewayDeps, 'cfg' | 'governance' | 'users'>,
   userId: number,
-  actorId: number,
-): Promise<'restarted' | 'written'> {
+): Promise<void> {
   if (deps.governance === undefined) throw new Error('model governance unavailable')
   const user = await deps.users.getById(userId)
   if (user === null) throw new Error(`no user ${userId}`)
   await writeModelGovernanceFile(deps.cfg, deps.governance, user)
-  const state = await deps.instances.stateOf(userId)
-  if (state !== 'ready' && state !== 'starting') return 'written'
-  try {
-    await deps.instances.stop(userId)
-    await deps.instances.ensureRunning(user)
-    return 'restarted'
-  } catch (error) {
-    await deps.audit.write({ userId: actorId, action: 'admin.model-governance.restart-failed', detail: JSON.stringify({ userId, error: String(error) }) })
-    throw error
-  }
 }

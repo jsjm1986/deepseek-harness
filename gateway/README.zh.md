@@ -41,9 +41,11 @@ DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用
 
 `/admin` 托管从 `gateway/admin-ui` 构建到 `gateway/public/admin` 的 Vite SPA；`/admin/api/*` 是网关 JSON API（非 `admin` 角色 403）。授权按项目：一个项目对应一个已存在的绝对目录，成员为 `ro` 或 `rw`，用户的有效列表（私有 home 加成员身份，每条带 `label`）写入 `$DSH_HOME/directory-grants.json`。
 
+管理端的用户、项目、模型、用量和审计页面共用一套视觉系统：克制的表面色、统一的页面与分区标题、状态徽标、明确的加载/空状态/错误状态、键盘焦点环，以及用于变更操作的弹窗表单。视口宽度大于 `840px` 时使用固定侧栏和便于横向比较的数据表；宽度不超过 `840px` 时，侧栏变为吸顶品牌栏加五项固定底部导航，表格行切换为易读的卡片。宽度不超过 `560px` 时，表单网格改为单列、操作按钮填满可用宽度，弹窗接近全屏并让正文独立滚动。粗指针控件预留 `44px` 触控目标，同时遵循深色配色和减少动画偏好。修改界面后运行 `npm run build --prefix gateway/admin-ui` 重新生成静态资源；运行中的网关直接提供生成后的 `gateway/public/admin` 文件，不需要数据库迁移。
+
 ## 模型治理与用量核算
 
-管理 SPA 提供“模型”和“用量”页面。模型以精确 `(provider, model)` 路由标识；全局启用开关、角色默认（`admin` / `user`）和按用户 `允许` / `拒绝` / `继承` 例外共同决定有效策略。策略变化会原子重写 `$DSH_HOME/model-governance.json`（权限 `0600`），且只重启已经运行的受影响实例。实例插件提供 `ctx.modelAccess`；`apiproxy` 过滤目录并拒绝选择/发送 RPC，而 `llm/stream` 中间件是聊天、标题、压缩和直接调用进入适配器前的最终强制点。
+管理 SPA 提供“模型”和“用量”页面。模型以精确 `(provider, model)` 路由标识；全局启用开关、角色默认（`admin` / `user`）和按用户 `允许` / `拒绝` / `继承` 例外共同决定有效策略。策略变化会原子重写 `$DSH_HOME/model-governance.json`（权限 `0600`）；运行中的实例会监视该文件，验证通过后无需重启即可应用策略，无效的运行中文档会对新的模型请求 fail-closed。实例插件提供 `ctx.modelAccess`；`apiproxy` 过滤目录并拒绝选择/发送 RPC，而 `llm/stream` 中间件是聊天、标题、压缩和直接调用进入适配器前的最终强制点。
 
 ## PostgreSQL 控制面
 

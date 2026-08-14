@@ -21,11 +21,22 @@ export class UsageOutbox {
   private timer: NodeJS.Timeout
   private closed = false
 
-  constructor(private readonly dir: string, private readonly url: string, private readonly token: string) {
+  constructor(private readonly dir: string, private url: string, private token: string) {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     this.timer = setInterval(() => this.kick(), 5_000)
     this.timer.unref()
     this.kick()
+  }
+
+  /**
+   * Replace the intake destination used by future delivery attempts.
+   * @param url - loopback intake URL from the validated policy.
+   * @param token - bearer token from the validated policy.
+   */
+  setEndpoint(url: string, token: string): void {
+    if (this.closed) return
+    this.url = url
+    this.token = token
   }
 
   enqueue(record: UsageRecord): void {

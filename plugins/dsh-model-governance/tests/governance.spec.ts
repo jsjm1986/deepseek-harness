@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -30,6 +30,14 @@ function policy(home: string, allowed: boolean): void {
     models: [{ provider: 'p', model: 'm', allowed }], intakeUrl: 'http://127.0.0.1:1/usage', intakeToken: 'token' }))
 }
 
+function replacePolicy(home: string, allowed: boolean): void {
+  const path = join(home, 'model-governance.json')
+  const temp = `${path}.tmp`
+  writeFileSync(temp, JSON.stringify({ version: 1, defaultAllowed: false,
+    models: [{ provider: 'p', model: 'm', allowed }], intakeUrl: 'http://127.0.0.1:1/usage', intakeToken: 'token' }))
+  renameSync(temp, path)
+}
+
 describe('instance model governance', () => {
   it('fails closed on malformed policy and enforces denial before adapter dispatch', async () => {
     const home = mkdtempSync(join(tmpdir(), 'dsh-gov-')); process.env.DSH_HOME = home
@@ -58,6 +66,48 @@ describe('instance model governance', () => {
     expect(JSON.parse(readFileSync(join(home, 'model-governance-outbox', file!), 'utf8'))).toMatchObject({
       credentialSource: 'file', credentialClass: 'personal', status: 'succeeded', usage: { inputTokens: 3, outputTokens: 2 },
     })
+    await ctx.fiber.dispose()
+  })
+
+  it('reloads a valid policy without restarting the plugin', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-gov-')); process.env.DSH_HOME = home; policy(home, false)
+    const ctx = new Context(); await ctx.plugin(LlmRuntime)
+    const adapter = new Adapter(); ctx.llm.registerAdapter(['p'], adapter); await ctx.plugin(Governance)
+    const denied = await drain(ctx.llm.stream({ provider: 'p', model: 'm', messages: [] }))
+    expect(denied.at(-1)).toMatchObject({ type: 'finish', reason: { failure: { code: 'MODEL_FORBIDDEN' } } })
+    replacePolicy(home, true)
+    await vi.waitFor(async () => {
+      const chunks = await drain(ctx.llm.stream({ provider: 'p', model: 'm', messages: [] }))
+      expect(chunks.map(chunk => chunk.type)).toEqual(['usage', 'finish'])
+    })
+    expect(adapter.calls).toBe(1)
+    await ctx.fiber.dispose()
+  })
+
+  it('fails closed on an invalid live update and recovers on the next valid policy', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-gov-')); process.env.DSH_HOME = home; policy(home, true)
+    const ctx = new Context(); await ctx.plugin(LlmRuntime)
+    const adapter = new Adapter(); ctx.llm.registerAdapter(['p'], adapter); await ctx.plugin(Governance)
+    const access = ctx.get('modelAccess')
+    if (access === undefined) throw new Error('model access service missing')
+    replacePolicy(home, true)
+    // Replace the complete file so the watcher never reads an in-progress JSON document.
+    const path = join(home, 'model-governance.json'); const temp = `${path}.invalid.tmp`
+    writeFileSync(temp, '{}'); renameSync(temp, path)
+    await vi.waitFor(() => {
+      expect(access.decide({ provider: 'p', model: 'm' })).toMatchObject({
+        allowed: false,
+        reason: expect.stringContaining('temporarily unavailable'),
+      })
+    })
+    replacePolicy(home, false)
+    await vi.waitFor(() => {
+      expect(access.decide({ provider: 'p', model: 'm' })).toMatchObject({
+        allowed: false,
+        reason: 'Model "p/m" is not authorized for this account.',
+      })
+    })
+    expect(adapter.calls).toBe(0)
     await ctx.fiber.dispose()
   })
 

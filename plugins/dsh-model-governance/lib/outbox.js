@@ -18,6 +18,17 @@ export class UsageOutbox {
         this.timer.unref();
         this.kick();
     }
+    /**
+     * Replace the intake destination used by future delivery attempts.
+     * @param url - loopback intake URL from the validated policy.
+     * @param token - bearer token from the validated policy.
+     */
+    setEndpoint(url, token) {
+        if (this.closed)
+            return;
+        this.url = url;
+        this.token = token;
+    }
     enqueue(record) {
         mkdirSync(this.dir, { recursive: true, mode: 0o700 });
         const target = join(this.dir, `${record.eventId}.json`);
