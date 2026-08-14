@@ -7,6 +7,7 @@
  */
 import type { ClientContext, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { UserDocIdType } from '@deepseek-ai/dsh-userdoc'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, SubmitOutcome, TokenSpan,
@@ -16,6 +17,29 @@ import type { InputSubmitMode } from '../contract/composer-submission.ts'
 
 /** Browser-runtime identity of one unsent image draft. */
 export type DraftAttachmentId = Branded<'DraftAttachmentId'>
+
+/** Browser-runtime identity of one unsent document draft. */
+export type DraftDocumentId = Branded<'DraftDocumentId'>
+
+/** Document upload state projected into the composer. */
+export interface DraftDocument {
+  /** Browser-local draft identity. */
+  readonly id: DraftDocumentId
+  /** Durable host identity, present after upload succeeds. */
+  readonly docId?: UserDocIdType
+  /** Original display name. */
+  readonly name: string
+  /** Browser-observed byte length. */
+  readonly bytes: number
+  /** Browser-declared media type. */
+  readonly mediaType: string
+  /** Upload lifecycle state. */
+  readonly status: 'uploading' | 'ready' | 'failed'
+  /** Upload progress in the inclusive range 0..1. */
+  readonly progress: number
+  /** User-facing failure text when status is failed. */
+  readonly error?: string
+}
 
 /**
  * The scoped-event application verbs: the hub's bail listeners call these,
@@ -39,6 +63,12 @@ export interface SessionInput extends InputTarget {
   removeImage(id: DraftAttachmentId): void
   /** Drop ids whose browser-owned objects no longer exist. */
   pruneImages(ids: readonly DraftAttachmentId[]): void
+  /** Append ordered browser-owned document ids; busy admission phases refuse. */
+  addDocuments(ids: readonly DraftDocumentId[]): boolean
+  /** Remove one browser-owned document id. */
+  removeDocument(id: DraftDocumentId): void
+  /** Drop document ids whose browser-owned objects no longer exist. */
+  pruneDocuments(ids: readonly DraftDocumentId[]): void
   /**
    * THE complexity sink: enter adjudication, submit transaction, and the default sink live inside.
    * @param mode - delivery intent retained through asynchronous adjudication and serialization.
@@ -79,6 +109,12 @@ export interface InputActions {
   removeImage(id: DraftAttachmentId): void
   /** Drop ids whose browser-owned objects no longer exist. */
   pruneImages(ids: readonly DraftAttachmentId[]): void
+  /** Append ordered browser-owned document ids; busy admission phases refuse. */
+  addDocuments(ids: readonly DraftDocumentId[]): boolean
+  /** Remove one browser-owned document id. */
+  removeDocument(id: DraftDocumentId): void
+  /** Drop document ids whose browser-owned objects no longer exist. */
+  pruneDocuments(ids: readonly DraftDocumentId[]): void
   /** Enter submission (adjudication / claim transaction / default sink inside). */
   submit(): void
 }
@@ -210,6 +246,8 @@ export interface InputState {
   readonly draft: string
   /** Ordered runtime-only image ids; bytes and URLs stay in ConversationController. */
   readonly imageIds: readonly DraftAttachmentId[]
+  /** Ordered runtime-only document ids; metadata stays in ConversationController. */
+  readonly documentIds: readonly DraftDocumentId[]
   /** Monotonic draft revision (span CAS compares against this). */
   readonly draftRev: number
   readonly phase: 'plain' | 'adjudicating' | 'claimed' | 'submitting'

@@ -14,6 +14,9 @@ flowchart LR
   pkg_attachment_local["attachment-local"]
   pkg_host_runtime["host-runtime"]
   pkg_llm_pi_ai["llm-pi-ai"]
+  pkg_userdoc["userdoc"]
+  svc_userDocs["ctx.userDocs<br/>User-uploaded document storage"]
+  pkg_userdoc_local["userdoc-local"]
   pkg_llm["llm"]
   svc_llm["ctx.llm<br/>LLM adapter registry"]
   pkg_llm_deepseek["llm-deepseek"]
@@ -290,6 +293,8 @@ flowchart LR
   pkg_tools --> svc_tools
   pkg_typert_registry --> svc_typert
   pkg_user_questions --> svc_userQuestions
+  pkg_userdoc --> svc_userDocs
+  pkg_userdoc_local --> svc_userDocs
   pkg_web --> svc_web
   pkg_web_fetch_http --> svc_web
   pkg_web_search_deepseek --> svc_web
@@ -418,6 +423,7 @@ flowchart LR
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | `host-runtime`, [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | 宿主会在会话事件之前提交已接受的图片；提供方适配器将已授权的持久引用解析为提供方原生内容。 |
+| `ctx.userDocs` | `seam` | [`userdoc`](../packages/attachment/userdoc) | [`userdoc-local`](../packages/attachment/userdoc-local) | - | - | 上传落成真实的命名文件，且位于工具授权策略已经放行的目录内，因此 agent 用其常规文件工具读取它们，而无需专门的检索通道。 |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/test-support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compaction-basic`](../packages/compaction/compaction-basic) | - | 适配器注册提供方实现；agent loop（智能体循环）与压缩功能调用提供方无关的流服务。 |
 | `ctx.modelAccess` | `seam` | [`model-access`](../packages/llm/model-access) | - | `apiproxy` | - | 可选的部署侧策略决定精确的提供方／模型路由；网关实例提供实现，而 apiproxy 使用该决策检查目录和模型选择。 |
 | `ctx.tokenMeter` | `core` | [`token-meter`](../packages/llm/token-meter) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | 拥有按会话隔离的回放折叠区；压力消费方共享不可变且带修订版本的测量结果。 |

@@ -15,7 +15,7 @@ import type { MessageId } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
 import type {
-  ComposerKeyboard, DraftAttachmentId, EditSelection, InputActions, InputNotice, InputState,
+  ComposerKeyboard, DraftAttachmentId, DraftDocument, DraftDocumentId, EditSelection, InputActions, InputNotice, InputState,
 } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
@@ -28,6 +28,11 @@ export interface ComposerAttachment {
   id: DraftAttachmentId
   file: File
   previewUrl: string
+}
+
+/** Browser-owned document draft projected by the optional Host upload service. */
+export interface ComposerDocument extends DraftDocument {
+  kind: 'document'
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -495,8 +500,14 @@ export interface ComposerBarInjected {
   keyboard: ComposerKeyboard | undefined
   /** Create previews and append image ids to the session input. */
   addImages: ((files: readonly File[]) => string | null) | undefined
+  /** Start document uploads and append document ids to the session input. */
+  addDocuments: ((files: readonly File[]) => string | null) | undefined
   /** Release one preview and remove its id from session input. */
   removeImage: ((id: DraftAttachmentId) => void) | undefined
+  /** Cancel/remove one document draft and its durable upload when present. */
+  removeDocument: ((id: DraftDocumentId) => void) | undefined
+  /** Retry a failed document upload. */
+  retryDocument: ((id: DraftDocumentId) => void) | undefined
   /** Resolve ordered input ids to browser-owned draft images. */
   draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
   /** Resolve one keyboard submission gesture against the current running state and persisted preference. */
@@ -529,6 +540,8 @@ export interface ComposerBarInjected {
     lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
     /** Source name opened by the programmatic menu launcher, or null. */
     menuLauncher: ObservableSnapshot<string | null>
+    /** Draft document descriptors and upload status. */
+    documents: ObservableSnapshot<readonly ComposerDocument[]>
   }
 }
 

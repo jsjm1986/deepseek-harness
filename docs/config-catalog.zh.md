@@ -2845,6 +2845,34 @@ export type ApprovalPolicy = 'ask' | 'never'
 
 来源：[`packages/interaction/user-approval/src/index.ts:177`](../packages/interaction/user-approval/src/index.ts)
 
+<a id="deepseek-aidsh-userdoc-local"></a>
+
+## `@deepseek-ai/dsh-userdoc-local`
+
+```ts config-catalog
+/** Local document backend configuration. */
+export interface Config {
+  /**
+   * Absolute upload root, `~`-expanded. Omitted uses `<home>/uploads`.
+   *
+   * The deployment must keep this inside a directory the tool authorization
+   * policy already grants the session, because every stored reference carries
+   * a real path the model is invited to read.
+   */
+  uploadRoot?: string
+  /** Maximum bytes accepted for one document. */
+  maxFileBytes?: number
+  /** Maximum document count accepted in one submitted message. */
+  maxFilesPerMessage?: number
+  /** Maximum aggregate bytes accepted in one submitted message. */
+  maxMessageBytes?: number
+  /** Maximum bytes of a document inlined into a prompt as text. */
+  maxInlineTextBytes?: number
+}
+```
+
+来源：[`packages/attachment/userdoc-local/src/index.ts:52`](../packages/attachment/userdoc-local/src/index.ts)
+
 <a id="deepseek-aidsh-web"></a>
 
 ## `@deepseek-ai/dsh-web`
@@ -3074,6 +3102,7 @@ export interface Config {
 - `@deepseek-ai/dsh-host-directory-picker-auto` — 需要 `webServer` · `loader`（[`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts)）
 - `@deepseek-ai/dsh-host-directory-picker-native`（[`packages/host/directory-picker-native/src/index.ts`](../packages/host/directory-picker-native/src/index.ts)）
 - `@deepseek-ai/dsh-host-plugin-inventory` — 需要 `loader`（[`packages/host/plugin-inventory/src/index.ts`](../packages/host/plugin-inventory/src/index.ts)）
+- `@deepseek-ai/dsh-host-userdoc-http` — 需要 `connection` · `userDocs`（[`packages/host/userdoc-http/src/index.ts`](../packages/host/userdoc-http/src/index.ts)）
 - `@deepseek-ai/dsh-llm`（[`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts)）
 - `@deepseek-ai/dsh-lsp`（[`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts)）
 - `@deepseek-ai/dsh-schedule` — 需要 `agents` · `sessions` · `tools` · `sessionPersistence`（[`packages/schedule/schedule/src/index.ts`](../packages/schedule/schedule/src/index.ts)）
@@ -3092,6 +3121,7 @@ export interface Config {
 - `@deepseek-ai/dsh-tool-cordis` — 需要 `tools` · `systemPrompt` · `dynamicCordisRunner` · `cordisInspect`（[`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts)）
 - `@deepseek-ai/dsh-tool-subagent-control` — 需要 `tools` · `subagents`（[`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)）
 - `@deepseek-ai/dsh-user-questions`（[`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts)）
+- `@deepseek-ai/dsh-userdoc-context` — 需要 `agents` · `sessions`（[`packages/context/userdoc-context/src/index.ts`](../packages/context/userdoc-context/src/index.ts)）
 - `@deepseek-ai/dsh-workspace` — 需要 `storageDomain` · `sessionPersistence`（[`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts)）
 
 ## Seam 包（不可直接加载）
@@ -3113,6 +3143,7 @@ export interface Config {
 - `@deepseek-ai/dsh-shell` — 抽象 `ShellExecutor`（[`packages/shell/shell/src/index.ts`](../packages/shell/shell/src/index.ts)）
 - `@deepseek-ai/dsh-spill` — 抽象 `SpillStore`（[`packages/spill/spill/src/index.ts`](../packages/spill/spill/src/index.ts)）
 - `@deepseek-ai/dsh-subprocess` — 抽象 `SubprocessRuntime`（[`packages/subprocess/subprocess/src/index.ts`](../packages/subprocess/subprocess/src/index.ts)）
+- `@deepseek-ai/dsh-userdoc` — 抽象 `UserDocStore`（[`packages/attachment/userdoc/src/index.ts`](../packages/attachment/userdoc/src/index.ts)）
 - `@deepseek-ai/dsh-workflow` — 抽象 `WorkflowEngine`（[`packages/workflow/workflow/src/index.ts`](../packages/workflow/workflow/src/index.ts)）
 ## 库包（无插件入口）
 

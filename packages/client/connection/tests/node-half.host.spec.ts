@@ -213,6 +213,54 @@ describe('connection node half', () => {
     await dispose()
   })
 
+  it('dispatches a disposable streaming HTTP subtree after the shared trust fence', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
+    const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
+    await fiber.await()
+    const connection = ctx.get('connection') as HostConnectionHandle
+    const calls: string[] = []
+    const remove = connection.http.handlePrefix('/api/documents', (req, res) => {
+      calls.push(req.url ?? '')
+      res.writeHead(201)
+      res.end('streamed')
+    }, { authority: 'trusted-host' })
+
+    const accepted = fakeResponse()
+    await routes[0]!.handler(fakeRequest({
+      host: 'harness.example', origin: 'http://harness.example', 'sec-fetch-site': 'same-origin',
+    }, '/api/documents/content'), accepted.response)
+    expect(accepted.state).toMatchObject({ status: 201, body: 'streamed' })
+    expect(calls).toEqual(['/api/documents/content'])
+
+    await remove()
+    const after = fakeResponse()
+    await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }, '/api/documents'), after.response)
+    expect(after.state.status).toBe(404)
+    await fiber.dispose()
+  })
+
+  it('applies loopback authority and rejects duplicate streaming prefixes', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
+    const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
+    await fiber.await()
+    const connection = ctx.get('connection') as HostConnectionHandle
+    connection.http.handlePrefix('/api/documents', (_req, res) => { res.writeHead(204); res.end() }, { authority: 'loopback' })
+    expect(() => connection.http.handlePrefix('/api/documents', () => {}, { authority: 'trusted-host' }))
+      .toThrow(/already registered/)
+
+    const denied = fakeResponse()
+    await routes[0]!.handler(fakeRequest({ host: 'harness.example' }, '/api/documents'), denied.response)
+    expect(denied.state).toMatchObject({ status: 403, body: 'forbidden' })
+    const accepted = fakeResponse()
+    await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }, '/api/documents'), accepted.response)
+    expect(accepted.state.status).toBe(204)
+    await fiber.dispose()
+  })
+
   it('provides a disposable dedicated RPC channel without requiring apiProxy', async () => {
     const ctx = new Context()
     const routes: WebRoute[] = []

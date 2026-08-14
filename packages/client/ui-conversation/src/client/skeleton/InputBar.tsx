@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  IconCloseOutline16, IconPlusOutline16, IconRefreshOutline14, IconWarningOutline16, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AttachmentRail, DropOverlay, ImageLightbox } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { AttachmentRailItem } from '@deepseek-ai/dsh-client-ui-attachment'
@@ -23,7 +23,8 @@ import type {} from '@deepseek-ai/dsh-goal/client'
 // wire types: apiproxy's sessions contract declares it, and client-runtime's
 // api-remotes import already places it in every client program.
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ComposerAttachment, ComposerBarProps } from '../contract/slots.ts'
+import type { ComposerAttachment, ComposerBarProps, ComposerDocument } from '../contract/slots.ts'
+import type { DraftDocumentId } from '../input/contract.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
 import {
@@ -41,12 +42,84 @@ interface ComposerRailItem extends AttachmentRailItem {
   attachment: ComposerAttachment
 }
 
+function documentStatusText(document: ComposerDocument, t: InputBarProps['t']): string {
+  switch (document.status) {
+    case 'uploading': return t('document.uploading', { percent: Math.round(document.progress * 100) })
+    case 'failed': return document.error ?? t('document.failed')
+    case 'ready': return t('document.ready')
+  }
+}
+
+function DocumentRail({
+  documents, onRemove, onRetry, keepFocus, t,
+}: {
+  documents: readonly ComposerDocument[]
+  onRemove: (id: DraftDocumentId) => void
+  onRetry: (id: DraftDocumentId) => void
+  keepFocus: (event: MouseEvent<HTMLButtonElement>) => void
+  t: InputBarProps['t']
+}) {
+  if (documents.length === 0) return null
+  return (
+    <div className={css.documentRail} role="list" aria-label={t('document.pending')}>
+      {documents.map((document) => {
+        const failed = document.status === 'failed'
+        const status = documentStatusText(document, t)
+        return (
+          <div
+            key={document.id}
+            className={clsx(css.documentItem, failed && css.documentItemFailed)}
+            role="listitem"
+            data-document-id={document.id}
+            data-document-status={document.status}
+            title={failed ? document.error : document.name}
+          >
+            <div className={css.documentBody}>
+              <span className={css.documentName}>{document.name}</span>
+              <span className={css.documentStatus}>{status}</span>
+              {document.status === 'uploading' && (
+                <span className={css.documentProgress} aria-hidden>
+                  <span style={{ width: `${Math.round(document.progress * 100)}%` }} />
+                </span>
+              )}
+            </div>
+            {failed && (
+              <Tooltip label={t('document.retry')} side="top" delayMs={500}>
+                <button
+                  type="button"
+                  className={css.documentAction}
+                  aria-label={t('document.retryNamed', { name: document.name })}
+                  onMouseDown={keepFocus}
+                  onClick={() => { onRetry(document.id) }}
+                >
+                  <IconRefreshOutline14 size={14} />
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip label={t('document.remove')} side="top" delayMs={500}>
+              <button
+                type="button"
+                className={css.documentAction}
+                aria-label={t('document.removeNamed', { name: document.name })}
+                onMouseDown={keepFocus}
+                onClick={() => { onRemove(document.id) }}
+              >
+                <IconCloseOutline16 size={14} />
+              </button>
+            </Tooltip>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
+  useSession, useInput, inputActions, keyboard, addImages, addDocuments, removeImage, removeDocument, retryDocument, draftImages,
   resolveSubmitMode, toggleCommandMenu, stop, command, t,
-  renderSlot, useNotices, useLexicon, useMenuLauncher,
+  renderSlot, useNotices, useLexicon, useMenuLauncher, useDocuments,
   useProjection, sessionId, variant, disabled: inert = false, blocked,
   workspacePickerOpen = false, onRequestWorkspace,
   placeholder, accessory, overlay, leftItems, rightItems, footer,
@@ -55,6 +128,7 @@ export function InputBar({
   const notice = useNotices(s => s)
   const lexicon = useLexicon(s => s)
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
+  const documentSnapshot = useDocuments(s => s)
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
   const subagent = useSession(s => s.subagent) ?? null
@@ -72,7 +146,16 @@ export function InputBar({
     () => input === undefined || draftImages === undefined ? [] : draftImages(input.imageIds),
     [draftImages, input?.imageIds],
   )
-  const empty = draft.trim() === '' && attachments.length === 0
+  const documents = useMemo(() => {
+    if (input === undefined) return []
+    const byId = new Map(documentSnapshot.map(document => [document.id, document]))
+    return input.documentIds.flatMap((id) => {
+      const document = byId.get(id)
+      return document === undefined ? [] : [document]
+    })
+  }, [documentSnapshot, input?.documentIds])
+  const documentsPending = documents.some(document => document.status !== 'ready')
+  const empty = draft.trim() === '' && attachments.length === 0 && documents.length === 0
   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
   // Transient error banner (image-intake rejections and prompt failures): the
@@ -153,6 +236,13 @@ export function InputBar({
       inputActions.pruneImages(attachments.map(attachment => attachment.id))
     }
   }, [attachments, input?.imageIds, inputActions])
+
+  useEffect(() => {
+    if (input === undefined || inputActions === undefined) return
+    if (documents.length !== input.documentIds.length) {
+      inputActions.pruneDocuments(documents.map(document => document.id))
+    }
+  }, [documents, input?.documentIds, inputActions])
 
   useEffect(() => {
     if (preview !== null && !attachments.some(attachment => attachment.id === preview.id)) setPreview(null)
@@ -321,7 +411,7 @@ export function InputBar({
     }
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
-    if (locked || machineBusy) return
+    if (locked || machineBusy || documentsPending) return
     const accelerated = e.ctrlKey || e.metaKey
     // Empty-draft accelerated Enter acts on the queue instead of the (empty)
     // draft: the machine rejects empty drafts, so the gesture steers every
@@ -397,7 +487,7 @@ export function InputBar({
       .filter(item => item.kind === 'file')
       .map(item => item.getAsFile())
       .filter((file): file is File => file !== null)
-    if (files.length > 0) intakeImages(files)
+    if (files.length > 0) intakeFiles(files)
     const text = e.clipboardData.getData('text/plain')
     if (text === '') {
       if (files.length > 0) e.preventDefault()
@@ -448,6 +538,23 @@ export function InputBar({
     if (rejected !== null) showToast(rejected)
   }, [addImages, attachments, imageLimits, showToast, t])
 
+  const intakeDocuments = useCallback((files: readonly File[]): void => {
+    if (files.length === 0) return
+    if (addDocuments === undefined) {
+      showToast(t('document.serviceUnavailable'))
+      return
+    }
+    const error = addDocuments(files)
+    if (error !== null) showToast(error)
+  }, [addDocuments, showToast, t])
+
+  const intakeFiles = useCallback((files: readonly File[]): void => {
+    const images = files.filter(file => file.type.startsWith('image/'))
+    const documents = files.filter(file => !file.type.startsWith('image/'))
+    intakeImages(images)
+    intakeDocuments(documents)
+  }, [intakeDocuments, intakeImages])
+
   // Whole-page file-drop intake (DeepSeek Chat behavior): the listeners live
   // on the document so a drop anywhere over the window adds images, not only
   // over the composer card. Safe as document-level state: the composer-bar
@@ -455,7 +562,7 @@ export function InputBar({
   // Text drags carry no 'Files' type and pass through untouched, keeping the
   // native drop-text-into-textarea path. The overlay layer itself is
   // pointer-inert, so it never disturbs the enter/leave count.
-  const canAcceptDrop = !locked && !machineBusy && addImages !== undefined
+  const canAcceptDrop = !locked && !machineBusy && (addImages !== undefined || addDocuments !== undefined)
   useEffect(() => {
     const hasFiles = (event: globalThis.DragEvent): boolean =>
       event.dataTransfer?.types.includes('Files') ?? false
@@ -489,7 +596,7 @@ export function InputBar({
       event.preventDefault()
       reset()
       if (!canAcceptDrop) return
-      intakeImages([...(event.dataTransfer?.files ?? [])])
+      intakeFiles([...(event.dataTransfer?.files ?? [])])
     }
     document.addEventListener('dragenter', onDragEnter)
     document.addEventListener('dragover', onDragOver)
@@ -503,7 +610,7 @@ export function InputBar({
       document.removeEventListener('drop', onDrop)
       window.removeEventListener('dragend', reset)
     }
-  }, [canAcceptDrop, intakeImages])
+  }, [canAcceptDrop, intakeFiles])
 
   const closePreview = useCallback(() => { setPreview(null) }, [])
 
@@ -551,7 +658,7 @@ export function InputBar({
     }
     if (inputActions === undefined) return // absent machine: the button is disabled
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled && !machineBusy) inputActions.submit()
+    if (!empty && !disabled && !machineBusy && !documentsPending) inputActions.submit()
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
@@ -686,6 +793,13 @@ export function InputBar({
             />
           </div>
         )}
+        <DocumentRail
+          documents={documents}
+          onRemove={(id) => { removeDocument?.(id) }}
+          onRetry={(id) => { retryDocument?.(id) }}
+          keepFocus={keepFocus}
+          t={t}
+        />
         {/* One scrollport, two text layers. The hidden mirror renders draft+'\n' and stretches the
             stack to the draft's FULL height (counting rows by '\n' cannot see soft wraps); the
             absolutely-positioned backdrop and textarea ride that height, and .scroll — capped at 14
@@ -776,7 +890,7 @@ export function InputBar({
                 type="button"
                 className={css.primary}
                 aria-label={primaryLabel}
-                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
+                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy || documentsPending}
                 onMouseDown={keepFocus}
                 onClick={onPrimary}
               >

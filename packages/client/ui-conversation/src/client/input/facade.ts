@@ -13,7 +13,7 @@ import type {
   ReferenceInsert, InputTriggerController, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
-  DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
+  DraftAttachmentId, DraftDocumentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
   PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
 } from './contract.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
@@ -45,7 +45,12 @@ export interface SessionInputDeps {
    */
   steerQueue?: (() => void) | undefined
   /** The plain-message sink (send choreography / materialize fork — the hub owns it). */
-  defaultSink(text: string, imageIds: readonly DraftAttachmentId[], mode: InputSubmitMode): void
+  defaultSink(
+    text: string,
+    imageIds: readonly DraftAttachmentId[],
+    documentIds: readonly DraftDocumentId[],
+    mode: InputSubmitMode,
+  ): void
 }
 
 /** Guard tier from the machine phase. */
@@ -77,6 +82,9 @@ export class SessionInputShell implements SessionInput {
     addImages: ids => this.addImages(ids),
     removeImage: (id) => { this.removeImage(id) },
     pruneImages: (ids) => { this.pruneImages(ids) },
+    addDocuments: ids => this.addDocuments(ids),
+    removeDocument: (id) => { this.removeDocument(id) },
+    pruneDocuments: (ids) => { this.pruneDocuments(ids) },
     submit: () => { this.submit('queue') },
   }
 
@@ -86,6 +94,7 @@ export class SessionInputShell implements SessionInput {
   private noticeSeq = 0
   private lastDraft = ''
   private imageIds: readonly DraftAttachmentId[] = []
+  private documentIds: readonly DraftDocumentId[] = []
   private disposed = false
   /** Draft persistence mirror (chat store write; receives the clipboard projection, never raw placeholders). */
   private mirrorFn: ((text: string) => void) | undefined
@@ -136,6 +145,45 @@ export class SessionInputShell implements SessionInput {
     this.publish()
   }
 
+  /** Append ordered document ids unless an admission transaction is locked. */
+  addDocuments(ids: readonly DraftDocumentId[]): boolean {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return false
+    if (ids.length === 0) return true
+    this.documentIds = [...this.documentIds, ...ids]
+    this.publish()
+    return true
+  }
+
+  /** Remove one document id from this draft. */
+  removeDocument(id: DraftDocumentId): void {
+    const next = this.documentIds.filter(candidate => candidate !== id)
+    if (next.length === this.documentIds.length) return
+    this.documentIds = next
+    this.publish()
+  }
+
+  /**
+   * Keep only document ids that still resolve in the browser document registry.
+   * @param available - document ids that remain registered by the controller.
+   */
+  pruneDocuments(available: readonly DraftDocumentId[]): void {
+    const keep = new Set(available)
+    const next = this.documentIds.filter(id => keep.has(id))
+    if (next.length === this.documentIds.length) return
+    this.documentIds = next
+    this.publish()
+  }
+
+  /**
+   * Restore failed document ids before any documents added after admission.
+   * @param ids - document ids from the failed submission.
+   */
+  restoreDocuments(ids: readonly DraftDocumentId[]): void {
+    const current = new Set(this.documentIds)
+    this.documentIds = [...ids.filter(id => !current.has(id)), ...this.documentIds]
+    this.publish()
+  }
+
   /**
    * Restore a failed attempt before any images added after its admission.
    * @param ids - failed attempt image ids.
@@ -151,10 +199,13 @@ export class SessionInputShell implements SessionInput {
    * the undo history is cut, so Ctrl/Cmd-Z cannot resurrect sent content
    * (the command path gets the same discipline from submit-settled success).
    * @param imageIds - admitted image ids to remove from this draft.
+   * @param documentIds - admitted document ids to remove from this draft.
    */
-  commitSend(imageIds: readonly DraftAttachmentId[]): void {
+  commitSend(imageIds: readonly DraftAttachmentId[], documentIds: readonly DraftDocumentId[] = []): void {
     const submitted = new Set(imageIds)
     this.imageIds = this.imageIds.filter(id => !submitted.has(id))
+    const submittedDocuments = new Set(documentIds)
+    this.documentIds = this.documentIds.filter(id => !submittedDocuments.has(id))
     this.run(this.core.dispatch({ type: 'send-committed' }))
   }
 
@@ -197,7 +248,9 @@ export class SessionInputShell implements SessionInput {
    */
   submit(mode: InputSubmitMode = 'queue'): void {
     if (this.snapshot.draft.trim() === '' && this.imageIds.length > 0) {
-      if (this.snapshot.phase === 'plain') this.deps.defaultSink('', [...this.imageIds], mode)
+      if (this.snapshot.phase === 'plain') {
+        this.deps.defaultSink('', [...this.imageIds], [...this.documentIds], mode)
+      }
       return
     }
     this.run(this.core.dispatch({ type: 'enter', mode }))
@@ -415,9 +468,10 @@ export class SessionInputShell implements SessionInput {
    */
   private sinkSerialized(draft: string, mode: InputSubmitMode): void {
     const imageIds = [...this.imageIds]
+    const documentIds = [...this.documentIds]
     const occurrences = this.core.state.occurrences
     if (occurrences.length === 0) {
-      this.deps.defaultSink(draft.trim(), imageIds, mode)
+      this.deps.defaultSink(draft.trim(), imageIds, documentIds, mode)
       return
     }
     const inputTriggers = this.deps.inputTriggers?.()
@@ -437,7 +491,7 @@ export class SessionInputShell implements SessionInput {
           cursor = part.offset + 1
         }
         out += draft.slice(cursor)
-        this.deps.defaultSink(out.trim(), imageIds, mode)
+        this.deps.defaultSink(out.trim(), imageIds, documentIds, mode)
       },
       (error: unknown) => {
         controller.abort()
@@ -495,7 +549,12 @@ export class SessionInputShell implements SessionInput {
 
   private compose(): InputState {
     const core = this.core.state
-    return { ...core, imageIds: this.imageIds, queue: this.deps.queue?.getSnapshot() ?? EMPTY_QUEUE }
+    return {
+      ...core,
+      imageIds: this.imageIds,
+      documentIds: this.documentIds,
+      queue: this.deps.queue?.getSnapshot() ?? EMPTY_QUEUE,
+    }
   }
 
   private publish(): void {

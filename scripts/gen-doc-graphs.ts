@@ -106,6 +106,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content.',
   },
   {
+    key: 'userDocs',
+    pkg: 'userdoc',
+    title: 'User-uploaded document storage',
+    mode: 'seam',
+    implementations: ['userdoc-local'],
+    consumers: [],
+    note: 'Uploads land as real named files inside a directory the tool authorization policy already grants, so the agent reads them with its ordinary filesystem tools instead of through a retrieval channel of their own.',
+  },
+  {
     key: 'llm',
     pkg: 'llm',
     title: 'LLM adapter registry',

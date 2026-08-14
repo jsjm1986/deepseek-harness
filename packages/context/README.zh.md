@@ -10,5 +10,6 @@
 | [`time-context/`](time-context/README.md) | 当前时间与耗时上下文 | — |
 | [`tmux-context/`](tmux-context/README.md) | tmux 位置上下文 | — |
 | [`agent-instructions/`](agent-instructions/README.md) | 工作区指令上下文 | — |
+| [`userdoc-context/`](userdoc-context/README.md) | 用户上传文档的准入上下文 | `userdoc/attached` |
 
 会话引用见 [docs/subsystems/session-reference.md](../../docs/subsystems/session-reference.md)；[`agent-instructions` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)规定了其按 agent（智能体）/会话隔离与生命周期拆分。

@@ -74,6 +74,11 @@ const ABSENT_MENU_LAUNCHER = {
   getSnapshot: (): string | null => null,
   subscribe: () => () => {},
 }
+const EMPTY_DOCUMENTS: readonly [] = []
+const ABSENT_DOCUMENTS = {
+  getSnapshot: () => EMPTY_DOCUMENTS,
+  subscribe: () => () => {},
+}
 
 const CHAT_NODE_INJECT: ChatNodeTurnDataInjected = {
   hooks: {
@@ -290,14 +295,22 @@ export function apply(ctx: Context): void {
         return {
           keyboard: undefined,
           addImages: undefined,
+          addDocuments: undefined,
           removeImage: undefined,
+          removeDocument: undefined,
+          retryDocument: undefined,
           draftImages: undefined,
           resolveSubmitMode: (running, gesture, steeringAvailable) =>
             submissionPolicy.resolve(running, gesture, steeringAvailable),
           toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
-          hooks: { notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON, menuLauncher: ABSENT_MENU_LAUNCHER },
+          hooks: {
+            notices: ABSENT_NOTICES,
+            lexicon: ABSENT_LEXICON,
+            menuLauncher: ABSENT_MENU_LAUNCHER,
+            documents: ABSENT_DOCUMENTS,
+          },
         }
       }
       const conversation = concreteConversation(ctx)
@@ -321,9 +334,24 @@ export function apply(ctx: Context): void {
             return error instanceof Error ? error.message : String(error)
           }
         },
+        addDocuments: (files) => {
+          const documents = conversation.createDraftDocuments(sessionId, files)
+          const ids = documents.map(document => document.id)
+          if (!shell.addDocuments(ids)) {
+            for (const id of ids) conversation.removeDraftDocument(sessionId, id)
+          }
+          return null
+        },
         removeImage: (id) => {
           conversation.releaseDraftImage(id)
           shell.removeImage(id)
+        },
+        removeDocument: (id) => {
+          conversation.removeDraftDocument(sessionId, id)
+          shell.removeDocument(id)
+        },
+        retryDocument: (id) => {
+          conversation.retryDraftDocument(sessionId, id)
         },
         draftImages: ids => conversation.draftImages(ids),
         resolveSubmitMode: (running, gesture, steeringAvailable) =>
@@ -355,6 +383,7 @@ export function apply(ctx: Context): void {
           notices: shell.notices,
           lexicon: shell.lexicon,
           menuLauncher: inputTriggers?.launcher ?? ABSENT_MENU_LAUNCHER,
+          documents: conversation.documentStore(sessionId),
         },
       }
     },

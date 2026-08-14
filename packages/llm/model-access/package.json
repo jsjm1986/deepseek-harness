@@ -2,6 +2,14 @@
   "name": "@deepseek-ai/dsh-model-access",
   "description": "Model-route authorization Service Definition for DeepSeek Harness",
   "version": "0.1.0-rc.5",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/llm/model-access"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -19,10 +27,9 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts",
-    "README.md",
-    "README.zh.md"
+    "lib/types/**/*.d.ts"
   ],
+  "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^"
@@ -30,8 +37,5 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

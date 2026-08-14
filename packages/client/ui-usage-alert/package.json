@@ -64,8 +64,6 @@
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",
-    "lib/types/**/*.d.ts",
-    "README.md",
-    "README.zh.md"
+    "lib/types/**/*.d.ts"
   ]
 }
