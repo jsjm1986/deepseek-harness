@@ -1,24 +1,29 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { createServer } from 'node:http'
 import type { Duplex } from 'node:stream'
-import type { AuditService } from './audit.ts'
-import type { AuthService, UserRow } from './auth.ts'
+import type { UserRow } from './auth.ts'
 import type { GatewayConfig } from './config.ts'
 import { loginPage, passwordPage } from './html.ts'
-import type { InstanceManager } from './instances.ts'
-import type { ProjectService } from './projects.ts'
-import type { ModelGovernanceService } from './model-governance.ts'
+import type {
+  Awaitable,
+  GatewayAuditService,
+  GatewayAuthService,
+  GatewayInstanceService,
+  GatewayModelGovernanceService,
+  GatewayProjectService,
+  GatewayUserService,
+} from './services.ts'
 import { isAdminPath, serveAdmin } from './static.ts'
-import type { UserService } from './users.ts'
 
 export interface GatewayDeps {
   cfg: GatewayConfig
-  auth: AuthService
-  users: UserService
-  projects: ProjectService
-  audit: AuditService
-  instances: InstanceManager
-  governance?: ModelGovernanceService
+  auth: GatewayAuthService
+  users: GatewayUserService
+  projects: GatewayProjectService
+  audit: GatewayAuditService
+  instances: GatewayInstanceService
+  governance?: GatewayModelGovernanceService
+  readiness?: () => Awaitable<void>
 }
 
 export const SESSION_COOKIE = 'hgw_session'
@@ -96,10 +101,10 @@ export interface GatewayHandlers {
 export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers = {}): Server {
   const { cfg, auth, users, audit } = deps
 
-  const currentUser = (req: IncomingMessage): { token: string; user: UserRow } | null => {
+  const currentUser = async (req: IncomingMessage): Promise<{ token: string; user: UserRow } | null> => {
     const token = parseCookies(req.headers.cookie).get(SESSION_COOKIE)
     if (token === undefined) return null
-    const user = auth.validate(token)
+    const user = await auth.validate(token)
     return user === null ? null : { token, user }
   }
 
@@ -113,7 +118,15 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const pathname = new URL(req.url ?? '/', 'http://x').pathname
 
-    if (pathname === '/healthz') { send(res, 200, '{"ok":true}', 'application/json'); return }
+    if (pathname === '/healthz') {
+      try {
+        await deps.readiness?.()
+        send(res, 200, '{"ok":true}', 'application/json')
+      } catch {
+        send(res, 503, '{"ok":false}', 'application/json')
+      }
+      return
+    }
 
     if (!csrfOk(req, cfg, pathname)) { sendAdminGate(res, pathname, 'origin not allowed'); return }
 
@@ -123,15 +136,15 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
         const form = new URLSearchParams(await readBody(req))
         const username = form.get('username') ?? ''
         const result = await auth.login(username, form.get('password') ?? '', clientIp(req), req.headers['user-agent'] ?? '')
-        if (result === 'locked') { audit.write({ action: 'login.locked', ip: clientIp(req), detail: username }); send(res, 429, loginPage('尝试过于频繁，请 10 分钟后再试')); return }
-        if (result === 'invalid') { audit.write({ action: 'login.failed', ip: clientIp(req), detail: username }); send(res, 401, loginPage('用户名或密码错误')); return }
-        audit.write({ userId: result.user.id, action: 'login', ip: clientIp(req) })
+        if (result === 'locked') { await audit.write({ action: 'login.locked', ip: clientIp(req), detail: username }); send(res, 429, loginPage('尝试过于频繁，请 10 分钟后再试')); return }
+        if (result === 'invalid') { await audit.write({ action: 'login.failed', ip: clientIp(req), detail: username }); send(res, 401, loginPage('用户名或密码错误')); return }
+        await audit.write({ userId: result.user.id, action: 'login', ip: clientIp(req) })
         redirect(res, '/', [sessionCookie(result.token, cfg)])
         return
       }
     }
 
-    const session = currentUser(req)
+    const session = await currentUser(req)
     if (session === null) {
       if (wantsHtml(req)) { redirect(res, '/login'); return }
       send(res, 401, '{"error":"unauthorized"}', 'application/json')
@@ -140,8 +153,8 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
     const { token, user } = session
 
     if (pathname === '/logout' && req.method === 'POST') {
-      auth.revoke(token)
-      audit.write({ userId: user.id, action: 'logout', ip: clientIp(req) })
+      await auth.revoke(token)
+      await audit.write({ userId: user.id, action: 'logout', ip: clientIp(req) })
       redirect(res, '/login', [sessionCookie('', cfg, true)])
       return
     }
@@ -155,7 +168,7 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
     if (pathname === '/account/api/usage' && req.method === 'GET') {
       if (deps.governance === undefined) { send(res, 503, '{"error":"usage-unavailable"}', 'application/json'); return }
       const month = new URL(req.url ?? '/', 'http://x').searchParams.get('month') ?? undefined
-      send(res, 200, JSON.stringify(deps.governance.summary(user.id, month)), 'application/json')
+      send(res, 200, JSON.stringify(await deps.governance.summary(user.id, month)), 'application/json')
       return
     }
 
@@ -165,7 +178,7 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
         const password = new URLSearchParams(await readBody(req)).get('password') ?? ''
         if (password.length < 8) { send(res, 400, passwordPage('密码至少 8 位')); return }
         await users.changeOwnPassword(user.id, password)
-        audit.write({ userId: user.id, action: 'password.changed', ip: clientIp(req) })
+        await audit.write({ userId: user.id, action: 'password.changed', ip: clientIp(req) })
         redirect(res, '/')
         return
       }
@@ -189,7 +202,7 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
       const pathname = new URL(req.url ?? '/', 'http://x').pathname
       const origin = req.headers.origin
       if (origin !== undefined && !cfg.publicOrigins.includes(origin)) { socket.destroy(); return }
-      const session = currentUser(req)
+      const session = await currentUser(req)
       if (session === null || session.user.mustChangePassword) { socket.destroy(); return }
       if (handlers.upgrade === undefined || !pathname.startsWith('/api')) { socket.destroy(); return }
       await handlers.upgrade(req, socket, head, session.user)

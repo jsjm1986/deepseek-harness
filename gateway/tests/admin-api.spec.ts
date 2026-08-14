@@ -99,21 +99,21 @@ describe('admin JSON API', () => {
 
   it('does not persist displayName when a later PATCH field fails', async () => {
     const { base, cookie, admin, deps } = await setup()
-    const original = deps.users.getById(admin.id)!.displayName
+    const original = (await deps.users.getById(admin.id))!.displayName
     const lastAdmin = await fetch(`${base}/admin/api/users/${admin.id}`, {
       method: 'PATCH',
       headers: { cookie, origin: base, 'content-type': 'application/json' },
       body: JSON.stringify({ displayName: 'Should Not Stick', status: 'disabled' }),
     })
     expect(lastAdmin.status).toBe(409)
-    expect(deps.users.getById(admin.id)?.displayName).toBe(original)
+    expect((await deps.users.getById(admin.id))?.displayName).toBe(original)
     const invalidRole = await fetch(`${base}/admin/api/users/${admin.id}`, {
       method: 'PATCH',
       headers: { cookie, origin: base, 'content-type': 'application/json' },
       body: JSON.stringify({ displayName: 'Also Not Stick', role: 'nope' }),
     })
     expect(invalidRole.status).toBe(400)
-    expect(deps.users.getById(admin.id)?.displayName).toBe(original)
+    expect((await deps.users.getById(admin.id))?.displayName).toBe(original)
   })
 
   it('returns 400 when applying grants fails before restart', async () => {

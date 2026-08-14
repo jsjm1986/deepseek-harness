@@ -17,20 +17,20 @@ export function createProxyHandlers(deps: GatewayDeps): { proxy: ProxyHandler; u
 
   // Grants handoff is intrinsic to starting an instance: the manager calls this
   // just before every spawn, so the child always reads the current grants.
-  instances.beforeStart = (user: UserRow): void => {
-    writeGrantsFile(cfg, user.username, projects.effectiveGrants(user.id))
-    if (deps.governance !== undefined) writeModelGovernanceFile(cfg, deps.governance, user)
+  instances.beforeStart = async (user: UserRow): Promise<void> => {
+    writeGrantsFile(cfg, user.username, await projects.effectiveGrants(user.id))
+    if (deps.governance !== undefined) await writeModelGovernanceFile(cfg, deps.governance, user)
   }
 
   async function ensureReady(req: IncomingMessage, res: ServerResponse | null, user: UserRow): Promise<number | null> {
     // Trust the live handle, not the `ready` row: an external kill or crash
     // leaves the row stale, and proxying that port yields instance-unreachable.
-    if (!instances.isLive(user.id)) {
+    if (!await instances.isLive(user.id)) {
       const pending = instances.ensureRunning(user)
       if (res !== null) {
         if (wantsHtml(req)) { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(waitingPage()) }
         else { res.writeHead(503, { 'content-type': 'application/json' }); res.end('{"error":"instance-starting"}') }
-        pending.catch(() => { /* logged in manager */ })
+        pending.catch(error => { console.error(`[gateway] instance start failed for ${user.username}:`, error) })
         return null
       }
       await pending
@@ -46,11 +46,17 @@ export function createProxyHandlers(deps: GatewayDeps): { proxy: ProxyHandler; u
   const proxy: ProxyHandler = async (req, res, user) => {
     const port = await ensureReady(req, res, user)
     if (port === null) return
-    instances.touch(user.id)
+    await instances.touch(user.id)
     const pathname = new URL(req.url ?? '/', 'http://x').pathname
     if (pathname.startsWith('/api/')) {
       res.once('finish', () => {
-        audit.write({ userId: user.id, action: 'api', methodPath: `${req.method} ${pathname}`, status: res.statusCode, ip: req.socket.remoteAddress ?? '' })
+        void Promise.resolve(audit.write({
+          userId: user.id,
+          action: 'api',
+          methodPath: `${req.method} ${pathname}`,
+          status: res.statusCode,
+          ip: req.socket.remoteAddress ?? '',
+        })).catch(error => { console.error('[gateway] API audit write failed:', error) })
       })
     }
     await new Promise<void>((resolve) => {
@@ -65,16 +71,19 @@ export function createProxyHandlers(deps: GatewayDeps): { proxy: ProxyHandler; u
   const upgrade: UpgradeHandler = async (req, socket, head, user) => {
     let port: number
     try {
-      port = instances.isLive(user.id)
-        ? instances.portOf(user.id)
+      port = await instances.isLive(user.id)
+        ? await instances.portOf(user.id)
         : (await instances.ensureRunning(user)).port
     } catch {
       socket.destroy()
       return
     }
-    instances.touch(user.id)
-    instances.wsRef(user.id, 1)
-    socket.once('close', () => instances.wsRef(user.id, -1))
+    await instances.touch(user.id)
+    await instances.wsRef(user.id, 1)
+    socket.once('close', () => {
+      void Promise.resolve(instances.wsRef(user.id, -1))
+        .catch(error => { console.error('[gateway] WebSocket activity update failed:', error) })
+    })
     server.ws(req, socket as Duplex & NodeJS.WritableStream, head, targetOptions(port), () => socket.destroy())
   }
 

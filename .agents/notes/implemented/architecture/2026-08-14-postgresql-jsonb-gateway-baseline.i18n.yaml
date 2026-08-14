@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-14-postgresql-jsonb-gateway-baseline.md
-2026-08-14-postgresql-jsonb-gateway-baseline.md: 8aa8d9ca442055379b7b4ffc378fea376a7b9656
-2026-08-14-postgresql-jsonb-gateway-baseline.zh.md: e10cfd0386dbeb9cab314b06cb25ab4cc113bee4
+2026-08-14-postgresql-jsonb-gateway-baseline.md: b653e874504ba7f293f0f1f4ce2c95217451c758
+2026-08-14-postgresql-jsonb-gateway-baseline.zh.md: c95d91fdefacd2453a19816757654187de63c6ac

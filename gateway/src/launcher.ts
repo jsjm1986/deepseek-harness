@@ -94,7 +94,7 @@ export interface SystemdLauncherOptions {
   /** Unit-rendering facts shared by every user (see systemd.ts). */
   systemd: SystemdOptions
   /** Current effective grants for a username, rendered into mount binds. */
-  grantsProvider: (username: string) => GrantEntry[]
+  grantsProvider: (username: string) => GrantEntry[] | Promise<GrantEntry[]>
   /** Unit directory the per-user unit files are written into. */
   unitDir?: string
   /** systemctl arguments runner; injectable for tests. */
@@ -126,7 +126,7 @@ export class SystemdLauncher implements Launcher {
     // the renderer itself only auto-binds the home.
     const grants: GrantEntry[] = [
       { path: user.dshHome, mode: 'rw' },
-      ...this.options.grantsProvider(user.username),
+      ...await this.options.grantsProvider(user.username),
     ]
     writeFileSync(join(this.unitDir, unitName(user.username)), renderUserUnit(user, grants, this.options.systemd))
     await this.run(['daemon-reload'])

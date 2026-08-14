@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http'
-import type { AuditService } from './audit.ts'
-import type { ModelGovernanceService, UsageEvent } from './model-governance.ts'
+import type { UsageEvent } from './model-governance.ts'
+import type { GatewayAuditService, GatewayModelGovernanceService } from './services.ts'
 
 async function body(req: IncomingMessage, limit = 256 * 1024): Promise<string> {
   const chunks: Buffer[] = []; let size = 0
@@ -9,18 +9,21 @@ async function body(req: IncomingMessage, limit = 256 * 1024): Promise<string> {
 }
 
 /** Create the private loopback-only, bearer-authenticated usage intake. */
-export function createUsageIntakeServer(governance: ModelGovernanceService, audit?: AuditService): Server {
+export function createUsageIntakeServer(
+  governance: GatewayModelGovernanceService,
+  audit?: GatewayAuditService,
+): Server {
   return createServer((req, res) => { void (async () => {
     if (req.method !== 'POST' || req.url !== '/usage') { res.writeHead(404).end(); return }
     const auth = req.headers.authorization
     const token = auth?.startsWith('Bearer ') ? auth.slice(7) : ''
-    const userId = token === '' ? null : governance.userForIntakeToken(token)
+    const userId = token === '' ? null : await governance.userForIntakeToken(token)
     if (userId === null) { res.writeHead(401).end(); return }
     try {
       const event = JSON.parse(await body(req)) as UsageEvent
-      const result = governance.ingest(userId, event)
+      const result = await governance.ingest(userId, event)
       if (result.inserted && event.status === 'denied') {
-        audit?.write({ userId, action: 'model.denied', detail: JSON.stringify({ provider: event.provider, model: event.model, purpose: event.purpose }) })
+        await audit?.write({ userId, action: 'model.denied', detail: JSON.stringify({ provider: event.provider, model: event.model, purpose: event.purpose }) })
       }
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result))
     } catch (error) {

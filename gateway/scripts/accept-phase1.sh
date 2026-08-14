@@ -1,6 +1,7 @@
 #!/bin/bash
 # Phase 1 acceptance (design doc §12, Task 11 + B4 runtime half), Mac dev form.
-# Boots a fresh gateway on a scratch data root, drives two users end to end
+# Boots a fresh gateway against an explicitly disposable PostgreSQL database,
+# drives two users end to end
 # through curl/node, and prints PASS/FAIL per check. Requires the repo's Node
 # (see .nvmrc) on PATH; no API key needed (no model turns are driven).
 set -u
@@ -13,6 +14,12 @@ ROOT="$(mktemp -d /tmp/hgw-accept-XXXXXX)"
 LOG="$ROOT/gateway.log"
 JAR_ADMIN="$ROOT/admin.jar"; JAR_U1="$ROOT/u1.jar"; JAR_U2="$ROOT/u2.jar"
 PASS=0; FAIL=0
+DATABASE_URL="${HGW_ACCEPT_DATABASE_URL:-}"
+
+if [ -z "$DATABASE_URL" ]; then
+  echo "FATAL: HGW_ACCEPT_DATABASE_URL must name a disposable database ending in _test, _accept, or _acceptance" >&2
+  exit 1
+fi
 
 check() { # check <name> <expected> <actual>
   if [ "$2" = "$3" ]; then PASS=$((PASS+1)); echo "PASS  $1"
@@ -20,6 +27,7 @@ check() { # check <name> <expected> <actual>
 }
 
 echo "== scratch root: $ROOT"
+HGW_DATABASE_URL="$DATABASE_URL" npx tsx scripts/prepare-acceptance-postgres.ts || exit 1
 # Instance policy plugins are mounted by package name; plain Node loads their built lib/.
 if [ ! -f ../plugins/dsh-directory-guard/lib/index.js ]; then
   (cd ../plugins/dsh-directory-guard && npx tsc -p tsconfig.build.json)
@@ -27,7 +35,8 @@ fi
 if [ ! -f ../plugins/dsh-model-governance/lib/index.js ]; then
   (cd ../plugins/dsh-model-governance && npx tsc -p tsconfig.build.json)
 fi
-HGW_PORT="$PORT" HGW_INSTANCE_PORT_BASE="$INSTANCE_PORT_BASE" HGW_DATA_DIR="$ROOT/data" HGW_USERS_ROOT="$ROOT/users" \
+HGW_DATABASE_URL="$DATABASE_URL" HGW_ORGANIZATION_SLUG=acceptance HGW_COMPUTE_NODE_NAME=local \
+  HGW_PORT="$PORT" HGW_INSTANCE_PORT_BASE="$INSTANCE_PORT_BASE" HGW_USERS_ROOT="$ROOT/users" \
   npx tsx src/index.ts >"$LOG" 2>&1 &
 GW_PID=$!
 trap 'kill $GW_PID 2>/dev/null; wait $GW_PID 2>/dev/null' EXIT
@@ -121,8 +130,9 @@ check "admin usage summary reachable" "200" "$(curl -s -o /dev/null -w '%{http_c
 check "u2 login" "302" "$(login "$JAR_U2" u2 init-pw-222)"
 check "u2 password change" "302" "$(change_pw "$JAR_U2" u2-pw-22222)"
 check "u2 index through proxy (after boot)" "200" "$(wait_ready "$JAR_U2")"
-U1_PORT="$(sqlite3 "$ROOT/data/gateway.sqlite" "SELECT port FROM instances WHERE user_id=(SELECT id FROM users WHERE username='u1')")"
-U2_PORT="$(sqlite3 "$ROOT/data/gateway.sqlite" "SELECT port FROM instances WHERE user_id=(SELECT id FROM users WHERE username='u2')")"
+USERS_JSON="$(curl -s -b "$JAR_ADMIN" "$ORIGIN/admin/api/users")"
+U1_PORT="$(node -e 'const u=JSON.parse(process.argv[1]).find(x=>x.username==="u1"); process.stdout.write(String(u?.port??""))' "$USERS_JSON")"
+U2_PORT="$(node -e 'const u=JSON.parse(process.argv[1]).find(x=>x.username==="u2"); process.stdout.write(String(u?.port??""))' "$USERS_JSON")"
 [ "$U1_PORT" != "$U2_PORT" ] && check "u1/u2 run separate instances" "yes" "yes" \
   || check "u1/u2 run separate instances" "yes" "no (both $U1_PORT)"
 

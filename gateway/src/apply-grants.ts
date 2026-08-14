@@ -32,17 +32,17 @@ export async function applyGrantsToUser(
   userId: number,
   actorId: number,
 ): Promise<'restarted' | 'written'> {
-  const user = deps.users.getById(userId)
+  const user = await deps.users.getById(userId)
   if (user === null) throw new Error(`no user ${userId}`)
-  writeGrantsFile(deps.cfg, user.username, deps.projects.effectiveGrants(userId))
-  const state = deps.instances.stateOf(userId)
+  writeGrantsFile(deps.cfg, user.username, await deps.projects.effectiveGrants(userId))
+  const state = await deps.instances.stateOf(userId)
   if (state !== 'ready' && state !== 'starting') return 'written'
   try {
     await deps.instances.stop(userId)
     await deps.instances.ensureRunning(user)
     return 'restarted'
   } catch (error) {
-    deps.audit.write({
+    await deps.audit.write({
       userId: actorId,
       action: 'admin.instances.restart-failed',
       detail: JSON.stringify({ userId, error: String(error) }),

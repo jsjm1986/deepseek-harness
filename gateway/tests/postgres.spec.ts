@@ -1,14 +1,25 @@
 import { randomUUID } from 'node:crypto'
-import { access, mkdtemp, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Pool } from 'pg'
+import { loadConfig } from '../src/config.ts'
 import { openDb, SCHEMA_VERSION } from '../src/db.ts'
+import { PostgresAuditService } from '../src/postgres/audit-service.ts'
+import { PostgresAuthService } from '../src/postgres/auth-service.ts'
 import { ConversationRepository } from '../src/postgres/conversation-repository.ts'
 import { createPostgresPool, runMigrations } from '../src/postgres/database.ts'
+import { PostgresInstanceRepository } from '../src/postgres/instance-repository.ts'
+import { PostgresModelGovernanceService } from '../src/postgres/model-governance-service.ts'
+import { PostgresProjectService } from '../src/postgres/project-service.ts'
+import {
+  checkPostgresReadiness,
+  resolvePostgresRuntimeContext,
+} from '../src/postgres/runtime-context.ts'
 import { importSqliteControlPlane } from '../src/postgres/sqlite-import.ts'
+import { PostgresUserService } from '../src/postgres/user-service.ts'
 
 const DATABASE_URL = process.env.HGW_TEST_DATABASE_URL
 const describePg = DATABASE_URL === undefined ? describe.skip : describe
@@ -67,9 +78,9 @@ describePg('PostgreSQL baseline', () => {
     pool = createPostgresPool(DATABASE_URL!, { max: 4 })
     await pool.query('DROP SCHEMA IF EXISTS harness CASCADE')
     const migrated = await runMigrations(pool, MIGRATIONS)
-    expect(migrated).toEqual({ applied: [1], current: 1 })
+    expect(migrated).toEqual({ applied: [1, 2], current: 2 })
     expect(await runMigrations(pool, MIGRATIONS))
-      .toEqual({ applied: [], current: 1 })
+      .toEqual({ applied: [], current: 2 })
     const homeColumns = await pool.query<{ table_name: string; is_nullable: string }>(`SELECT table_name,is_nullable
       FROM information_schema.columns WHERE table_schema='harness' AND column_name='home_path' ORDER BY table_name`)
     expect(homeColumns.rows).toEqual([{ table_name: 'users', is_nullable: 'NO' }])
@@ -95,11 +106,11 @@ describePg('PostgreSQL baseline', () => {
     } finally {
       await pool.query(`UPDATE harness.schema_migrations SET checksum=$1 WHERE version=1`, [original.rows[0]!.checksum])
     }
-    await pool.query(`INSERT INTO harness.schema_migrations(version,name,checksum) VALUES(2,'002_unknown.sql',$1)`, ['0'.repeat(64)])
+    await pool.query(`INSERT INTO harness.schema_migrations(version,name,checksum) VALUES(3,'003_unknown.sql',$1)`, ['0'.repeat(64)])
     try {
-      await expect(runMigrations(pool, MIGRATIONS)).rejects.toThrow(/unknown PostgreSQL migration version 2/)
+      await expect(runMigrations(pool, MIGRATIONS)).rejects.toThrow(/unknown PostgreSQL migration version 3/)
     } finally {
-      await pool.query('DELETE FROM harness.schema_migrations WHERE version=2')
+      await pool.query('DELETE FROM harness.schema_migrations WHERE version=3')
     }
   })
 
@@ -272,6 +283,125 @@ describePg('PostgreSQL baseline', () => {
       await fixture.cleanup()
     }
   })
+
+  it('runs the complete Gateway control plane against PostgreSQL', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hgw-postgres-runtime-'))
+    const slug = `runtime-${randomUUID()}`
+    try {
+      await pool.query(`WITH organization AS (
+        INSERT INTO harness.organizations(slug,display_name) VALUES($1,'Runtime') RETURNING id
+      ) INSERT INTO harness.compute_nodes(organization_id,name)
+        SELECT id,'runtime-node' FROM organization`, [slug])
+      const context = await resolvePostgresRuntimeContext(pool, slug, 'runtime-node')
+      await checkPostgresReadiness(context)
+      const cfg = loadConfig({
+        HGW_USERS_ROOT: join(root, 'users'),
+        HGW_INSTANCE_PORT_BASE: '45100',
+        HGW_ORGANIZATION_SLUG: slug,
+        HGW_COMPUTE_NODE_NAME: 'runtime-node',
+      })
+      const users = new PostgresUserService(context, cfg)
+      const auth = new PostgresAuthService(context, cfg)
+      const projects = new PostgresProjectService(context, cfg)
+      const instances = new PostgresInstanceRepository(context)
+      const audit = new PostgresAuditService(context)
+      const governance = new PostgresModelGovernanceService(context, 'Asia/Shanghai')
+
+      const admin = await users.create({ username: 'runtime-admin', password: 'pw-12345678', role: 'admin' })
+      const member = await users.create({ username: 'runtime-user', password: 'pw-12345678' })
+      expect(admin.id).not.toBe(member.id)
+      expect((await users.list()).map(user => user.port)).toEqual([45100, 45101])
+      await expect(users.setStatus(admin.id, 'disabled')).rejects.toThrow('cannot-remove-last-admin')
+
+      const loggedIn = await auth.login('runtime-user', 'pw-12345678', '127.0.0.1', 'vitest')
+      expect(loggedIn).not.toBe('invalid')
+      expect(loggedIn).not.toBe('locked')
+      if (loggedIn === 'invalid' || loggedIn === 'locked') throw new Error('runtime login failed')
+      expect((await auth.validate(loggedIn.token))?.id).toBe(member.id)
+      await auth.revoke(loggedIn.token)
+      expect(await auth.validate(loggedIn.token)).toBeNull()
+      await users.changeOwnPassword(member.id, 'pw-abcdefgh')
+      expect((await users.getById(member.id))?.mustChangePassword).toBe(false)
+
+      const shared = join(root, 'shared')
+      await mkdir(shared)
+      const project = await projects.create({ name: 'Runtime Project', path: shared, createdBy: admin.id })
+      await projects.setMember(project.id, member.id, 'rw')
+      expect((await projects.getById(project.id))?.members).toEqual([
+        { userId: member.id, username: 'runtime-user', mode: 'rw' },
+      ])
+      expect(await projects.effectiveGrants(member.id)).toEqual([
+        { path: member.homePath, mode: 'rw', label: '主目录' },
+        { path: project.path, mode: 'rw', label: 'Runtime Project' },
+      ])
+
+      await instances.initialize(false)
+      expect(await instances.portOf(member.id)).toBe(45101)
+      await instances.markStarting(member.id, Date.now())
+      await instances.markReady(member.id)
+      expect(await instances.stateOf(member.id)).toBe('ready')
+      await instances.markStopping(member.id)
+      await instances.markStopped(member.id)
+      expect(await instances.stateOf(member.id)).toBe('stopped')
+
+      await governance.upsertModel({
+        provider: 'runtime',
+        model: 'chat',
+        displayName: 'Runtime Chat',
+        enabled: true,
+        adminAllowed: true,
+        userAllowed: true,
+        inputMicrosPerMillion: 1_000_000,
+        outputMicrosPerMillion: 0,
+        cacheReadMicrosPerMillion: 0,
+        cacheWriteMicrosPerMillion: 0,
+      })
+      expect((await governance.listModels())[0]).toMatchObject({
+        provider: 'runtime',
+        model: 'chat',
+        inputMicrosPerMillion: 1_000_000,
+        userAllowed: true,
+      })
+      await governance.setUserAccess(member.id, 'runtime', 'chat', false)
+      expect((await governance.policyFor(member)).models[0]?.allowed).toBe(false)
+      await governance.setUserAccess(member.id, 'runtime', 'chat', null)
+      await governance.setQuota('role', 'user', 10, 100)
+      const intakeToken = await governance.issueIntakeToken(member.id)
+      expect(await governance.userForIntakeToken(intakeToken)).toBe(member.id)
+      const usage = {
+        eventId: randomUUID(),
+        occurredAt: Date.now(),
+        provider: 'runtime',
+        model: 'chat',
+        purpose: 'assistant',
+        credentialSource: 'user-env',
+        credentialClass: 'company' as const,
+        status: 'succeeded' as const,
+        usage: { inputTokens: 8, outputTokens: 0 },
+      }
+      expect(await governance.ingest(member.id, usage)).toEqual({ inserted: true, alerts: 1 })
+      expect(await governance.ingest(member.id, usage)).toEqual({ inserted: false, alerts: 0 })
+      expect(await governance.summary(member.id)).toMatchObject({
+        totalTokens: 8,
+        estimatedCostMicros: 8,
+        companyCostMicros: 8,
+        tokenLimit: 10,
+        companyCostMicrosLimit: 100,
+        alerts: [{ metric: 'tokens', threshold: 80 }],
+      })
+
+      await audit.write({ userId: member.id, action: 'runtime.test', methodPath: 'POST /runtime', status: 201,
+        ip: '127.0.0.1', detail: JSON.stringify({ ok: true }) })
+      expect((await audit.query({ userId: member.id, action: 'runtime.test' }))[0]).toMatchObject({
+        userId: member.id,
+        action: 'runtime.test',
+        methodPath: 'POST /runtime',
+        status: 201,
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 60_000)
 
   it('rejects a versioned SQLite source with a missing required table', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'hgw-postgres-invalid-'))

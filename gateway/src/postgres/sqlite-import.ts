@@ -100,10 +100,11 @@ export async function importSqliteControlPlane(pool: Pool, options: SqliteImport
       const sourceUsers = rows(db, 'users')
       for (const row of sourceUsers) {
         const user = await client.query<{ id: string }>(`INSERT INTO harness.users(
-          organization_id,username,display_name,home_path,status,legacy_id,created_at,updated_at
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+          organization_id,username,display_name,home_path,status,legacy_id,public_id,created_at,updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$6,$7,$8)
         ON CONFLICT(organization_id,legacy_id) DO UPDATE SET username=excluded.username,
-          display_name=excluded.display_name,home_path=excluded.home_path,status=excluded.status,updated_at=excluded.updated_at RETURNING id`,
+          display_name=excluded.display_name,home_path=excluded.home_path,status=excluded.status,
+          public_id=excluded.public_id,updated_at=excluded.updated_at RETURNING id`,
         [organizationId, row.username, row.display_name, row.home_path, row.status, row.id, epoch(row.created_at), epoch(row.updated_at)])
         const userId = user.rows[0]!.id
         await client.query(`INSERT INTO harness.password_credentials(user_id,password_hash,must_change_password,changed_at)
@@ -119,9 +120,10 @@ export async function importSqliteControlPlane(pool: Pool, options: SqliteImport
       for (const row of sourceProjects) {
         const createdBy = row.created_by === null ? null : await idForLegacy(client, 'users', organizationId, row.created_by)
         const project = await client.query<{ id: string }>(`INSERT INTO harness.projects(
-          organization_id,name,created_by,legacy_id,created_at,updated_at
-        ) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(organization_id,legacy_id) DO UPDATE SET
-          name=excluded.name,created_by=excluded.created_by,updated_at=excluded.updated_at RETURNING id`,
+          organization_id,name,created_by,legacy_id,public_id,created_at,updated_at
+        ) VALUES($1,$2,$3,$4,$4,$5,$6) ON CONFLICT(organization_id,legacy_id) DO UPDATE SET
+          name=excluded.name,created_by=excluded.created_by,public_id=excluded.public_id,
+          updated_at=excluded.updated_at RETURNING id`,
         [organizationId, row.name, createdBy, row.id, epoch(row.created_at), epoch(row.updated_at)])
         await client.query(`INSERT INTO harness.project_mounts(organization_id,project_id,node_id,local_path,canonical_path)
           VALUES($1,$2,$3,$4,$4) ON CONFLICT(project_id,node_id) DO UPDATE SET local_path=excluded.local_path,
@@ -234,6 +236,11 @@ export async function importSqliteControlPlane(pool: Pool, options: SqliteImport
           row.method_path === '' ? null : 'http', inet(row.ip), typeof row.status === 'number' && row.status >= 400 ? 'failure' : 'success',
           row.status, JSON.stringify({ methodPath: row.method_path, legacyDetail: row.detail }), row.id])
       }
+
+      await client.query(`SELECT setval('harness.user_public_id_seq',
+        COALESCE((SELECT MAX(public_id) FROM harness.users),1),EXISTS(SELECT 1 FROM harness.users))`)
+      await client.query(`SELECT setval('harness.project_public_id_seq',
+        COALESCE((SELECT MAX(public_id) FROM harness.projects),1),EXISTS(SELECT 1 FROM harness.projects))`)
 
       return {
         organizationId, nodeId, users: sourceUsers.length, projects: sourceProjects.length,

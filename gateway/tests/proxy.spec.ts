@@ -78,38 +78,38 @@ describe('proxy handlers', () => {
   it('rewrites host and origin to the instance loopback authority and writes grants', async () => {
     const { deps, base, cookie, root } = await setup()
     // Deterministic startup (the manager's beforeStart writes the grants file).
-    await deps.instances.ensureRunning(deps.users.getByUsername('alice')!)
+    await deps.instances.ensureRunning((await deps.users.getByUsername('alice'))!)
     const response = await fetch(`${base}/api/echo`, {
       method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' }, body: '{}',
     })
     expect(response.status).toBe(200)
     const echoed = await response.json() as { host: string; origin: string }
-    const port = deps.instances.portOf(1)
+    const port = await deps.instances.portOf(1)
     expect(echoed.host).toBe(`127.0.0.1:${port}`)
     expect(echoed.origin).toBe(`http://127.0.0.1:${port}`)
-    const audited = deps.audit.query({ action: 'api' })
+    const audited = await deps.audit.query({ action: 'api' })
     expect(audited[0]?.methodPath).toBe('POST /api/echo')
     const grantsFile = join(root, 'users', 'alice', 'dsh', 'directory-grants.json')
     expect(existsSync(grantsFile)).toBe(true)
-    expect(JSON.parse(readFileSync(grantsFile, 'utf8'))).toEqual(deps.projects.effectiveGrants(1))
+    expect(JSON.parse(readFileSync(grantsFile, 'utf8'))).toEqual(await deps.projects.effectiveGrants(1))
   })
 
   it('shows the waiting page and respawns when a ready child has exited', async () => {
     const { deps, base, cookie } = await setup()
-    const alice = deps.users.getByUsername('alice')!
+    const alice = (await deps.users.getByUsername('alice'))!
     await deps.instances.ensureRunning(alice)
-    const port = deps.instances.portOf(alice.id)
+    const port = await deps.instances.portOf(alice.id)
     await fetch(`http://127.0.0.1:${port}/exit`)
     await new Promise(r => setTimeout(r, 50))
-    expect(deps.instances.isLive(alice.id)).toBe(false)
+    expect(await deps.instances.isLive(alice.id)).toBe(false)
     const waiting = await fetch(base + '/', { headers: { cookie, accept: 'text/html' }, redirect: 'manual' })
     expect(waiting.status).toBe(200)
     expect(await waiting.text()).toContain('正在启动您的工作台')
     const deadline = Date.now() + 8000
-    while (Date.now() < deadline && !deps.instances.isLive(alice.id)) {
+    while (Date.now() < deadline && !await deps.instances.isLive(alice.id)) {
       await new Promise(r => setTimeout(r, 100))
     }
-    expect(deps.instances.isLive(alice.id)).toBe(true)
+    expect(await deps.instances.isLive(alice.id)).toBe(true)
     const proxied = await fetch(`${base}/api/echo`, {
       method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' }, body: '{}',
     })
@@ -118,7 +118,7 @@ describe('proxy handlers', () => {
 
   it('proxies websocket upgrades with rewritten host', async () => {
     const { deps, base, cookie } = await setup()
-    await deps.instances.ensureRunning(deps.users.getByUsername('alice')!)
+    await deps.instances.ensureRunning((await deps.users.getByUsername('alice'))!)
     const ws = new WebSocket(`${base.replace('http', 'ws')}/api/events.mux`, { headers: { cookie, origin: base } })
     const first = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('no ws message in 5s')), 5000)
@@ -126,7 +126,7 @@ describe('proxy handlers', () => {
       ws.once('error', err => { clearTimeout(timer); reject(err) })
     })
     ws.close()
-    const port = deps.instances.portOf(1)
+    const port = await deps.instances.portOf(1)
     expect(JSON.parse(first)).toEqual({ host: `127.0.0.1:${port}` })
   })
 })

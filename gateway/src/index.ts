@@ -1,26 +1,35 @@
 import { randomBytes } from 'node:crypto'
+import type { Server } from 'node:http'
 import { join } from 'node:path'
 import { createAdminApiHandler } from './admin-api.ts'
-import { AuditService } from './audit.ts'
-import { AuthService } from './auth.ts'
 import { loadConfig } from './config.ts'
-import { openDb } from './db.ts'
 import { InstanceManager } from './instances.ts'
 import { selectLauncher } from './launcher.ts'
-import { ProjectService } from './projects.ts'
-import { ModelGovernanceService } from './model-governance.ts'
+import { PostgresAuditService } from './postgres/audit-service.ts'
+import { PostgresAuthService } from './postgres/auth-service.ts'
+import { createPostgresPool, databaseUrlFromFile, runMigrations } from './postgres/database.ts'
+import { PostgresInstanceRepository } from './postgres/instance-repository.ts'
+import { PostgresModelGovernanceService } from './postgres/model-governance-service.ts'
+import { PostgresProjectService } from './postgres/project-service.ts'
+import { checkPostgresReadiness, resolvePostgresRuntimeContext } from './postgres/runtime-context.ts'
+import { PostgresUserService } from './postgres/user-service.ts'
 import { createProxyHandlers } from './proxy.ts'
 import { createGatewayServer, type GatewayDeps } from './server.ts'
 import { createUsageIntakeServer } from './usage-intake.ts'
-import { UserService } from './users.ts'
 
 const cfg = loadConfig()
-const db = openDb(join(cfg.dataDir, 'gateway.sqlite'))
-const auth = new AuthService(db, cfg)
-const users = new UserService(db, cfg)
-const projects = new ProjectService(db, cfg)
-const audit = new AuditService(db)
-const governance = new ModelGovernanceService(db, cfg.usageTimeZone)
+const pool = createPostgresPool(await databaseUrlFromFile())
+await runMigrations(pool, join(import.meta.dirname, '../deploy/postgres/migrations'))
+const context = await resolvePostgresRuntimeContext(
+  pool,
+  cfg.organizationSlug,
+  cfg.computeNodeName,
+)
+const auth = new PostgresAuthService(context, cfg)
+const users = new PostgresUserService(context, cfg)
+const projects = new PostgresProjectService(context, cfg)
+const audit = new PostgresAuditService(context)
+const governance = new PostgresModelGovernanceService(context, cfg.usageTimeZone)
 // Launcher is local child-process (dev) unless HGW_LAUNCHER=systemd (Linux prod);
 // the systemd options factory is only evaluated in the systemd case.
 const launcher = selectLauncher(cfg, () => ({
@@ -32,10 +41,10 @@ const launcher = selectLauncher(cfg, () => ({
     cpuQuota: cfg.cpuQuota,
   },
   unitDir: cfg.systemdUnitDir,
-  grantsProvider: (username) => {
-    const user = users.getByUsername(username)
+  grantsProvider: async (username) => {
+    const user = await users.getByUsername(username)
     if (user === null) return []
-    return projects.effectiveGrants(user.id).map(({ path, mode }) => ({ path, mode }))
+    return (await projects.effectiveGrants(user.id)).map(({ path, mode }) => ({ path, mode }))
   },
 }))
 const deps: GatewayDeps = {
@@ -45,10 +54,11 @@ const deps: GatewayDeps = {
   projects,
   audit,
   governance,
-  instances: new InstanceManager(db, cfg, launcher),
+  instances: new InstanceManager(new PostgresInstanceRepository(context), cfg, launcher),
+  readiness: () => checkPostgresReadiness(context),
 }
 
-if (deps.users.count() === 0) {
+if (await deps.users.count() === 0) {
   const password = randomBytes(12).toString('base64url')
   await deps.users.create({ username: 'admin', password, role: 'admin' })
   console.log(`[gateway] bootstrap admin created — username: admin  password: ${password}`)
@@ -68,16 +78,48 @@ intake.listen(cfg.intakePort, '127.0.0.1', () => {
 })
 
 const reaper = setInterval(() => {
-  void deps.instances.reapIdle()
+  void Promise.resolve(deps.instances.reapIdle()).catch(error => {
+    console.error('[gateway] idle reaper failed:', error)
+  })
 }, 60_000)
 
-async function shutdown(): Promise<void> {
-  clearInterval(reaper)
-  proxyHandlers.close()
-  intake.close()
-  await deps.instances.stopAll()
-  server.close(() => process.exit(0))
-  setTimeout(() => process.exit(0), 3000).unref()
+const CONNECTION_DRAIN_MS = 3000
+const SHUTDOWN_TIMEOUT_MS = 10_000
+
+function closeListeningServer(target: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { target.closeAllConnections() }, CONNECTION_DRAIN_MS)
+    timer.unref()
+    target.close(error => {
+      clearTimeout(timer)
+      if (error === undefined) resolve()
+      else reject(error)
+    })
+  })
 }
-process.on('SIGINT', () => { void shutdown() })
-process.on('SIGTERM', () => { void shutdown() })
+
+let shuttingDown = false
+
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return
+  shuttingDown = true
+  const forced = setTimeout(() => {
+    console.error(`[gateway] forced shutdown after ${String(SHUTDOWN_TIMEOUT_MS)}ms (${signal})`)
+    process.exit(1)
+  }, SHUTDOWN_TIMEOUT_MS)
+  forced.unref()
+  clearInterval(reaper)
+  try {
+    proxyHandlers.close()
+    await Promise.all([closeListeningServer(server), closeListeningServer(intake)])
+    await deps.instances.stopAll()
+    await pool.end()
+    clearTimeout(forced)
+    process.exit(0)
+  } catch (error) {
+    console.error('[gateway] shutdown failed:', error)
+    process.exit(1)
+  }
+}
+process.once('SIGINT', () => { void shutdown('SIGINT') })
+process.once('SIGTERM', () => { void shutdown('SIGTERM') })

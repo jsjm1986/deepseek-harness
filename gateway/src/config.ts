@@ -4,12 +4,15 @@ import { join, resolve } from 'node:path'
 
 export interface GatewayConfig {
   port: number
+  /** PostgreSQL organization selected by this Gateway process. */
+  organizationSlug: string
+  /** PostgreSQL compute node whose mounts, ports, and instances this process owns. */
+  computeNodeName: string
   /** Private loopback port accepting authenticated usage outbox records. */
   intakePort: number
   /** IANA time zone used for natural-month usage accounting. */
   usageTimeZone: string
   publicOrigins: string[]
-  dataDir: string
   usersRoot: string
   dshCommand: string[]
   dshRepoRoot: string
@@ -78,10 +81,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     : env.HGW_GUARD_PATCH ?? join(dshRepoRoot, 'plugins/dsh-directory-guard/cordis.patch.yml')
   return {
     port,
+    organizationSlug: env.HGW_ORGANIZATION_SLUG ?? 'default',
+    computeNodeName: env.HGW_COMPUTE_NODE_NAME ?? 'local',
     intakePort: Number(env.HGW_INTAKE_PORT ?? port + 1),
     usageTimeZone: env.HGW_USAGE_TIME_ZONE ?? 'Asia/Shanghai',
     publicOrigins,
-    dataDir: env.HGW_DATA_DIR ?? join(gatewayRoot, 'data'),
     usersRoot: env.HGW_USERS_ROOT ?? join(homedir(), 'harness-users'),
     dshCommand,
     dshRepoRoot,

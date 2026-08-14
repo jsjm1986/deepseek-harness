@@ -55,12 +55,12 @@ describe('model governance integration', () => {
   it('writes a private policy, reuses its valid token, and reflects changed access', async () => {
     const { cfg, user, governance } = await fixture()
     governance.setUserAccess(user.id, 'p', 'm', false)
-    const path = writeModelGovernanceFile(cfg, governance, user)
+    const path = await writeModelGovernanceFile(cfg, governance, user)
     const first = JSON.parse(readFileSync(path, 'utf8')) as { intakeToken: string; models: Array<{ allowed: boolean }> }
     expect(statSync(path).mode & 0o777).toBe(0o600)
     expect(first.models[0]?.allowed).toBe(false)
     governance.setUserAccess(user.id, 'p', 'm', true)
-    writeModelGovernanceFile(cfg, governance, user)
+    await writeModelGovernanceFile(cfg, governance, user)
     const second = JSON.parse(readFileSync(path, 'utf8')) as typeof first
     expect(second.intakeToken).toBe(first.intakeToken)
     expect(second.models[0]?.allowed).toBe(true)

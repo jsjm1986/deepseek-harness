@@ -44,7 +44,7 @@ describe('InstanceManager', () => {
     const [a, b] = await Promise.all([manager.ensureRunning(alice), manager.ensureRunning(alice)])
     expect(a.port).toBe(43100)
     expect(b.port).toBe(43100)
-    expect(manager.stateOf(alice.id)).toBe('ready')
+    expect(await manager.stateOf(alice.id)).toBe('ready')
     const response = await fetch(`http://127.0.0.1:${a.port}/`)
     expect(response.status).toBe(200)
   })
@@ -52,25 +52,25 @@ describe('InstanceManager', () => {
   it('reaps idle instances but keeps active ones', async () => {
     const { db, alice, manager } = await setup({ HGW_IDLE_TIMEOUT_MS: '50' })
     await manager.ensureRunning(alice)
-    manager.wsRef(alice.id, 1)
+    await manager.wsRef(alice.id, 1)
     await new Promise(r => setTimeout(r, 120))
     expect(await manager.reapIdle()).toBe(0)
-    manager.wsRef(alice.id, -1)
+    await manager.wsRef(alice.id, -1)
     db.prepare(`UPDATE instances SET last_activity_at = ? WHERE user_id = ?`).run(Date.now() - 60_000, alice.id)
     expect(await manager.reapIdle()).toBe(1)
-    expect(manager.stateOf(alice.id)).toBe('stopped')
+    expect(await manager.stateOf(alice.id)).toBe('stopped')
   })
 
   it('treats a crashed ready child as not live and respawns through ensureRunning', async () => {
     const { alice, manager } = await setup({ HGW_INSTANCE_PORT_BASE: '43120' })
     const { port } = await manager.ensureRunning(alice)
-    expect(manager.isLive(alice.id)).toBe(true)
+    expect(await manager.isLive(alice.id)).toBe(true)
     await fetch(`http://127.0.0.1:${port}/exit`)
     await new Promise(r => setTimeout(r, 50))
-    expect(manager.stateOf(alice.id)).toBe('ready')
-    expect(manager.isLive(alice.id)).toBe(false)
+    expect(await manager.stateOf(alice.id)).toBe('ready')
+    expect(await manager.isLive(alice.id)).toBe(false)
     await manager.ensureRunning(alice)
-    expect(manager.isLive(alice.id)).toBe(true)
+    expect(await manager.isLive(alice.id)).toBe(true)
     expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200)
   })
 
@@ -123,23 +123,23 @@ describe('InstanceManager', () => {
   it('refuses to start when the configured guard patch is missing (fail loud, not unguarded)', async () => {
     const { alice, manager } = await setup({ HGW_GUARD_PATCH: '/nowhere/guard.yml', HGW_INSTANCE_PORT_BASE: '43160' })
     await expect(manager.ensureRunning(alice)).rejects.toThrow(/directory-guard patch not found/)
-    expect(manager.stateOf(alice.id)).not.toBe('ready')
+    expect(await manager.stateOf(alice.id)).not.toBe('ready')
   })
 
   it('serializes concurrent stop and ensureRunning so state and process stay consistent (no orphan)', async () => {
     const { alice, manager } = await setup()
     await manager.ensureRunning(alice)
-    const port = manager.portOf(alice.id)
+    const port = await manager.portOf(alice.id)
 
     // stop enqueued before ensureRunning: final state is ready, and it is reachable.
     await Promise.all([manager.stop(alice.id), manager.ensureRunning(alice)])
-    expect(manager.stateOf(alice.id)).toBe('ready')
+    expect(await manager.stateOf(alice.id)).toBe('ready')
     expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200)
 
     // ensureRunning enqueued before stop: final state is stopped, and NOTHING
     // is left listening (the fix's core invariant — no orphaned process).
     await Promise.all([manager.ensureRunning(alice), manager.stop(alice.id)])
-    expect(manager.stateOf(alice.id)).toBe('stopped')
+    expect(await manager.stateOf(alice.id)).toBe('stopped')
     await expect(fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(2000) })).rejects.toThrow()
   })
 })

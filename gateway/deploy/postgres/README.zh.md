@@ -1,10 +1,8 @@
-# 本机 PostgreSQL 基线
+# 本机 PostgreSQL 控制面
 
 [English](README.md) | 中文
 
-本目录运行 Gateway 第一阶段 PostgreSQL 数据面基线。它只使用一个 PostgreSQL 17 数据库：控制数据使用普通列，追加式会话事件使用 JSONB，大型本机文件继续保存为宿主机路径。不引入 MongoDB、Redis、对象存储或第二套服务层。
-
-> **存储选择：**生产 Gateway 仍然打开 `gateway.sqlite`。这些文件、迁移、Repository 与导入器是已经独立验证的迁移基线。设置生产数据库 URL 不会切换当前 Gateway 入口。
+本目录运行 Gateway PostgreSQL 控制面。它只使用一个 PostgreSQL 17 数据库：控制数据使用普通列，追加式会话事件使用 JSONB，大型本机文件继续保存为宿主机路径。不引入 MongoDB、Redis、对象存储或第二套服务层。Gateway 入口要求该数据库，且不会打开 SQLite。
 
 ## 本机启动
 
@@ -17,7 +15,13 @@ cp .env.example .env
 set -a; . ./.env; set +a
 
 docker compose up -d --wait
-export HGW_DATABASE_URL="postgresql://harness_owner:$(cat secrets/postgres_password)@127.0.0.1:${HGW_POSTGRES_PORT:-5432}/harness"
+PASSWORD="$(cat secrets/postgres_password)"
+ENCODED="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$PASSWORD")"
+mkdir -p "$HOME/.config/harness-gateway"
+printf 'postgresql://harness_owner:%s@127.0.0.1:%s/harness\n' "$ENCODED" "${HGW_POSTGRES_PORT:-5432}" \
+  > "$HOME/.config/harness-gateway/database-url"
+chmod 600 "$HOME/.config/harness-gateway/database-url"
+export HGW_DATABASE_URL_FILE="$HOME/.config/harness-gateway/database-url"
 cd ../..
 npm run pg:migrate
 npm run pg:check
@@ -29,7 +33,7 @@ npm run pg:check
 
 ## Schema 与会话数据
 
-`migrations/001_initial.sql` 创建单一 `harness` schema，包含身份、项目、实例、模型治理、用量、审计与会话表。复合外键禁止企业范围内的记录引用其他企业。会话 envelope 把可查询字段（`session_id`、`seq`、事件类型和时间）放在普通列中，完整的结构化 Harness 事件存入 `conversation_events.event JSONB`。连续 chunk 继续由现有 Harness 持久化路径打包，不会把每个 token 写成一行 SQL。
+`migrations/001_initial.sql` 创建单一 `harness` schema，包含身份、项目、实例、模型治理、用量、审计与会话表。`002_gateway_public_ids.sql` 保留导入的 SQLite 用户/项目数字，并在 UUID 继续只供内部使用时分配数字公共 ID。复合外键禁止企业范围内的记录引用其他企业。会话 envelope 把可查询字段（`session_id`、`seq`、事件类型和时间）放在普通列中，完整的结构化 Harness 事件存入 `conversation_events.event JSONB`。连续 chunk 继续由现有 Harness 持久化路径打包，不会把每个 token 写成一行 SQL。
 
 图片、归档、生成文件和超大工具输出继续留在本机文件系统。`content_files` 记录归属、本机路径、SHA-256、字节数和媒体类型。第一阶段明确不迁移现有 JSONL 会话日志；SQLite 导入器只迁移 Gateway 控制面。
 
@@ -49,6 +53,14 @@ npm run pg:check
 ```
 
 导入器在一个事务内运行，并可对同一企业重复执行。它保留密码哈希、用户、项目、挂载、停止状态的实例分配、模型策略、价格、额度、用量、告警与审计记录。登录会话、锁定尝试和 intake token 明确不迁移；用户需要重新登录，实例 token 会重新签发。现有 JSONL/Zstd 对话在远程持久化阶段到来前继续留在原会话目录。
+
+## Gateway 运行时与切换
+
+运行中的进程需要 `HGW_DATABASE_URL_FILE`、`HGW_ORGANIZATION_SLUG` 和 `HGW_COMPUTE_NODE_NAME`。企业和节点必须已经存在并保持活跃。启动会在绑定 HTTP 端口前应用待执行 migration；PostgreSQL 或任一所选记录不可用时，`/healthz` 返回 `503`。
+
+从 SQLite 生产库迁移时，先停止 Gateway，创建最终 SQLite 在线备份，对该冻结文件运行导入器，再创建 PostgreSQL dump 并完成恢复校验。只有这些命令成功后才能启动新 Gateway。验证重新登录、`/admin` 资源与 API、用户/项目/模型/用量/审计视图、实例代理和私有 intake 端口，并确认冻结 SQLite 文件的修改时间不再前进。
+
+回滚时停止 PostgreSQL Gateway，恢复切换前仍使用 SQLite 的 Gateway 产物，再把冻结的独立 SQLite 备份恢复到其配置数据路径，之后才启动旧产物。绝不能让两份产物同时承接用户流量，也不能把 PostgreSQL 写入反向导入 SQLite。再次尝试切换前，应单独调查或保留 PostgreSQL 数据库。
 
 ## 备份与恢复检查
 
@@ -71,4 +83,4 @@ HGW_TEST_SQLITE_FILE=/tmp/gateway-before-postgres.sqlite \
   npm run test:postgres
 ```
 
-测试会删除所提供测试数据库中的 `harness` schema，绝不能指向生产库。覆盖内容包括不可变 migration checksum、未知 migration ledger 拒绝、企业隔离、任意字符串 Session ID、JSONB 往返、连续序号约束、并发批次幂等、嵌套工具结果搜索，以及覆盖当前所有控制面领域的可重复 SQLite 导入。
+测试会删除所提供测试数据库中的 `harness` schema，绝不能指向生产库。覆盖内容包括不可变 migration checksum、未知 migration ledger 拒绝、企业隔离、任意字符串 Session ID、JSONB 往返、连续序号约束、并发批次幂等、嵌套工具结果搜索、可重复 SQLite 导入，以及在线认证、用户、项目、节点实例、审计、模型治理、额度与用量服务。

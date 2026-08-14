@@ -40,11 +40,15 @@ describe('loadConfig', () => {
   it('honors HGW_ environment overrides', () => {
     const cfg = loadConfig({
       HGW_PORT: '9001',
+      HGW_ORGANIZATION_SLUG: 'internal',
+      HGW_COMPUTE_NODE_NAME: 'mac-mini',
       HGW_PUBLIC_ORIGINS: 'https://harness.maycran.com,http://127.0.0.1:9001',
       HGW_USERS_ROOT: '/srv/harness/users',
       HGW_IDLE_TIMEOUT_MS: '60000',
     })
     expect(cfg.port).toBe(9001)
+    expect(cfg.organizationSlug).toBe('internal')
+    expect(cfg.computeNodeName).toBe('mac-mini')
     expect(cfg.publicOrigins).toEqual(['https://harness.maycran.com', 'http://127.0.0.1:9001'])
     expect(cfg.usersRoot).toBe('/srv/harness/users')
     expect(cfg.idleTimeoutMs).toBe(60000)

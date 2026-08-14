@@ -51,12 +51,12 @@ describe('applyGrantsToUser', () => {
     const { deps, alice, admin, root } = await setup()
     await deps.instances.ensureRunning(alice)
     expect(await applyGrantsToUser(deps, alice.id, admin.id)).toBe('restarted')
-    expect(deps.instances.isLive(alice.id)).toBe(true)
+    expect(await deps.instances.isLive(alice.id)).toBe(true)
     const body = JSON.parse(readFileSync(join(root, 'users', 'alice', 'dsh', 'directory-grants.json'), 'utf8'))
     expect(body[0]).toMatchObject({ label: '主目录', mode: 'rw' })
     await deps.instances.stop(alice.id)
     expect(await applyGrantsToUser(deps, alice.id, admin.id)).toBe('written')
-    await expect(fetch(`http://127.0.0.1:${deps.instances.portOf(alice.id)}/`)).rejects.toThrow()
+    await expect(fetch(`http://127.0.0.1:${await deps.instances.portOf(alice.id)}/`)).rejects.toThrow()
   })
 
   it('audits and throws when a live restart fails', async () => {

@@ -15,7 +15,9 @@ Type=simple
 WorkingDirectory=/srv/harness/gateway
 Environment=HGW_PORT=8899
 Environment=HGW_PUBLIC_ORIGINS=https://harness.example.com
-Environment=HGW_DATA_DIR=/srv/harness/gateway-data
+Environment=HGW_DATABASE_URL_FILE=/srv/harness/gateway-data/database-url
+Environment=HGW_ORGANIZATION_SLUG=default
+Environment=HGW_COMPUTE_NODE_NAME=local
 Environment=HGW_USERS_ROOT=/srv/harness/users
 Environment=HGW_LAUNCHER=systemd
 # Pinned npm dsh (never the source tree): install with

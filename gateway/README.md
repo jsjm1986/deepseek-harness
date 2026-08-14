@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The public-facing portal gateway for DeepSeek Harness: login/session handling, user/project/directory grants (SQLite), HTTP+WS reverse proxy (rewriting Host/Origin to the instance loopback address), per-user dsh instance lifecycle, the `/admin` SPA plus `/admin/api` JSON, and auditing. Design and staged plan: [design doc](../.agents/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md), [Phase 1 plan](../.agents/superpowers/plans/2026-08-14-gateway-phase1.md), [project-centric admin](../.agents/superpowers/specs/2026-08-14-project-centric-admin-design.md).
+The public-facing portal gateway for DeepSeek Harness: PostgreSQL-backed login/session handling, user/project/directory grants, HTTP+WS reverse proxy (rewriting Host/Origin to the instance loopback address), per-user dsh instance lifecycle, the `/admin` SPA plus `/admin/api` JSON, model governance, usage accounting, and auditing. Design and staged plan: [design doc](../.agents/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md), [Phase 1 plan](../.agents/superpowers/plans/2026-08-14-gateway-phase1.md), [project-centric admin](../.agents/superpowers/specs/2026-08-14-project-centric-admin-design.md).
 
 ## Toolchain
 
@@ -14,10 +14,13 @@ The public-facing portal gateway for DeepSeek Harness: login/session handling, u
 | Variable | Default | Meaning |
 |---|---|---|
 | `HGW_PORT` | 8899 | Gateway listen port |
+| `HGW_DATABASE_URL` | (required unless file is set) | PostgreSQL connection URL; prefer the file form in production |
+| `HGW_DATABASE_URL_FILE` | (required unless URL is set) | Mode-`0600` file containing the PostgreSQL connection URL |
+| `HGW_ORGANIZATION_SLUG` | `default` | Existing active PostgreSQL organization selected by this process |
+| `HGW_COMPUTE_NODE_NAME` | `local` | Existing active compute node owning mounts, ports, and instance state |
 | `HGW_INTAKE_PORT` | `HGW_PORT + 1` | Loopback-only, bearer-authenticated usage intake port |
 | `HGW_USAGE_TIME_ZONE` | `Asia/Shanghai` | IANA time zone defining natural-month usage boundaries |
 | `HGW_PUBLIC_ORIGINS` | `http://127.0.0.1:8899` | Comma-separated public Origin allowlist (CSRF check; https marks cookies Secure) |
-| `HGW_DATA_DIR` | `gateway/data` | SQLite and runtime data directory |
 | `HGW_USERS_ROOT` | `~/harness-users` | Users root (production `/srv/harness/users`) |
 | `HGW_DSH_COMMAND` | source entry `apps/cli/src/bin.ts web --port {port}` | Instance launch command; production points at the pinned npm `dsh` bin |
 | `HGW_DSH_REPO_ROOT` | repo root | Resolves the source-run entry |
@@ -42,11 +45,11 @@ Production install, cutover, and acceptance live in [deploy/README.md](deploy/RE
 
 The admin SPA has **Models** and **Usage** pages. Models are identified by exact `(provider, model)` routes. A global enabled flag, role defaults (`admin` / `user`), and per-user `allow` / `deny` / `inherit` exceptions determine the effective policy. A policy change atomically rewrites `$DSH_HOME/model-governance.json` (mode `0600`) and restarts only an already-running affected instance. The instance plugin provides `ctx.modelAccess`; `apiproxy` filters catalogs and rejects selection/prompt RPCs, while the `llm/stream` middleware is the final adapter-dispatch enforcement point for chat, title, compaction, and direct calls.
 
-## PostgreSQL migration baseline
+## PostgreSQL control plane
 
-A runnable PostgreSQL 17 baseline lives in [`deploy/postgres/`](deploy/postgres/README.md). It uses typed relational control tables plus JSONB conversation events and keeps oversized content on the local filesystem. Production still uses SQLite until the asynchronous repository migration and a separately approved cutover are complete.
+A pinned PostgreSQL 17 deployment lives in [`deploy/postgres/`](deploy/postgres/README.md). The Gateway entry point applies its immutable migrations and refuses to listen unless the configured active organization and compute node resolve. Authentication, users, projects, node-local instances, audit, model governance, quotas, and usage are PostgreSQL-backed. Internal UUIDs preserve organization foreign keys while numeric public IDs keep the existing HTTP API stable. SQLite remains only as the accepted source of a stopped-writes final import and rollback backup; the running Gateway never opens it.
 
-Every call produces one UUID-keyed usage record in a crash-safe per-instance outbox. The loopback intake deduplicates UUIDs in SQLite, applies the price version effective at the call timestamp, and attributes company cost from a non-secret credential source label (`file`/`project-env`/`request` are personal; launch environment sources are company; unknown remains company-conservative). No API key, prompt, or response content enters the ledger. Natural months use `HGW_USAGE_TIME_ZONE`; token and company-cost quotas support role defaults and per-user inherit/unlimited/custom overrides. Quotas warn at 80% and 100% but do not block calls. Users see durable crossings in the Web shell; admins see per-user monthly summaries, missing-usage counts, estimated cost, and company cost.
+Every call produces one UUID-keyed usage record in a crash-safe per-instance outbox. The loopback intake deduplicates UUIDs in PostgreSQL, applies the price version effective at the call timestamp, and attributes company cost from a non-secret credential source label (`file`/`project-env`/`request` are personal; launch environment sources are company; unknown remains company-conservative). No API key, prompt, or response content enters the ledger. Natural months use `HGW_USAGE_TIME_ZONE`; token and company-cost quotas support role defaults and per-user inherit/unlimited/custom overrides. Quotas warn at 80% and 100% but do not block calls. Users see durable crossings in the Web shell; admins see per-user monthly summaries, missing-usage counts, estimated cost, and company cost.
 
 ## Layered directory enforcement
 

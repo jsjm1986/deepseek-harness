@@ -12,7 +12,7 @@ Gateway SQLite schema 把身份、项目、实例状态、治理、用量和审�
 
 第一阶段迁移基线只使用一个钉死版本的 PostgreSQL 17 数据库。关系控制数据使用类型化列、保证企业归属一致的复合外键，以及企业范围内的幂等键；完整的结构化 Harness 会话事件存入 JSONB，同时保留固定的顺序和查询列。大型二进制文件、附件、生成物和超大工具输出继续放在本机文件系统中，PostgreSQL 记录其元数据与校验和。
 
-该基线与在线 Gateway 的存储选择独立交付。生产继续使用 `gateway.sqlite`，直到异步 Repository 替换各同步服务并完成另行批准的切换演练。本阶段不导入现有 JSONL/Zstd 会话日志。现有 [SessionPersistence 决策](2026-06-14-session-persistence.md) 继续拥有在线会话语义；本 Gateway Repository 是迁移目标，不是第二条在线持久化路径。范围更广的 [storage domain 提案](../../proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md) 仍是独立的未来工作；本基线不实现其中的 log facet。
+该基线与在线 Gateway 的存储选择独立交付。后续的 [PostgreSQL Gateway 运行时切换](2026-08-14-postgresql-gateway-runtime-cutover.md) 负责异步服务和生产数据库选择。本阶段不导入现有 JSONL/Zstd 会话日志。现有 [SessionPersistence 决策](2026-06-14-session-persistence.md) 继续拥有在线会话语义；本 Gateway Repository 是迁移目标，不是第二条在线持久化路径。范围更广的 [storage domain 提案](../../proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md) 仍是独立的未来工作；本基线不实现其中的 log facet。
 
 SQL migration 是不可变编号文件。Migration ledger 保存 SHA-256 checksum，并用 PostgreSQL advisory lock 保证同一时间只有一个迁移者。本机 Docker 部署同时钉死 PostgreSQL tag 和镜像 digest，只绑定回环地址，使用 named volume，并从 Compose secret 文件读取密码。
 

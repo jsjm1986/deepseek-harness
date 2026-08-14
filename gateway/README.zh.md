@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness 公网化门户网关：登录/会话、用户/项目/目录授权（SQLite）、HTTP+WS 反向代理（把 Host/Origin 改写为实例回环地址）、每用户 dsh 实例生命周期、`/admin` SPA 与 `/admin/api` JSON、审计。设计与阶段计划见[设计文档](../.agents/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md)、[Phase 1 计划](../.agents/superpowers/plans/2026-08-14-gateway-phase1.md)与[项目制管理端](../.agents/superpowers/specs/2026-08-14-project-centric-admin-design.md)。
+DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用户/项目/目录授权、HTTP+WS 反向代理（把 Host/Origin 改写为实例回环地址）、每用户 dsh 实例生命周期、`/admin` SPA 与 `/admin/api` JSON、模型治理、用量核算与审计。设计与阶段计划见[设计文档](../.agents/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md)、[Phase 1 计划](../.agents/superpowers/plans/2026-08-14-gateway-phase1.md)与[项目制管理端](../.agents/superpowers/specs/2026-08-14-project-centric-admin-design.md)。
 
 ## 工具链
 
@@ -14,10 +14,13 @@ DeepSeek Harness 公网化门户网关：登录/会话、用户/项目/目录授
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `HGW_PORT` | 8899 | 网关监听端口 |
+| `HGW_DATABASE_URL` | （未设置文件时必需） | PostgreSQL 连接 URL；生产优先使用文件形式 |
+| `HGW_DATABASE_URL_FILE` | （未设置 URL 时必需） | 包含 PostgreSQL 连接 URL 的 `0600` 权限文件 |
+| `HGW_ORGANIZATION_SLUG` | `default` | 本进程选择的现有活跃 PostgreSQL 企业 |
+| `HGW_COMPUTE_NODE_NAME` | `local` | 拥有挂载、端口和实例状态的现有活跃计算节点 |
 | `HGW_INTAKE_PORT` | `HGW_PORT + 1` | 仅回环监听、Bearer 鉴权的用量 intake 端口 |
 | `HGW_USAGE_TIME_ZONE` | `Asia/Shanghai` | 定义自然月边界的 IANA 时区 |
 | `HGW_PUBLIC_ORIGINS` | `http://127.0.0.1:8899` | 逗号分隔的公网 Origin 白名单（CSRF 校验；https 时 Cookie 标记 Secure） |
-| `HGW_DATA_DIR` | `gateway/data` | SQLite 与运行数据目录 |
 | `HGW_USERS_ROOT` | `~/harness-users` | 用户目录根（生产 `/srv/harness/users`） |
 | `HGW_DSH_COMMAND` | 源码入口 `apps/cli/src/bin.ts web --port {port}` | 实例启动命令；生产指向钉死版本的 npm `dsh` bin |
 | `HGW_DSH_REPO_ROOT` | 仓库根 | 解析源码运行入口 |
@@ -42,11 +45,11 @@ DeepSeek Harness 公网化门户网关：登录/会话、用户/项目/目录授
 
 管理 SPA 提供“模型”和“用量”页面。模型以精确 `(provider, model)` 路由标识；全局启用开关、角色默认（`admin` / `user`）和按用户 `允许` / `拒绝` / `继承` 例外共同决定有效策略。策略变化会原子重写 `$DSH_HOME/model-governance.json`（权限 `0600`），且只重启已经运行的受影响实例。实例插件提供 `ctx.modelAccess`；`apiproxy` 过滤目录并拒绝选择/发送 RPC，而 `llm/stream` 中间件是聊天、标题、压缩和直接调用进入适配器前的最终强制点。
 
-## PostgreSQL 迁移基线
+## PostgreSQL 控制面
 
-可运行的 PostgreSQL 17 基线位于 [`deploy/postgres/`](deploy/postgres/README.md)。它使用类型化关系控制表与 JSONB 会话事件，超大内容继续留在本机文件系统。生产仍使用 SQLite，直到异步 Repository 迁移完成并另行批准切换。
+钉死版本的 PostgreSQL 17 部署位于 [`deploy/postgres/`](deploy/postgres/README.md)。Gateway 入口会应用其不可变 migration，并在配置的活跃企业与计算节点无法解析时拒绝监听。认证、用户、项目、节点本地实例、审计、模型治理、额度与用量都由 PostgreSQL 支撑。内部 UUID 保留企业外键，数字公共 ID 保持现有 HTTP API 稳定。SQLite 只保留为停止写入后的最终导入源和回滚备份；运行中的 Gateway 不会打开它。
 
-每次调用都会先以 UUID 写入实例本地的崩溃安全 outbox。仅回环的 intake 在 SQLite 中按 UUID 去重，按调用时间选择生效价格版本，并根据非秘密凭据来源标签归属公司成本（`file`/`project-env`/`request` 为个人，启动环境来源为公司，未知来源按公司成本保守计入）。账本不写 API Key、提示词或回复内容。自然月使用 `HGW_USAGE_TIME_ZONE`；Token 与公司成本额度支持角色默认以及按用户继承/不限/自定义。额度只在 80% 和 100% 提醒，不阻断调用。用户在 Web shell 看到持久阈值提醒；管理员看到按用户自然月汇总、缺失计量次数、估算成本和公司成本。
+每次调用都会先以 UUID 写入实例本地的崩溃安全 outbox。仅回环的 intake 在 PostgreSQL 中按 UUID 去重，按调用时间选择生效价格版本，并根据非秘密凭据来源标签归属公司成本（`file`/`project-env`/`request` 为个人，启动环境来源为公司，未知来源按公司成本保守计入）。账本不写 API Key、提示词或回复内容。自然月使用 `HGW_USAGE_TIME_ZONE`；Token 与公司成本额度支持角色默认以及按用户继承/不限/自定义。额度只在 80% 和 100% 提醒，不阻断调用。用户在 Web shell 看到持久阈值提醒；管理员看到按用户自然月汇总、缺失计量次数、估算成本和公司成本。
 
 ## 目录强制的分层
 
