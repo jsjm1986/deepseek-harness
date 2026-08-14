@@ -83,7 +83,7 @@ export type DirectoryPickingInjected = {
    * Native Hosts that inject this and then reject with
    * `directory-picker-unavailable` also skip the check.
    */
-  listDirectory?: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
+  listDirectory?: ((path?: string, signal?: AbortSignal) => Promise<DirectoryListing>) | undefined
 }
 
 /** Component-side view of the picking share: the bound occupancy selector hook. */

@@ -62,7 +62,7 @@ export interface WorkspacePickFlowProps {
    * roots. Omitted inject, or `directory-picker-unavailable` from a native
    * Host, skips the check so standalone dsh web still opens existing workspaces.
    */
-  listDirectory?: (path?: string, signal?: AbortSignal) => Promise<DirectoryListing>
+  listDirectory?: ((path?: string, signal?: AbortSignal) => Promise<DirectoryListing>) | undefined
 }
 
 /**
