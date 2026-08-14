@@ -6,11 +6,12 @@
 }
 
 .editor {
-  margin-top: 24px;
+  margin-top: var(--dsw-space-6);
 }
 
-@media (max-width: 560px) {
+/* Compact-viewport tightening (below the 768 medium boundary, docs/web-styling.md). */
+@media (max-width: 767px) {
   .editor {
-    margin-top: 20px;
+    margin-top: var(--dsw-space-5);
   }
 }

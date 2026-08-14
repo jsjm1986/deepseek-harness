@@ -7,7 +7,7 @@
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 48px);
-  padding: 28px;
+  padding: var(--dsw-space-7);
   box-sizing: border-box;
   overflow-y: auto;
 }
@@ -22,11 +22,12 @@
 }
 
 .body {
-  margin-top: 20px;
+  margin-top: var(--dsw-space-5);
 }
 
-@media (max-width: 560px) {
+/* Compact-viewport tightening (below the 768 medium boundary, docs/web-styling.md). */
+@media (max-width: 767px) {
   .content {
-    padding: 24px;
+    padding: var(--dsw-space-6);
   }
 }
