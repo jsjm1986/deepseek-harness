@@ -320,6 +320,48 @@ describe('CollaborationClient', () => {
     expect(loadConversation).toHaveBeenCalledTimes(2)
   })
 
+  it('matches only settled authoritative conversation visibility', async () => {
+    const loadConversation = vi.fn()
+      .mockResolvedValueOnce(detail)
+      .mockRejectedValueOnce(new Error('stale refresh failed'))
+      .mockRejectedValueOnce(new Error('offline'))
+    const client = new CollaborationClient(transport({ loadConversation }))
+    await client.load()
+
+    await expect(client.matchesConversationVisibility('matching', 'project')).resolves.toBe(true)
+    await expect(client.matchesConversationVisibility('matching', 'private')).resolves.toBe(false)
+    await expect(client.matchesConversationVisibility('failed', 'project')).resolves.toBe(false)
+  })
+
+  it('rejects visibility reuse while saving or after disposal', async () => {
+    const visibilityPending = deferred<undefined>()
+    const loadConversation = vi.fn().mockResolvedValue(detail)
+    const client = new CollaborationClient(transport({
+      loadConversation,
+      setVisibility: vi.fn().mockReturnValue(visibilityPending.promise),
+    }))
+    await client.load()
+    await client.loadConversation('saving')
+    const save = client.setVisibility('saving', 'private')
+    await expect(client.matchesConversationVisibility('saving', 'project')).resolves.toBe(false)
+    visibilityPending.resolve(undefined)
+    await save
+    await vi.waitFor(() => { expect(loadConversation).toHaveBeenCalledTimes(2) })
+
+    client.dispose()
+    await expect(client.matchesConversationVisibility('saving', 'private')).resolves.toBe(false)
+
+    const detailPending = deferred<ConversationDetail>()
+    const racing = new CollaborationClient(transport({
+      loadConversation: vi.fn().mockReturnValue(detailPending.promise),
+    }))
+    await racing.load()
+    const match = racing.matchesConversationVisibility('racing', 'project')
+    racing.dispose()
+    detailPending.resolve(detail)
+    await expect(match).resolves.toBe(false)
+  })
+
   it('updates visibility, including null conversation metadata and Gateway lock failures', async () => {
     const setVisibility = vi.fn()
       .mockResolvedValueOnce(undefined)

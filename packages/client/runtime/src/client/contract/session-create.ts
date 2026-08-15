@@ -8,3 +8,9 @@ export interface SessionCreateOptions {
   /** Project-conversation visibility supplied by an optional collaboration plugin. */
   readonly visibility?: 'project' | 'private'
 }
+
+/** One existing blank session offered against fully prepared root-create options. */
+export interface SessionBlankReuseRequest {
+  readonly sessionId: SessionId
+  readonly options: SessionCreateOptions
+}

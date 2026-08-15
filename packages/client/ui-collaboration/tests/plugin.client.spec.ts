@@ -15,6 +15,30 @@ const baseContext: CollaborationContext = {
   projects: [{ projectId: 9, name: '支付重构', path: '/srv/pay', mode: 'rw' }],
 }
 
+function conversationDetail(sessionId: string, visibility: 'project' | 'private') {
+  return {
+    access: {
+      sessionId,
+      rootSessionId: sessionId,
+      projectId: 9,
+      visibility,
+      creatorUserId: 7,
+      mode: 'rw',
+      canRead: true,
+      canWrite: true,
+      canManage: true,
+    },
+    conversation: {
+      sessionId,
+      creatorUserId: 7,
+      creatorDisplayName: '林工',
+      visibility,
+      participants: [],
+      updatedAt: 1,
+    },
+  }
+}
+
 async function bench(context: CollaborationContext) {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -29,7 +53,19 @@ async function bench(context: CollaborationContext) {
     },
   } as never, () => null)
   const originalFetch = globalThis.fetch
-  const fetcher = vi.fn().mockImplementation(() => Promise.resolve(Response.json(context)))
+  const fetcher = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+    const path = typeof input === 'string'
+      ? input
+      : input instanceof URL ? input.href : input.url
+    if (path === '/account/api/context') return Promise.resolve(Response.json(context))
+    const match = /^\/account\/api\/conversations\/(.+)$/.exec(path)
+    if (match !== null) {
+      const sessionId = decodeURIComponent(match[1]!)
+      const visibility = sessionId === 'private-blank' ? 'private' : 'project'
+      return Promise.resolve(Response.json(conversationDetail(sessionId, visibility)))
+    }
+    return Promise.resolve(new Response(null, { status: 204 }))
+  })
   globalThis.fetch = fetcher
   const fiber = ctx.plugin({ inject: [...inject], apply })
   try {
@@ -72,7 +108,29 @@ describe('ui-collaboration apply', () => {
       )
       expect(prepared).toEqual({ workspaceId: 'ws', visibility: 'private' })
 
+      await expect(b.ctx.waterfall(
+        'sessions/confirm-blank-reuse',
+        { sessionId: 'private-blank' as SessionId, options: prepared },
+        () => Promise.resolve(true),
+      )).resolves.toBe(true)
+      await expect(b.ctx.waterfall(
+        'sessions/confirm-blank-reuse',
+        { sessionId: 'project-blank' as SessionId, options: prepared },
+        () => Promise.resolve(true),
+      )).resolves.toBe(false)
+      await expect(b.ctx.waterfall(
+        'sessions/confirm-blank-reuse',
+        { sessionId: 'private-blank' as SessionId, options: prepared },
+        () => Promise.resolve(false),
+      )).resolves.toBe(false)
+      await expect(b.ctx.waterfall(
+        'sessions/confirm-blank-reuse',
+        { sessionId: 'private-blank' as SessionId, options: {} },
+        () => Promise.resolve(true),
+      )).resolves.toBe(false)
+
       await share.load()
+      await share.refresh()
       expect(b.fetcher).toHaveBeenCalledWith('/account/api/conversations/child', expect.objectContaining({
         credentials: 'same-origin',
       }))
@@ -123,6 +181,11 @@ describe('ui-collaboration apply', () => {
         () => Promise.resolve({ visibility: 'private' } as SessionCreateOptions),
       )
       expect(prepared).toEqual({ visibility: 'private' })
+      await expect(b.ctx.waterfall(
+        'sessions/confirm-blank-reuse',
+        { sessionId: 'personal-blank' as SessionId, options: prepared },
+        () => Promise.resolve(true),
+      )).resolves.toBe(true)
       b.ctx.emit('connection/reset')
       await vi.waitFor(() => { expect(b.fetcher).toHaveBeenCalledTimes(2) })
       await b.fiber.dispose()

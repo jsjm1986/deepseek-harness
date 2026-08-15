@@ -75,6 +75,16 @@ export function apply(ctx: ClientContext): void {
     return { ...prepared, visibility: snapshot.stagedVisibility }
   })
 
+  ctx.on('sessions/confirm-blank-reuse', async (request, next): Promise<boolean> => {
+    const reusable = await next()
+    if (!reusable) return false
+    const snapshot = collaboration.getSnapshot()
+    if (snapshot.status !== 'ready' || snapshot.context?.scope.kind !== 'project') return true
+    const expected = request.options.visibility
+    if (expected === undefined) return false
+    return collaboration.matchesConversationVisibility(request.sessionId, expected)
+  })
+
   const hooks = { collaboration }
   const scopeInjected = (): ScopeControlInjected => ({
     hooks,

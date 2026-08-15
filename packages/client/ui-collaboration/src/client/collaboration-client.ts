@@ -427,7 +427,7 @@ export class CollaborationClient {
     }
     if (existing?.status === 'ready' && !force) return Promise.resolve()
     if (existing?.status === 'ready' && existing.saving) {
-      if (force) this.conversationRefreshPending.add(sessionId)
+      this.conversationRefreshPending.add(sessionId)
       return Promise.resolve()
     }
 
@@ -436,6 +436,25 @@ export class CollaborationClient {
       .finally(() => { this.conversationLoads.delete(sessionId) })
     this.conversationLoads.set(sessionId, operation)
     return operation
+  }
+
+  /**
+   * Revalidate one blank root conversation and compare its authoritative
+   * visibility with a prepared Client create request.
+   * @param sessionId - reusable blank-session candidate.
+   * @param expected - visibility requested for the next root conversation.
+   * @returns true only for a settled, matching Gateway response.
+   */
+  async matchesConversationVisibility(
+    sessionId: string,
+    expected: CollaborationVisibility,
+  ): Promise<boolean> {
+    if (this.disposed) return false
+    await this.loadConversation(sessionId, { force: true })
+    if (this.abortController.signal.aborted) return false
+    const state = this.getSnapshot().conversations[sessionId]
+    return state?.status === 'ready' && !state.saving
+      && state.detail.access.visibility === expected
   }
 
   private async runConversationLoads(sessionId: string, projectId: number, force: boolean): Promise<void> {

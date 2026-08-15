@@ -4,7 +4,8 @@ import {
   type CollaborationAction,
   type ConversationAccess,
   type ConversationCollaborationView,
-  type ProjectMembershipView,
+  type ProjectAuthorityView,
+  type ProjectScopeView,
 } from '../collaboration.ts'
 import type { PostgresRuntimeContext } from './runtime-context.ts'
 import { publicNumber } from './runtime-context.ts'
@@ -20,42 +21,57 @@ interface AccessRow {
   creator_user_id: string
   creator_public_id: string
   access_mode: 'ro' | 'rw' | null
+  administrator: boolean
 }
 
-interface LockedMembership {
+interface LockedAuthority {
   userId: string
   accessMode: 'ro' | 'rw'
+  administrator: boolean
 }
 
 /** PostgreSQL authority for project membership and shared-conversation access. */
 export class PostgresCollaborationService {
   constructor(private readonly context: PostgresRuntimeContext) {}
 
-  async projectsForUser(userId: number): Promise<ProjectMembershipView[]> {
+  private async projectAuthorities(userId: number): Promise<ProjectAuthorityView[]> {
     const result = await this.context.pool.query<{
       public_id: string
       name: string
       path: string
       access_mode: 'ro' | 'rw'
-    }>(`SELECT p.public_id::text,p.name::text,pm.local_path path,m.access_mode
-      FROM harness.project_members m
-      JOIN harness.users u ON u.id=m.user_id AND u.organization_id=m.organization_id
-      JOIN harness.projects p ON p.id=m.project_id AND p.organization_id=m.organization_id
+      administrator: boolean
+    }>(`SELECT p.public_id::text,p.name::text,pm.local_path path,
+      CASE WHEN membership.role='admin' THEN 'rw'::text
+        WHEN membership.role='member' THEN member.access_mode ELSE NULL END access_mode,
+      membership.role='admin' administrator
+      FROM harness.users actor
+      JOIN harness.memberships membership ON membership.organization_id=actor.organization_id
+        AND membership.user_id=actor.id AND membership.status='active'
+      JOIN harness.projects p ON p.organization_id=actor.organization_id
       JOIN harness.project_mounts pm ON pm.project_id=p.id AND pm.organization_id=p.organization_id
         AND pm.node_id=$3 AND pm.status='active'
-      WHERE m.organization_id=$1 AND u.public_id=$2 AND u.status='active'
-        AND p.status='active' ORDER BY p.name,p.public_id`,
+      LEFT JOIN harness.project_members member ON member.organization_id=p.organization_id
+        AND member.project_id=p.id AND member.user_id=actor.id
+      WHERE actor.organization_id=$1 AND actor.public_id=$2 AND actor.status='active'
+        AND p.status='active' AND (membership.role='admin' OR member.user_id IS NOT NULL)
+      ORDER BY p.name,p.public_id`,
     [this.context.organizationId, userId, this.context.nodeId])
     return result.rows.map(row => ({
       projectId: publicNumber(row.public_id, 'project'),
       name: row.name,
       path: row.path,
       mode: row.access_mode,
+      administrator: row.administrator,
     }))
   }
 
-  async projectForUser(projectId: number, userId: number): Promise<ProjectMembershipView | null> {
-    return (await this.projectsForUser(userId)).find(project => project.projectId === projectId) ?? null
+  async projectsForUser(userId: number): Promise<ProjectScopeView[]> {
+    return (await this.projectAuthorities(userId)).map(({ administrator: _, ...project }) => project)
+  }
+
+  async projectForUser(projectId: number, userId: number): Promise<ProjectAuthorityView | null> {
+    return (await this.projectAuthorities(userId)).find(project => project.projectId === projectId) ?? null
   }
 
   async internalProject(projectId: number): Promise<{
@@ -87,15 +103,20 @@ export class PostgresCollaborationService {
   private async accessRow(queryable: PoolClient | PostgresRuntimeContext['pool'], userId: number, sessionId: string): Promise<AccessRow | null> {
     const result = await queryable.query<AccessRow>(`SELECT c.id session_id,r.id root_session_id,
       p.id project_id,p.public_id::text project_public_id,r.visibility,r.creator_user_id,
-      u.public_id::text creator_public_id,m.access_mode
+      creator.public_id::text creator_public_id,
+      CASE WHEN membership.role='admin' THEN 'rw'::text
+        WHEN membership.role='member' THEN member.access_mode ELSE NULL END access_mode,
+      COALESCE(membership.role='admin',false) administrator
       FROM harness.conversation_sessions c
       JOIN harness.conversation_sessions r ON r.id=c.root_session_id AND r.organization_id=c.organization_id
       JOIN harness.projects p ON p.id=r.project_id AND p.organization_id=r.organization_id AND p.status='active'
-      JOIN harness.users u ON u.id=r.creator_user_id AND u.organization_id=r.organization_id
+      JOIN harness.users creator ON creator.id=r.creator_user_id AND creator.organization_id=r.organization_id
       LEFT JOIN harness.users actor ON actor.organization_id=r.organization_id AND actor.public_id=$2
         AND actor.status='active'
-      LEFT JOIN harness.project_members m ON m.organization_id=r.organization_id AND m.project_id=r.project_id
-        AND m.user_id=actor.id
+      LEFT JOIN harness.memberships membership ON membership.organization_id=r.organization_id
+        AND membership.user_id=actor.id AND membership.status='active'
+      LEFT JOIN harness.project_members member ON member.organization_id=r.organization_id
+        AND member.project_id=r.project_id AND member.user_id=actor.id
       WHERE c.organization_id=$1 AND c.id=$3 AND c.status<>'deleted' AND r.status<>'deleted'`,
     [this.context.organizationId, userId, sessionId])
     return result.rows[0] ?? null
@@ -106,11 +127,11 @@ export class PostgresCollaborationService {
     userId: number,
     sessionId: string,
     rootLock: 'share' | 'update',
-  ): Promise<{ access: AccessRow; membership: LockedMembership | null } | null> {
+  ): Promise<{ access: AccessRow; authority: LockedAuthority | null } | null> {
     const lock = rootLock === 'update' ? 'FOR UPDATE OF r' : 'FOR SHARE OF r'
     const result = await client.query<AccessRow>(`SELECT c.id session_id,r.id root_session_id,
       p.id project_id,p.public_id::text project_public_id,r.visibility,r.creator_user_id,
-      creator.public_id::text creator_public_id,NULL::text access_mode
+      creator.public_id::text creator_public_id,NULL::text access_mode,false administrator
       FROM harness.conversation_sessions c
       JOIN harness.conversation_sessions r ON r.id=c.root_session_id AND r.organization_id=c.organization_id
       JOIN harness.projects p ON p.id=r.project_id AND p.organization_id=r.organization_id AND p.status='active'
@@ -119,17 +140,34 @@ export class PostgresCollaborationService {
       ${lock}`, [this.context.organizationId, sessionId])
     const access = result.rows[0]
     if (access === undefined) return null
-    const membership = await client.query<{ user_id: string; access_mode: 'ro' | 'rw' }>(`SELECT
-      m.user_id,m.access_mode
+    const actor = await client.query<{ user_id: string; organization_role: 'admin' | 'member' }>(`SELECT
+      actor.id user_id,membership.role organization_role
       FROM harness.users actor
-      JOIN harness.project_members m ON m.user_id=actor.id AND m.organization_id=actor.organization_id
+      JOIN harness.memberships membership ON membership.user_id=actor.id
+        AND membership.organization_id=actor.organization_id AND membership.status='active'
       WHERE actor.organization_id=$1 AND actor.public_id=$2 AND actor.status='active'
-        AND m.project_id=$3
-      FOR SHARE OF actor,m`, [this.context.organizationId, userId, access.project_id])
+      FOR SHARE OF actor,membership`, [this.context.organizationId, userId])
+    const current = actor.rows[0]
+    if (current === undefined) return { access, authority: null }
+    if (current.organization_role === 'admin') {
+      return {
+        access: { ...access, access_mode: 'rw', administrator: true },
+        authority: { userId: current.user_id, accessMode: 'rw', administrator: true },
+      }
+    }
+    const membership = await client.query<{ user_id: string; access_mode: 'ro' | 'rw' }>(`SELECT
+      member.user_id,member.access_mode
+      FROM harness.project_members member
+      WHERE member.organization_id=$1 AND member.project_id=$2 AND member.user_id=$3
+      FOR SHARE OF member`, [this.context.organizationId, access.project_id, current.user_id])
     const member = membership.rows[0]
     return {
       access: { ...access, access_mode: member?.access_mode ?? null },
-      membership: member === undefined ? null : { userId: member.user_id, accessMode: member.access_mode },
+      authority: member === undefined ? null : {
+        userId: member.user_id,
+        accessMode: member.access_mode,
+        administrator: false,
+      },
     }
   }
 
@@ -139,9 +177,9 @@ export class PostgresCollaborationService {
     if (row.access_mode === null) throw new CollaborationDeniedError('not-member')
     const creatorUserId = publicNumber(row.creator_public_id, 'user')
     const isCreator = creatorUserId === userId
-    const canRead = row.visibility === 'project' || isCreator
-    const canWrite = row.access_mode === 'rw' && (row.visibility === 'project' || isCreator)
-    const canManage = row.access_mode === 'rw' && isCreator
+    const canRead = row.administrator || row.visibility === 'project' || isCreator
+    const canWrite = row.access_mode === 'rw' && canRead
+    const canManage = row.access_mode === 'rw' && (row.administrator || isCreator)
     if (!canRead || (action === 'write' && !canWrite) || (action === 'approve' && !canWrite)
       || (action === 'manage' && !canManage)) {
       throw new CollaborationDeniedError('forbidden')
@@ -160,8 +198,7 @@ export class PostgresCollaborationService {
   }
 
   async listConversations(userId: number, projectId: number): Promise<ConversationCollaborationView[]> {
-    const membership = await this.projectForUser(projectId, userId)
-    if (membership === null) throw new CollaborationDeniedError('not-member')
+    if (await this.projectForUser(projectId, userId) === null) throw new CollaborationDeniedError('not-member')
     const result = await this.context.pool.query<{
       session_id: string
       creator_public_id: string
@@ -186,12 +223,19 @@ export class PostgresCollaborationService {
       FROM harness.conversation_sessions r
       JOIN harness.projects p ON p.id=r.project_id AND p.organization_id=r.organization_id
       JOIN harness.users creator ON creator.id=r.creator_user_id AND creator.organization_id=r.organization_id
+      JOIN harness.users actor ON actor.organization_id=r.organization_id
+        AND actor.public_id=$3 AND actor.status='active'
+      JOIN harness.memberships membership ON membership.organization_id=r.organization_id
+        AND membership.user_id=actor.id AND membership.status='active'
+      LEFT JOIN harness.project_members member ON member.organization_id=r.organization_id
+        AND member.project_id=r.project_id AND member.user_id=actor.id
       LEFT JOIN harness.conversation_participants cp ON cp.conversation_id=r.id
         AND cp.organization_id=r.organization_id
       LEFT JOIN harness.users participant ON participant.id=cp.user_id
         AND participant.organization_id=cp.organization_id
       WHERE r.organization_id=$1 AND p.public_id=$2 AND r.id=r.root_session_id
-        AND r.status<>'deleted' AND (r.visibility='project' OR creator.public_id=$3)
+        AND r.status<>'deleted' AND (membership.role='admin' OR member.user_id IS NOT NULL)
+        AND (membership.role='admin' OR r.visibility='project' OR creator.id=actor.id)
       GROUP BY r.id,creator.public_id,creator.display_name
       ORDER BY r.updated_at DESC,r.id`, [this.context.organizationId, projectId, userId])
     return result.rows.map(row => ({
@@ -221,9 +265,12 @@ export class PostgresCollaborationService {
         AND p.public_id=$3 AND p.status='active'
       JOIN harness.users actor ON actor.organization_id=r.organization_id
         AND actor.public_id=$2 AND actor.status='active'
-      JOIN harness.project_members m ON m.organization_id=r.organization_id
-        AND m.project_id=r.project_id AND m.user_id=actor.id
-      WHERE r.visibility='project' OR r.creator_user_id=actor.id`,
+      JOIN harness.memberships membership ON membership.organization_id=r.organization_id
+        AND membership.user_id=actor.id AND membership.status='active'
+      LEFT JOIN harness.project_members member ON member.organization_id=r.organization_id
+        AND member.project_id=r.project_id AND member.user_id=actor.id
+      WHERE membership.role='admin' OR (member.user_id IS NOT NULL
+        AND (r.visibility='project' OR r.creator_user_id=actor.id))`,
     [this.context.organizationId, userId, projectId, sessionIds])
     return result.rows.map(row => row.session_id)
   }
@@ -233,7 +280,8 @@ export class PostgresCollaborationService {
       const locked = await this.lockedAccessRow(client, userId, sessionId, 'update')
       if (locked === null) throw new CollaborationDeniedError('conversation-not-found')
       const creatorUserId = publicNumber(locked.access.creator_public_id, 'user')
-      if (locked.membership?.accessMode !== 'rw' || creatorUserId !== userId) {
+      if (locked.authority?.accessMode !== 'rw'
+        || (!locked.authority.administrator && creatorUserId !== userId)) {
         throw new CollaborationDeniedError('forbidden')
       }
       if (locked.access.visibility === visibility) return
@@ -261,11 +309,12 @@ export class PostgresCollaborationService {
       const locked = await this.lockedAccessRow(client, userId, sessionId, 'share')
       if (locked === null) throw new CollaborationDeniedError('conversation-not-found')
       const creatorUserId = publicNumber(locked.access.creator_public_id, 'user')
-      if (locked.membership?.accessMode !== 'rw'
-        || (locked.access.visibility === 'private' && creatorUserId !== userId)) {
+      if (locked.authority?.accessMode !== 'rw'
+        || (!locked.authority.administrator
+          && locked.access.visibility === 'private' && creatorUserId !== userId)) {
         throw new CollaborationDeniedError('forbidden')
       }
-      const responderId = locked.membership.userId
+      const responderId = locked.authority.userId
       const inserted = await client.query(`INSERT INTO harness.conversation_interaction_responses(
         organization_id,interaction_kind,interaction_id,conversation_id,responder_user_id,outcome
       ) VALUES($1,$2,$3,$4,$5,$6::jsonb)

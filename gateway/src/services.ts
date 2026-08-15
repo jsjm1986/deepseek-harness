@@ -4,7 +4,8 @@ import type {
   CollaborationAction,
   ConversationAccess,
   ConversationCollaborationView,
-  ProjectMembershipView,
+  ProjectAuthorityView,
+  ProjectScopeView,
 } from './collaboration.ts'
 import type { InstanceManager } from './instances.ts'
 import type {
@@ -68,8 +69,8 @@ export interface GatewayProjectService {
 
 /** Project membership and shared-conversation authorization operations. */
 export interface GatewayCollaborationService {
-  projectsForUser(userId: number): Awaitable<ProjectMembershipView[]>
-  projectForUser(projectId: number, userId: number): Awaitable<ProjectMembershipView | null>
+  projectsForUser(userId: number): Awaitable<ProjectScopeView[]>
+  projectForUser(projectId: number, userId: number): Awaitable<ProjectAuthorityView | null>
   access(userId: number, sessionId: string, action: CollaborationAction): Awaitable<ConversationAccess>
   listConversations(userId: number, projectId: number): Awaitable<ConversationCollaborationView[]>
   readableSessionIds(userId: number, projectId: number, sessionIds: readonly string[]): Awaitable<string[]>

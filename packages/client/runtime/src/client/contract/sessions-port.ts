@@ -8,6 +8,7 @@
  */
 
 import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionCreateOptions } from './session-create.ts'
 import type { ObservableSnapshot } from './store.ts'
 
 /** Session-list row facts sibling domains read: recency, blank-reuse eligibility, and its cwd canon. */
@@ -32,11 +33,16 @@ export interface SessionsPort {
   /** Observable list snapshot (read face only; writes stay inside the sessions domain). */
   readonly list: ObservableSnapshot<SessionsPortList>
   /**
-   * Create a session on the host.
-   * @param opts - target workspace.
-   * @returns the new session id.
+   * Prepare one root-session request, reuse the first plugin-compatible blank
+   * candidate, or create a fresh session on the Host.
+   * @param opts - target workspace and plugin-owned create options.
+   * @param reusableSessionIds - blank candidates already validated by the owning domain.
+   * @returns the reused or newly created session id.
    */
-  create(opts: { workspaceId: WorkspaceId }): Promise<SessionId>
+  createOrReuse(
+    opts: SessionCreateOptions & { workspaceId: WorkspaceId },
+    reusableSessionIds: readonly SessionId[],
+  ): Promise<SessionId>
   /**
    * Select a session as current.
    * @param id - session id (must exist in the list store).

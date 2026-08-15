@@ -17,7 +17,7 @@ interface GatewayRuntimeIdentity {
 }
 ```
 
-The selected browser scope carries current project membership mode. It is signed into each principal rather than read from mutable process-global account state.
+The selected browser scope carries the current effective project mode. Organization administrators receive `rw` for every active project even without a project-membership row. The mode is signed into each principal rather than read from mutable process-global account state.
 
 ```ts type-equiv
 /** Scope selected by the authenticated browser request. */
@@ -47,7 +47,7 @@ interface GatewayPrincipalClaims {
 }
 ```
 
-Each root-conversation authorization and readable-session filter queries the Gateway against current PostgreSQL membership. Removing a member or changing `rw` to `ro` therefore affects the next Session ACL check. An operation without a Session ACL uses the scope mode captured in its principal; that mode cannot outlive `expiresAt`. The Gateway default is 30 seconds, proxied HTTP requests receive a new principal, and long-lived Host and Typert streams close at expiry before reconnecting.
+Each root-conversation authorization and readable-session filter queries the Gateway against the current PostgreSQL organization role and project membership. Removing a member, changing `rw` to `ro`, or removing administrator authority therefore affects the next Session ACL check. An operation without a Session ACL uses the scope mode captured in its principal; that mode cannot outlive `expiresAt`. The Gateway default is 30 seconds, proxied HTTP requests receive a new principal, and long-lived Host and Typert streams close at expiry before reconnecting.
 
 ## Private runtime channel
 
@@ -97,7 +97,7 @@ interface GatewayRuntimeRequestInit extends RequestInit {
 
 ## Root conversation ACL
 
-Authorization distinguishes reads, writes, creator-only management, and human-interaction responses. Approval and question ids use separate namespaces and are committed through an atomic Gateway claim.
+Authorization distinguishes reads, writes, creator-or-administrator management, and human-interaction responses. Approval and question ids use separate namespaces and are committed through an atomic Gateway claim.
 
 ```ts type-equiv
 /** Authorization verbs applied to a root conversation ACL. */
@@ -109,7 +109,7 @@ type CollaborationAction = 'read' | 'write' | 'manage' | 'approve'
 type CollaborationInteractionKind = 'approval' | 'question'
 ```
 
-A project root conversation is readable by every current project member when `project`, or only by its creator when `private`. Descendants inherit the root project, creator, and visibility; they do not carry independent ACLs.
+A project root conversation is readable by every current project member when `project`, or only by its creator and current organization administrators when `private`. Administrators have `rw` read, write, management, and interaction authority over every active project without a project-membership row. Descendants inherit the root project, creator, and visibility; they do not carry independent ACLs.
 
 ```ts type-equiv
 /** Visibility of one root conversation inside a project runtime. */

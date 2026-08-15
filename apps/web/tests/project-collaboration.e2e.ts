@@ -6,9 +6,10 @@ import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
-  launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
+  launchWebScaffold, seedBlankSession, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
@@ -18,6 +19,8 @@ const SHARING_EXPECTED = join(SNAPSHOT_DIR, 'sharing.expected.md')
 const READ_ONLY_EXPECTED = join(SNAPSHOT_DIR, 'read-only.expected.md')
 const MODE = webSnapshotMode()
 const SESSION_ID = 'project-collaboration-web-e2e'
+const BLANK_SESSION_ID = 'project-collaboration-project-blank'
+const SEEDED_PROMPT = 'Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop.'
 
 type ProjectMode = 'ro' | 'rw'
 
@@ -32,14 +35,18 @@ function collaborationContext(mode: ProjectMode) {
   }
 }
 
-function conversationDetail(mode: ProjectMode) {
+function conversationDetail(
+  mode: ProjectMode,
+  sessionId: string = SESSION_ID,
+  visibility: 'project' | 'private' = 'project',
+) {
   const writable = mode === 'rw'
   return {
     access: {
-      sessionId: SESSION_ID,
-      rootSessionId: SESSION_ID,
+      sessionId,
+      rootSessionId: sessionId,
       projectId: 9,
-      visibility: 'project',
+      visibility,
       creatorUserId: 7,
       mode,
       canRead: true,
@@ -47,10 +54,10 @@ function conversationDetail(mode: ProjectMode) {
       canManage: writable,
     },
     conversation: {
-      sessionId: SESSION_ID,
+      sessionId,
       creatorUserId: 7,
       creatorDisplayName: 'Lin',
-      visibility: 'project',
+      visibility,
       updatedAt: 1_786_767_200_000,
       participants: [
         { userId: 7, displayName: 'Lin', contributionCount: 3, lastContributedAt: 1_786_767_100_000 },
@@ -60,8 +67,14 @@ function conversationDetail(mode: ProjectMode) {
   }
 }
 
-async function mockGateway(page: Page, mode: ProjectMode): Promise<string[]> {
+async function mockGateway(page: Page, mode: ProjectMode): Promise<{
+  visibilityBodies: string[]
+  conversationReads: string[]
+  visibilityBySession: Map<string, 'project' | 'private'>
+}> {
   const visibilityBodies: string[] = []
+  const conversationReads: string[] = []
+  const visibilityBySession = new Map<string, 'project' | 'private'>()
   await page.route('**/account/api/context', async (route) => {
     await route.fulfill({ json: collaborationContext(mode) })
   })
@@ -74,21 +87,25 @@ async function mockGateway(page: Page, mode: ProjectMode): Promise<string[]> {
       await route.fulfill({ status: 204, body: '' })
       return
     }
-    await route.fulfill({ json: conversationDetail(mode) })
+    const pathname = new URL(route.request().url()).pathname
+    const sessionId = decodeURIComponent(pathname.slice('/account/api/conversations/'.length))
+    await route.fulfill({
+      json: conversationDetail(mode, sessionId, visibilityBySession.get(sessionId) ?? 'project'),
+    })
+    conversationReads.push(sessionId)
   })
-  return visibilityBodies
+  return { visibilityBodies, conversationReads, visibilityBySession }
 }
 
 async function openSeededSession(page: Page, scaffold: WebScaffold): Promise<void> {
   await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
   await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-  const tree = page.getByRole('tree', { name: 'Sessions' })
-  const group = tree.getByRole('treeitem').first()
-  await group.waitFor({ timeout: 15_000 })
-  await group.click()
-  const session = tree.getByRole('treeitem').nth(1)
-  await session.waitFor({ timeout: 10_000 })
-  await session.click()
+  const searchButton = page.getByRole('button', { name: 'Search sessions' })
+  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
+  await page.getByRole('textbox', { name: 'Search sessions...', exact: true }).fill(SEEDED_PROMPT)
+  const results = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
+  await expect.poll(() => results.count(), { timeout: 60_000 }).toBe(1)
+  await results.click()
   await page.getByText('DONE', { exact: true }).waitFor({ timeout: 15_000 })
 }
 
@@ -100,7 +117,11 @@ describe.skipIf(MODE === 'record')('web e2e: project collaboration controls', ()
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
-    await seedSession(scaffold, await readFile(SEED, 'utf8'), SESSION_ID)
+    const seeded = await seedSession(scaffold, await readFile(SEED, 'utf8'), SESSION_ID)
+    const blank = await seedBlankSession(scaffold, BLANK_SESSION_ID, scaffold.workspaceCwd)
+    const workspace = await scaffold.ctx.workspaceRegistry.create(scaffold.workspaceCwd)
+    await workspace.attachSession(seeded)
+    await workspace.attachSession(blank)
     browser = await chromium.launch()
   }, 120_000)
 
@@ -126,7 +147,7 @@ describe.skipIf(MODE === 'record')('web e2e: project collaboration controls', ()
   it('shows project scope, staged visibility, participants, and creator sharing controls', async () => {
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    const visibilityBodies = await mockGateway(page, 'rw')
+    const gateway = await mockGateway(page, 'rw')
     onTestFailed(() => saveFailureShot(page!, 'web-e2e-project-collaboration-sharing'))
     await openSeededSession(page, scaffold)
 
@@ -149,9 +170,46 @@ describe.skipIf(MODE === 'record')('web e2e: project collaboration controls', ()
     await compareOrRefreshGolden(SHARING_EXPECTED, snapshot, MODE)
 
     await page.getByRole('menuitem', { name: /Only me/ }).click()
-    await expect.poll(() => visibilityBodies, { timeout: 10_000 })
+    await expect.poll(() => gateway.visibilityBodies, { timeout: 10_000 })
       .toEqual(['{"visibility":"private"}'])
     await expect.poll(() => sharing.textContent(), { timeout: 10_000 }).toContain('Only me')
+  }, 60_000)
+
+  it('creates a private blank instead of reusing a project blank, then reuses the matching private blank', async () => {
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    const gateway = await mockGateway(page, 'rw')
+    onTestFailed(() => saveFailureShot(page!, 'web-e2e-project-collaboration-private-create'))
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+
+    const scope = page.getByRole('button', { name: 'Switch personal or project scope' })
+    await scope.waitFor({ timeout: 10_000 })
+    await scope.click()
+    await page.getByRole('menuitem', { name: /Only me/ }).click()
+
+    const before = new Set(scaffold.ctx.agents.list().map(agent => String(agent.session.id)))
+    const newSession = page.getByRole('button', { name: 'New session' }).last()
+    await newSession.click()
+    let privateSessionId = ''
+    await expect.poll(() => {
+      const created = scaffold.ctx.agents.list()
+        .map(agent => String(agent.session.id))
+        .filter(sessionId => !before.has(sessionId))
+      privateSessionId = created[0] ?? ''
+      return created.length
+    }, { timeout: 10_000 }).toBe(1)
+    expect(privateSessionId).not.toBe(BLANK_SESSION_ID)
+    expect(gateway.conversationReads).toContain(BLANK_SESSION_ID)
+
+    gateway.visibilityBySession.set(privateSessionId, 'private')
+    const agentCount = scaffold.ctx.agents.list().length
+    await newSession.click()
+    await expect.poll(() => gateway.conversationReads.at(-1), { timeout: 10_000 })
+      .toBe(privateSessionId)
+    await page.waitForTimeout(100)
+    expect(scaffold.ctx.agents.list()).toHaveLength(agentCount)
+    expect(scaffold.ctx.agents.get(SessionId(privateSessionId))).toBeDefined()
   }, 60_000)
 
   it('replaces the complete composer for read-only project members', async () => {

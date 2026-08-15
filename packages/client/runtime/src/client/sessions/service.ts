@@ -484,9 +484,40 @@ export class SessionRuntime implements ISessions {
    * @throws {SessionCreateError} with the requested id.
    */
   async create(opts: SessionCreateOptions = {}): Promise<SessionId> {
-    const prepared = await this.rootCtx.waterfall(
+    return this.createPrepared(await this.prepareCreate(opts))
+  }
+
+  /**
+   * Prepare one root-session request, reuse the first blank candidate every
+   * plugin confirms, or create a fresh Host session with the same prepared
+   * options. Candidate discovery remains with the owning Workspace domain.
+   * @param opts - caller-selected create options.
+   * @param reusableSessionIds - blank candidates in preferred order.
+   * @returns the reused or newly created session id.
+   */
+  async createOrReuse(
+    opts: SessionCreateOptions,
+    reusableSessionIds: readonly SessionId[],
+  ): Promise<SessionId> {
+    const prepared = await this.prepareCreate(opts)
+    for (const sessionId of reusableSessionIds) {
+      const reusable = await this.rootCtx.waterfall(
+        'sessions/confirm-blank-reuse',
+        { sessionId, options: prepared },
+        () => Promise.resolve(true),
+      )
+      if (reusable) return sessionId
+    }
+    return this.createPrepared(prepared)
+  }
+
+  private prepareCreate(opts: SessionCreateOptions): Promise<SessionCreateOptions> {
+    return this.rootCtx.waterfall(
       'sessions/prepare-create', opts, () => Promise.resolve(opts),
     )
+  }
+
+  private async createPrepared(prepared: SessionCreateOptions): Promise<SessionId> {
     const result = await this.manager.create(prepared)
     if (!result.ok) throw new SessionCreateError(result.error, prepared.sessionId)
     this.projectList()

@@ -17,7 +17,7 @@ interface GatewayRuntimeIdentity {
 }
 ```
 
-所选浏览器 scope 携带当前项目成员模式。它被签入每份 principal，而不是从可变的进程全局账户状态中读取。
+所选浏览器 scope 携带当前有效项目模式。组织管理员即使没有项目成员记录，也会对每个活动项目获得 `rw`。该模式会签入每份 principal，而不是从可变的进程全局账户状态中读取。
 
 ```ts type-equiv
 /** Scope selected by the authenticated browser request. */
@@ -47,7 +47,7 @@ interface GatewayPrincipalClaims {
 }
 ```
 
-每次根对话授权和可读会话筛选都会通过 Gateway 查询 PostgreSQL 中的当前成员身份。因此，移除成员或把 `rw` 改为 `ro` 会影响下一次 Session ACL 检查。不带 Session ACL 的操作使用 principal 中捕获的 scope 模式；该模式不会超过 `expiresAt` 继续有效。Gateway 默认有效期为 30 秒，被代理的 HTTP 请求会获得新 principal，长连接 Host 与 Typert stream 会在过期时关闭并重连。
+每次根对话授权和可读会话筛选都会通过 Gateway 查询 PostgreSQL 中的当前组织角色与项目成员身份。因此，移除成员、把 `rw` 改为 `ro` 或取消管理员权限会影响下一次 Session ACL 检查。不带 Session ACL 的操作使用 principal 中捕获的 scope 模式；该模式不会超过 `expiresAt` 继续有效。Gateway 默认有效期为 30 秒，被代理的 HTTP 请求会获得新 principal，长连接 Host 与 Typert stream 会在过期时关闭并重连。
 
 ## 私有运行时通道
 
@@ -97,7 +97,7 @@ interface GatewayRuntimeRequestInit extends RequestInit {
 
 ## 根对话 ACL
 
-授权区分读取、写入、仅创建者管理以及人类交互响应。审批与问题 id 使用独立 namespace，并通过 Gateway 原子抢占提交。
+授权区分读取、写入、创建者或管理员管理以及人类交互响应。审批与问题 id 使用独立 namespace，并通过 Gateway 原子抢占提交。
 
 ```ts type-equiv
 /** Authorization verbs applied to a root conversation ACL. */
@@ -109,7 +109,7 @@ type CollaborationAction = 'read' | 'write' | 'manage' | 'approve'
 type CollaborationInteractionKind = 'approval' | 'question'
 ```
 
-项目根对话为 `project` 时每位当前项目成员都可读取，为 `private` 时只有创建者可读取。后代继承根的项目、创建者与可见性，不携带独立 ACL。
+项目根对话为 `project` 时每位当前项目成员都可读取，为 `private` 时只有创建者和当前组织管理员可读取。管理员无需项目成员记录，就对每个活动项目拥有 `rw` 读取、写入、管理和交互权限。后代继承根的项目、创建者与可见性，不携带独立 ACL。
 
 ```ts type-equiv
 /** Visibility of one root conversation inside a project runtime. */

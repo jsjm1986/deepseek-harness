@@ -275,6 +275,70 @@ describe('WorkspaceRuntime', () => {
     await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-fresh-2')
   })
 
+  it('prepares create options before reusing blanks and skips plugin-incompatible candidates', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [
+        workspace('alpha', [sid('s-project'), sid('s-private')]),
+        workspace('beta', [sid('s-beta-project')]),
+      ] as never[],
+    }))
+    api.onList = () => Promise.resolve(ok({
+      items: [
+        { sessionId: sid('s-project'), updatedAt: 3, running: false, blank: true, cwd: '/w/alpha' },
+        { sessionId: sid('s-private'), updatedAt: 2, running: false, blank: true, cwd: '/w/alpha' },
+        { sessionId: sid('s-beta-project'), updatedAt: 1, running: false, blank: true, cwd: '/w/beta' },
+      ] as never[],
+    }))
+    ctx.on('sessions/prepare-create', async (_options, next) => ({
+      ...await next(),
+      visibility: 'private',
+    }))
+    const checked: string[] = []
+    ctx.on('sessions/confirm-blank-reuse', async (request, next) => {
+      const reusable = await next()
+      checked.push(`${request.sessionId}:${String(request.options.visibility)}`)
+      return reusable && request.sessionId === sid('s-private')
+    })
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+
+    await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-private')
+    expect(checked).toEqual(['s-project:private', 's-private:private'])
+    expect(api.callsOf('session.create')).toEqual([])
+
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-beta-private') }))
+    await expect(workspaces.connectWorkspace(wid('beta'))).resolves.toBe('s-beta-private')
+    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'beta', visibility: 'private' }])
+  })
+
+  it('runs create rejection before returning an otherwise reusable blank', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('alpha', [sid('s-blank')])] as never[],
+    }))
+    api.onList = () => Promise.resolve(ok({
+      items: [
+        { sessionId: sid('s-blank'), updatedAt: 1, running: false, blank: true, cwd: '/w/alpha' },
+      ] as never[],
+    }))
+    ctx.on('sessions/prepare-create', async (_options, next) => {
+      await next()
+      throw new Error('read-only project members cannot create sessions')
+    })
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+
+    await expect(workspaces.connectWorkspace(wid('alpha'))).rejects.toThrow('read-only project members')
+    expect(api.callsOf('session.create')).toEqual([])
+  })
+
   it('a rejected first prompt keeps the blank session eligible for connectWorkspace reuse', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

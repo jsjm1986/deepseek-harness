@@ -1,10 +1,17 @@
 export type CollaborationAction = 'read' | 'write' | 'manage' | 'approve'
 
-export interface ProjectMembershipView {
+/** Active project available to one authenticated account. */
+export interface ProjectScopeView {
   projectId: number
   name: string
   path: string
   mode: 'ro' | 'rw'
+}
+
+/** Current project authority used by Gateway authorization decisions. */
+export interface ProjectAuthorityView extends ProjectScopeView {
+  /** True when the current organization role grants implicit project authority. */
+  administrator: boolean
 }
 
 export interface ConversationParticipantView {

@@ -103,13 +103,14 @@ export class WorkspaceRuntime implements IWorkspaces {
     // no grouping surface can show, so New Session mints a fresh one instead.
     const archived = this.list.getSnapshot().archivedSessionIds
     const sessions = this.sessions.list.getSnapshot()
+    const reusableSessionIds: SessionId[] = []
     for (const id of sessions.ids) {
       const summary = sessions.byId[id]
       if (summary !== undefined && summary.blank && summary.cwd === workspace.path
         && workspace.sessionIds.includes(summary.id)
-        && !archived.includes(summary.id)) return summary.id
+        && !archived.includes(summary.id)) reusableSessionIds.push(summary.id)
     }
-    const attempt = this.sessions.create({ workspaceId })
+    const attempt = this.sessions.createOrReuse({ workspaceId }, reusableSessionIds)
       .finally(() => { this.connecting.delete(workspaceId) })
     this.connecting.set(workspaceId, attempt)
     return attempt

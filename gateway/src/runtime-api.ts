@@ -305,9 +305,9 @@ export function createRuntimeApiHandler(
     const membership = await deps.collaboration.projectForUser(subject.target.id, actor.user.id)
     if (membership === null) throw new CollaborationDeniedError('not-member')
     const isCreator = actor.user.id === claims.creatorUserId
-    const canRead = claims.visibility === 'project' || isCreator
+    const canRead = membership.administrator || claims.visibility === 'project' || isCreator
     const canWrite = membership.mode === 'rw' && canRead
-    const canManage = membership.mode === 'rw' && isCreator
+    const canManage = membership.mode === 'rw' && (membership.administrator || isCreator)
     if (!canRead || (action === 'write' && !canWrite) || (action === 'approve' && !canWrite)
       || (action === 'manage' && !canManage)) {
       throw new CollaborationDeniedError('forbidden')

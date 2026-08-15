@@ -19,6 +19,8 @@ const PROJECT_INTERNAL_ID = '38131c5c-a84f-43ac-9487-24e90889273f'
 const CREATOR_ID = 7
 const CREATOR_INTERNAL_ID = 'c21c9696-6ca4-4698-84b8-3755e766e65d'
 const MEMBER_ID = 8
+const ADMIN_ID = 9
+const ADMIN_INTERNAL_ID = '9d264f72-1c11-479d-ae39-0b0429d70d91'
 const GENERATION = 4
 const RUNTIME_TOKEN = 'runtime-token'
 const CREATED_AT = 1_786_698_000_000
@@ -40,12 +42,12 @@ const event: ConversationEvent = {
   surfaceOp: 'append',
 }
 
-function user(id: number): UserRow {
+function user(id: number, role: UserRow['role'] = 'user'): UserRow {
   return {
     id,
     username: `user-${String(id)}`,
     displayName: `User ${String(id)}`,
-    role: 'user',
+    role,
     status: 'active',
     homePath: `/tmp/user-${String(id)}`,
     mustChangePassword: false,
@@ -95,7 +97,8 @@ function fixture() {
     [MEMBER_ID, 'rw'],
   ])
   const query = vi.fn(async (_text: string, values?: unknown[]) => ({
-    rows: values?.[1] === CREATOR_ID ? [{ id: CREATOR_INTERNAL_ID }] : [],
+    rows: values?.[1] === CREATOR_ID ? [{ id: CREATOR_INTERNAL_ID }]
+      : values?.[1] === ADMIN_ID ? [{ id: ADMIN_INTERNAL_ID }] : [],
   }))
   const append = vi.fn(async (
     _sessionId: string,
@@ -126,9 +129,10 @@ function fixture() {
       access: vi.fn(async () => { throw new CollaborationDeniedError('conversation-not-found') }),
       claimInteraction: vi.fn(async () => false),
       projectForUser: vi.fn(async (projectId: number, userId: number) => {
-        const mode = modes.get(userId)
+        const administrator = userId === ADMIN_ID
+        const mode = administrator ? 'rw' : modes.get(userId)
         return projectId === PROJECT_ID && mode !== undefined
-          ? { projectId, name: 'Shared', path: '/tmp/shared', mode }
+          ? { projectId, name: 'Shared', path: '/tmp/shared', mode, administrator }
           : null
       }),
       readableSessionIds: vi.fn(async () => []),
@@ -136,7 +140,7 @@ function fixture() {
     principals,
   } satisfies RuntimeDependencies
   const issuePrincipal = (userId: number, mode: 'ro' | 'rw' = modes.get(userId) ?? 'rw') => principals.issue({
-    user: user(userId),
+    user: user(userId, userId === ADMIN_ID ? 'admin' : 'user'),
     scope: {
       kind: 'project',
       projectId: PROJECT_ID,
@@ -158,9 +162,10 @@ async function prepare(
   runtime: ReturnType<typeof fixture>,
   sessionId: string,
   visibility: 'project' | 'private',
+  creatorUserId = CREATOR_ID,
 ): Promise<string> {
   const response = await request(runtime.handler, '/internal/runtime/session/create', {
-    principal: runtime.issuePrincipal(CREATOR_ID),
+    principal: runtime.issuePrincipal(creatorUserId),
     body: {
       visibility,
       header: { id: sessionId, version: 0, createdAt: CREATED_AT, cwd: '/tmp/shared' },
@@ -292,6 +297,56 @@ describe('runtime session creation authorization', () => {
       status: 200,
       body: { access: { visibility: 'private', canRead: true, canWrite: true, canManage: true } },
     })
+
+    const administratorReadable = await request(runtime.handler, '/internal/runtime/collaboration/readable', {
+      principal: runtime.issuePrincipal(ADMIN_ID),
+      body: {
+        sessionIds: ['blank-project', 'blank-private'],
+        creationAuthorizations: [
+          { sessionId: 'blank-project', authorization: projectAuthorization },
+          { sessionId: 'blank-private', authorization: privateAuthorization },
+        ],
+      },
+    })
+    expect(administratorReadable).toMatchObject({
+      handled: true,
+      status: 200,
+      body: { sessionIds: ['blank-project', 'blank-private'] },
+    })
+
+    const administratorPrivate = await request(runtime.handler, '/internal/runtime/collaboration/authorize', {
+      principal: runtime.issuePrincipal(ADMIN_ID),
+      body: {
+        sessionId: 'blank-private',
+        action: 'manage',
+        creationAuthorization: privateAuthorization,
+      },
+    })
+    expect(administratorPrivate).toMatchObject({
+      handled: true,
+      status: 200,
+      body: { access: { mode: 'rw', canRead: true, canWrite: true, canManage: true } },
+    })
+  })
+
+  it('allows an administrator without project membership to materialize a private root', async () => {
+    const runtime = fixture()
+    const authorization = await prepare(runtime, 'administrator-root', 'private', ADMIN_ID)
+
+    expect(await appendFirst(runtime, 'administrator-root', authorization)).toMatchObject({
+      handled: true,
+      status: 200,
+      body: { result: 'inserted' },
+    })
+    expect(runtime.append).toHaveBeenCalledWith(
+      'administrator-root',
+      'batch-administrator-root',
+      [event],
+      expect.objectContaining({
+        creatorUserId: ADMIN_INTERNAL_ID,
+        visibility: 'private',
+      }),
+    )
   })
 
   it('rejects a project root appended through an ordinary header', async () => {

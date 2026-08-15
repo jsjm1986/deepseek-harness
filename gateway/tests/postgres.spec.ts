@@ -305,10 +305,20 @@ describePg('PostgreSQL baseline', () => {
       organization_id,username,display_name,home_path
     ) VALUES($1,$2,'Reader','/tmp/reader') RETURNING id,public_id::text`,
     [organizationId, `reader-${suffix}`])
+    const administrator = await pool.query<{ id: string; public_id: string }>(`INSERT INTO harness.users(
+      organization_id,username,display_name,home_path
+    ) VALUES($1,$2,'Administrator','/tmp/administrator') RETURNING id,public_id::text`,
+    [organizationId, `administrator-${suffix}`])
     const memberId = member.rows[0]!.id
     const memberPublicId = Number(member.rows[0]!.public_id)
     const readerId = reader.rows[0]!.id
     const readerPublicId = Number(reader.rows[0]!.public_id)
+    const administratorId = administrator.rows[0]!.id
+    const administratorPublicId = Number(administrator.rows[0]!.public_id)
+    await pool.query(`INSERT INTO harness.memberships(organization_id,user_id,role)
+      VALUES($1,$2,'member'),($1,$3,'member'),($1,$4,'member'),($1,$5,'admin')
+      ON CONFLICT(organization_id,user_id) DO UPDATE SET role=excluded.role,status='active'`,
+    [organizationId, userId, memberId, readerId, administratorId])
     const node = await pool.query<{ id: string }>(`INSERT INTO harness.compute_nodes(
       organization_id,name
     ) VALUES($1,$2) RETURNING id`, [organizationId, `collaboration-${suffix}`])
@@ -456,6 +466,48 @@ describePg('PostgreSQL baseline', () => {
       participants: [{ userId: memberPublicId, displayName: 'Bob', contributionCount: 1 }],
     })
     expect(listed[0]!.updatedAt).toBeGreaterThan(1000)
+
+    expect(await collaboration.projectsForUser(administratorPublicId)).toContainEqual({
+      projectId: projectPublicId,
+      name: `Collaboration ${suffix}`,
+      path: `/tmp/project-${suffix}`,
+      mode: 'rw',
+    })
+    await expect(collaboration.projectForUser(projectPublicId, administratorPublicId)).resolves.toMatchObject({
+      mode: 'rw',
+      administrator: true,
+    })
+    await expect(collaboration.access(administratorPublicId, privateId, 'manage')).resolves.toMatchObject({
+      visibility: 'private',
+      mode: 'rw',
+      canRead: true,
+      canWrite: true,
+      canManage: true,
+    })
+    expect((await collaboration.readableSessionIds(
+      administratorPublicId,
+      projectPublicId,
+      [rootId, childId, privateId],
+    )).sort()).toEqual([rootId, childId, privateId].sort())
+    expect(await collaboration.listConversations(administratorPublicId, projectPublicId)).toHaveLength(2)
+    await collaboration.setVisibility(administratorPublicId, privateId, 'project')
+    await collaboration.setVisibility(administratorPublicId, privateId, 'private')
+    await expect(collaboration.claimInteraction(
+      administratorPublicId,
+      privateId,
+      'question',
+      `administrator-question-${suffix}`,
+      { answer: 'managed' },
+    )).resolves.toBe(true)
+
+    await pool.query(`UPDATE harness.memberships SET role='member'
+      WHERE organization_id=$1 AND user_id=$2`, [organizationId, administratorId])
+    await expect(collaboration.projectForUser(projectPublicId, administratorPublicId)).resolves.toBeNull()
+    await expect(collaboration.access(administratorPublicId, privateId, 'read'))
+      .rejects.toMatchObject({ code: 'not-member' })
+    await pool.query(`UPDATE harness.memberships SET role='admin'
+      WHERE organization_id=$1 AND user_id=$2`, [organizationId, administratorId])
+
     await expect(collaboration.setVisibility(creatorPublicId, rootId, 'private'))
       .rejects.toMatchObject({ code: 'visibility-locked' })
     await collaboration.setVisibility(creatorPublicId, privateId, 'project')
