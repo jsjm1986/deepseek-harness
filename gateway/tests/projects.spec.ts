@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -40,11 +40,16 @@ describe('ProjectService', () => {
   })
 
   it('rejects duplicate name, duplicate path, missing path, home, and dsh path', async () => {
-    const { projects, cfg, alice, shared, docs } = await setup()
+    const { projects, cfg, alice, shared, docs, root } = await setup()
     projects.create({ name: 'Alpha', path: shared, createdBy: alice.id })
     expect(() => projects.create({ name: 'Alpha', path: docs, createdBy: alice.id })).toThrow(/duplicate project name/)
     expect(() => projects.create({ name: 'Beta', path: shared, createdBy: alice.id })).toThrow(/duplicate project path/)
-    expect(() => projects.create({ name: 'Ghost', path: join(cfg.usersRoot, 'no-such-dir'), createdBy: alice.id })).toThrow()
+    expect(() => projects.create({ name: 'Ghost', path: join(cfg.usersRoot, 'no-such-dir'), createdBy: alice.id }))
+      .toThrow('project-path-not-found')
+    const file = join(root, 'file')
+    writeFileSync(file, 'not a directory')
+    expect(() => projects.create({ name: 'File', path: file, createdBy: alice.id }))
+      .toThrow('project-path-not-directory')
     expect(() => projects.create({ name: 'Home', path: alice.homePath, createdBy: alice.id })).toThrow(/user home/)
     expect(() => projects.create({ name: 'Dsh', path: join(cfg.usersRoot, 'alice', 'dsh'), createdBy: alice.id })).toThrow(/dsh/)
   })

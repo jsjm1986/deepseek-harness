@@ -1,7 +1,13 @@
-import { realpathSync, statSync } from 'node:fs'
+import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import type { GatewayConfig } from '../config.ts'
-import type { EffectiveGrant, GrantMode, ProjectDetail, ProjectRow } from '../projects.ts'
+import {
+  resolveProjectDirectory,
+  type EffectiveGrant,
+  type GrantMode,
+  type ProjectDetail,
+  type ProjectRow,
+} from '../projects.ts'
 import { transaction } from './database.ts'
 import {
   internalProjectId,
@@ -31,8 +37,7 @@ export class PostgresProjectService {
   ) {}
 
   async create(input: { name: string; path: string; createdBy: number }): Promise<ProjectRow> {
-    const canonical = realpathSync(input.path)
-    if (!statSync(canonical).isDirectory()) throw new Error(`not a directory: ${canonical}`)
+    const canonical = resolveProjectDirectory(input.path)
     await this.assertNotReserved(canonical)
     try {
       return await transaction(this.context.pool, async (client) => {

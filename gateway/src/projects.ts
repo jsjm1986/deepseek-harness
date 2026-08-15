@@ -35,6 +35,39 @@ function realpathIfPresent(path: string): string | undefined {
   }
 }
 
+function rethrowProjectPathFailure(error: unknown): never {
+  if (isCodedError(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
+    throw new Error('project-path-not-found', { cause: error })
+  }
+  if (isCodedError(error) && (error.code === 'EACCES' || error.code === 'EPERM')) {
+    throw new Error('project-path-inaccessible', { cause: error })
+  }
+  throw error
+}
+
+/**
+ * Resolve an existing host directory or throw a stable project-path diagnostic.
+ * @param path - absolute path supplied by an administrator
+ * @returns canonical directory path stored for grants and mounts
+ */
+export function resolveProjectDirectory(path: string): string {
+  let canonical: string
+  try {
+    canonical = realpathSync(path)
+  } catch (error) {
+    rethrowProjectPathFailure(error)
+  }
+
+  let isDirectory: boolean
+  try {
+    isDirectory = statSync(canonical).isDirectory()
+  } catch (error) {
+    rethrowProjectPathFailure(error)
+  }
+  if (!isDirectory) throw new Error('project-path-not-directory')
+  return canonical
+}
+
 export class ProjectService {
   constructor(
     private readonly db: Database.Database,
@@ -42,8 +75,7 @@ export class ProjectService {
   ) {}
 
   create(input: { name: string; path: string; createdBy: number }): ProjectRow {
-    const canonical = realpathSync(input.path)
-    if (!statSync(canonical).isDirectory()) throw new Error(`not a directory: ${canonical}`)
+    const canonical = resolveProjectDirectory(input.path)
     this.assertNotReserved(canonical)
     const now = Date.now()
     try {

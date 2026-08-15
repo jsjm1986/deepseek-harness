@@ -14,7 +14,7 @@ The gateway admin SPA exposed the right management operations but presented them
 
 The shell has a fixed `224px` desktop sidebar and a constrained content column. At viewports up to `840px`, it switches to a sticky brand header and a five-item fixed bottom navigation, and each data table has a mobile card representation that preserves the same fields and actions. At viewports up to `560px`, form grids become single-column, action groups fill the available width, and dialogs use nearly the viewport with a scrollable body. Coarse-pointer controls reserve a `44px` target. The stylesheet honors dark color-scheme and reduced-motion preferences and keeps the content padded clear of the fixed mobile navigation and safe-area insets.
 
-The page behavior remains API-driven: loading, empty, and error states are explicit; destructive actions use confirmation dialogs; create and edit forms close only after a successful request; and model, quota, membership, instance, audit-filter, and pagination controls retain their existing API semantics. The Vite build writes `gateway/public/admin`, which the gateway serves directly.
+The page behavior remains API-driven: loading, empty, and error states are explicit; destructive actions use confirmation dialogs; create and edit forms close only after a successful request; and model, quota, membership, instance, audit-filter, and pagination controls retain their existing API semantics. Project-directory validation converts host filesystem failures into stable API diagnostics, and the create dialog translates those diagnostics without discarding the entered name or path. The Vite build writes `gateway/public/admin`, which the gateway serves directly.
 
 ## Alternatives considered
 
@@ -32,4 +32,4 @@ Desktop users gain stable navigation and denser comparison views, while phone us
 
 ## Testing
 
-The admin UI Vitest suite covers navigation, API request contracts, user confirmation and create flows, and shared app rendering. TypeScript and Vite builds pass. An authenticated production browser check covers all five routes at `1440x900` and `390x844`, verifies the sidebar/bottom-navigation mode, confirms `scrollWidth` does not exceed the viewport, and captures the rendered pages for visual review.
+The admin UI Vitest suite covers navigation, API request contracts, user confirmation and create flows, project path failures, and shared app rendering. Gateway tests pin the stable missing-directory diagnostic. TypeScript and Vite builds pass. An authenticated production browser check covers all five routes at `1440x900` and `390x844`, verifies the sidebar/bottom-navigation mode, confirms `scrollWidth` does not exceed the viewport, and captures the rendered pages for visual review.

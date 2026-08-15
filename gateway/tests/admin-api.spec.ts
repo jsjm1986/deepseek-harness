@@ -74,6 +74,16 @@ describe('admin JSON API', () => {
     expect(await forbidden.json()).toEqual({ error: 'forbidden' })
   })
 
+  it('returns a stable error when a project directory is missing', async () => {
+    const { base, cookie, root } = await setup()
+    const response = await fetch(`${base}/admin/api/projects`, {
+      method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Missing', path: join(root, 'missing') }),
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'project-path-not-found' })
+  })
+
   it('returns JSON { error: "origin not allowed" } for /admin/api CSRF failures', async () => {
     const { base, cookie } = await setup()
     const res = await fetch(`${base}/admin/api/users`, {
