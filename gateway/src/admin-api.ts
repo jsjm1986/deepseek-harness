@@ -160,6 +160,7 @@ async function dispatch(
     if (status !== undefined && status !== 'active' && status !== 'disabled') { sendError(res, 400, 'invalid status'); return true }
     if (role !== undefined) {
       await deps.users.setRole(userId, role)
+      await applyGrantsToUser(deps, userId, admin.id)
       if (deps.governance !== undefined) await applyModelGovernanceToUser(deps, userId)
       await write('admin.users.role', { id: userId, role })
     }

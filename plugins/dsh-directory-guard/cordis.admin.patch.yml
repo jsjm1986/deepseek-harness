@@ -1,0 +1,15 @@
+# Administrator overlay for gateway-managed personal runtimes.
+# The directory guard remains mounted, while the root rw grant written by the
+# gateway makes its structured-path checks non-restricting for administrators.
+- id: permission
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never

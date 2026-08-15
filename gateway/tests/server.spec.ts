@@ -140,7 +140,7 @@ describe('gateway server', () => {
     expect(await res.json()).toEqual({ error: 'proxy-not-configured' })
   })
 
-  it('keeps account usage personal when the active scope is a project', async () => {
+  it('reads usage for the active personal or project scope', async () => {
     const { deps, base } = await setup()
     const calls: Array<{ subject: ModelUsageSubject; month?: string }> = []
     deps.governance = {
@@ -165,7 +165,7 @@ describe('gateway server', () => {
 
     expect(calls).toEqual([
       { subject: { kind: 'user', id: 1 }, month: '2026-07' },
-      { subject: { kind: 'user', id: 1 }, month: '2026-06' },
+      { subject: { kind: 'project', id: 42 }, month: '2026-06' },
     ])
   })
 

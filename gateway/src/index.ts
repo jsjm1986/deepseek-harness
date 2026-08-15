@@ -18,6 +18,7 @@ import { PostgresUserService } from './postgres/user-service.ts'
 import { loadPrincipalKeys } from './principal.ts'
 import { createProxyHandlers } from './proxy.ts'
 import { createRuntimeApiHandler } from './runtime-api.ts'
+import { runtimeDirectoryGrants } from './runtime-directory-grants.ts'
 import { createGatewayServer, type GatewayDeps } from './server.ts'
 import { createUsageIntakeServer } from './usage-intake.ts'
 
@@ -56,7 +57,7 @@ const launcher = selectLauncher(cfg, () => ({
     if (runtime.kind === 'project') return []
     const user = await users.getById(runtime.ownerId)
     if (user === null) return []
-    return (await projects.effectiveGrants(user.id)).map(({ path, mode }) => ({ path, mode }))
+    return (await runtimeDirectoryGrants(user, projects)).map(({ path, mode }) => ({ path, mode }))
   },
 }))
 const deps: GatewayDeps = {

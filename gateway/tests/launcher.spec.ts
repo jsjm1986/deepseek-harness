@@ -1,9 +1,17 @@
+import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { PassThrough } from 'node:stream'
+import { describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../src/config.ts'
 import { LocalLauncher, SystemdLauncher, selectLauncher, type SystemdLauncherOptions } from '../src/launcher.ts'
+
+const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }))
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...await importOriginal<typeof import('node:child_process')>(),
+  spawn: spawnMock,
+}))
 
 function systemdOptions(unitDir: string, calls: string[][]): SystemdLauncherOptions {
   return {
@@ -48,6 +56,39 @@ describe('SystemdLauncher', () => {
     await proc.terminate(1000)
     expect(calls).toContainEqual(['stop', 'harness-alice.service'])
     expect(proc.hasExited()).toBe(false)
+  })
+})
+
+describe('LocalLauncher', () => {
+  it('inherits runtime stderr while reserving fd 3 for the private credential', async () => {
+    spawnMock.mockReset()
+    const credentialPipe = new PassThrough()
+    let credential = ''
+    credentialPipe.on('data', chunk => { credential += String(chunk) })
+    const child = Object.assign(new EventEmitter(), {
+      stdio: [null, null, null, credentialPipe],
+      exitCode: null,
+      signalCode: null,
+      kill: vi.fn(),
+    })
+    spawnMock.mockReturnValue(child)
+    const cfg = loadConfig({})
+    cfg.dshCommand = ['node', 'runtime.js', '--port', '{port}']
+    cfg.dshRepoRoot = '/srv/harness/repo'
+    const launcher = new LocalLauncher(cfg)
+
+    await launcher.start({
+      kind: 'user', ownerId: 1, username: 'alice', runtimeKey: 'alice', systemUser: 'harness-alice',
+      port: 42001, homePath: '/srv/harness/users/alice/home', dshHome: '/srv/harness/users/alice/dsh',
+      generation: 2, gatewayCredential: '{"token":"test"}',
+    })
+
+    expect(spawnMock).toHaveBeenCalledWith('node', ['runtime.js', '--port', '42001'], expect.objectContaining({
+      cwd: '/srv/harness/users/alice/home',
+      stdio: ['ignore', 'ignore', 'inherit', 'pipe'],
+      env: expect.objectContaining({ DSH_GATEWAY_CREDENTIAL_FD: '3' }),
+    }))
+    expect(credential).toBe('{"token":"test"}')
   })
 })
 

@@ -231,7 +231,12 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
     if (pathname === '/account/api/usage' && req.method === 'GET') {
       if (deps.governance === undefined) { send(res, 503, '{"error":"usage-unavailable"}', 'application/json'); return }
       const month = new URL(req.url ?? '/', 'http://x').searchParams.get('month') ?? undefined
-      send(res, 200, JSON.stringify(await deps.governance.summary({ kind: 'user', id: user.id }, month)), 'application/json')
+      const resolvedUsage = await requestContext(req, user)
+      if (resolvedUsage.resetScope) res.setHeader('set-cookie', scopeCookie('personal', cfg))
+      const subject = resolvedUsage.context.scope.kind === 'project'
+        ? { kind: 'project' as const, id: resolvedUsage.context.scope.projectId }
+        : { kind: 'user' as const, id: user.id }
+      send(res, 200, JSON.stringify(await deps.governance.summary(subject, month)), 'application/json')
       return
     }
 

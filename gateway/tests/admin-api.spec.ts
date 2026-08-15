@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, unlinkSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createAdminApiHandler } from '../src/admin-api.ts'
 import { AuditService } from '../src/audit.ts'
@@ -143,6 +143,31 @@ describe('admin JSON API', () => {
     expect((await deps.users.getById(admin.id))?.displayName).toBe(original)
   })
 
+  it('rewrites runtime grants when a user gains or loses the administrator role', async () => {
+    const { base, cookie, root, member } = await setup()
+    const grantsPath = join(root, 'users', 'worker', 'dsh', 'directory-grants.json')
+    const promote = await fetch(`${base}/admin/api/users/${member.id}`, {
+      method: 'PATCH',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'admin' }),
+    })
+    expect(promote.status).toBe(204)
+    const filesystemRoot = parse(member.homePath).root
+    expect(JSON.parse(readFileSync(grantsPath, 'utf8'))).toEqual([
+      { path: filesystemRoot, mode: 'rw', label: filesystemRoot },
+    ])
+
+    const demote = await fetch(`${base}/admin/api/users/${member.id}`, {
+      method: 'PATCH',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'user' }),
+    })
+    expect(demote.status).toBe(204)
+    expect(JSON.parse(readFileSync(grantsPath, 'utf8'))).toEqual([
+      { path: member.homePath, mode: 'rw', label: '主目录' },
+    ])
+  })
+
   it('returns 400 when applying grants fails before restart', async () => {
     const { base, cookie, root, member } = await setup()
     const shared = join(root, 'shared'); mkdirSync(shared)
@@ -238,7 +263,6 @@ describe('admin JSON API', () => {
       }),
     })).status).toBe(204)
   })
-
   it('rejects invalid JSON with 400 and leaves non-api /admin unhandled', async () => {
     const { base, cookie } = await setup()
     const bad = await fetch(`${base}/admin/api/projects`, {

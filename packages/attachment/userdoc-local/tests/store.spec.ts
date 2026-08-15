@@ -1,6 +1,6 @@
 import { mkdtemp, lstat, readFile, readdir, rm, stat, symlink, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 /* oxlint-disable typescript/no-unsafe-assignment -- Vitest asymmetric matchers are typed as any. */
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -139,6 +139,19 @@ describe('saveDocFile', () => {
 
     await expect(saveDocFile(uploadRoot, { ...target, path: join(uploadRoot, '..', 'escaped.txt') }, body('x'), LIMITS))
       .rejects.toThrow(expect.objectContaining({ code: INVALID_DOCUMENT_REF_CODE }) as Error)
+  })
+
+  it('refuses target metadata that does not describe one document', async () => {
+    const uploadRoot = await root()
+    const target = await resolveDocTarget(uploadRoot, 'ok.txt', new Date())
+
+    await expect(saveDocFile(uploadRoot, {
+      ...target,
+      path: join(dirname(target.path), 'other.txt'),
+      name: 'other.txt',
+    }, body('x'), LIMITS)).rejects.toMatchObject({ code: INVALID_DOCUMENT_REF_CODE })
+    await expect(saveDocFile(uploadRoot, { ...target, name: 'other.txt' }, body('x'), LIMITS))
+      .rejects.toMatchObject({ code: INVALID_DOCUMENT_REF_CODE })
   })
 
   it('publishes the same resolved target at most once under concurrent saves', async () => {

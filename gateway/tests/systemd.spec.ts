@@ -40,6 +40,22 @@ describe('renderUserUnit', () => {
     expect(unit).toContain('CapabilityBoundingSet=~CAP_SYS_ADMIN')
   })
 
+  it('gives administrators host visibility without changing the non-root account or fixed hardening', () => {
+    const administrator = renderUserUnit(
+      { ...ALICE, privileged: true },
+      [{ path: '/', mode: 'rw' }],
+      OPTS,
+    )
+    expect(administrator).toContain('User=harness-alice')
+    expect(administrator).toContain('ProtectSystem=off')
+    expect(administrator).toContain('ProtectHome=no')
+    expect(administrator).toContain('BindPaths=/')
+    expect(administrator).not.toContain('TemporaryFileSystem=')
+    expect(administrator).toContain('NoNewPrivileges=yes')
+    expect(administrator).toContain('CapabilityBoundingSet=~CAP_SYS_ADMIN')
+    expect(administrator).toContain('InaccessiblePaths=-/srv/harness/gateway')
+  })
+
   it('hides all user dirs then binds only this user home and grants', () => {
     // Every user directory is masked read-only...
     expect(unit).toContain('TemporaryFileSystem=/srv/harness/users:ro')

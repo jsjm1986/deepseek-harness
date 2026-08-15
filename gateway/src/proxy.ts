@@ -7,6 +7,7 @@ import type { UserRow } from './auth.ts'
 import { waitingPage } from './html.ts'
 import type { RuntimeTarget } from './instances.ts'
 import { PRINCIPAL_HEADER, type GatewayPrincipalSigner } from './principal.ts'
+import { runtimeDirectoryGrants } from './runtime-directory-grants.ts'
 import type { GatewayDeps, GatewayRequestContext, ProxyHandler, UpgradeHandler } from './server.ts'
 
 function wantsHtml(req: IncomingMessage): boolean {
@@ -24,7 +25,7 @@ export function createProxyHandlers(
   // just before every spawn, so the child always reads the current grants.
   instances.beforeStart = async (runtime): Promise<void> => {
     if (runtime.user !== undefined) {
-      writeRuntimeGrantsFile(runtime.dshHome, await projects.effectiveGrants(runtime.user.id))
+      writeRuntimeGrantsFile(runtime.dshHome, await runtimeDirectoryGrants(runtime.user, projects))
       if (deps.governance !== undefined) await writeModelGovernanceFile(cfg, deps.governance, runtime.user)
       return
     }

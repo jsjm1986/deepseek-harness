@@ -190,7 +190,7 @@ export function apply(ctx: Context, config: Config): void {
       : launchEnvironmentOf(ctx).get(ref)
     if (resolved !== undefined && resolved.value.length > 0) return {
       value: assertUsableApiKey(resolved.value, 'llm-pi-ai', ref),
-      source: 'source' in resolved ? resolved.source : 'unknown',
+      source: resolved.source,
     }
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`

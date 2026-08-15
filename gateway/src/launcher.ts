@@ -29,6 +29,8 @@ export interface RuntimeProcessIdentity {
   runtimeKey: string
   /** Exact Linux account for systemd. */
   systemUser: string
+  /** Whether the personal runtime receives administrator filesystem policy. */
+  privileged?: boolean
   port: number
   /** Absolute writable home (also the instance cwd / workspace root). */
   homePath: string
@@ -94,7 +96,7 @@ export class LocalLauncher implements Launcher {
         // and ignores the variable.
         TSX_TSCONFIG_PATH: join(this.cfg.dshRepoRoot, 'tsconfig.base.json'),
       },
-      stdio: ['ignore', 'ignore', 'ignore', 'pipe'],
+      stdio: ['ignore', 'ignore', 'inherit', 'pipe'],
     })
     const credentialPipe = child.stdio[3] as Writable | null | undefined
     if (credentialPipe === null || credentialPipe === undefined) {

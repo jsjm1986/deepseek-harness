@@ -24,7 +24,7 @@ function acknowledgementOf(view: SettingsNamespaceView): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
-/** Coordinates durable Host acknowledgement or a process-local remote fallback. */
+/** Coordinates durable Host acknowledgement or a process-local read-only fallback. */
 export class WelcomeNoticeStore {
   /** uSES-safe state source shared by the registered welcome step. */
   readonly store: SnapshotStore<WelcomeNoticeState> = createSnapshotStore({
@@ -32,6 +32,8 @@ export class WelcomeNoticeStore {
   })
 
   private generation = 0
+  private hostWritable: boolean | undefined
+  private localAcknowledged = false
 
   /**
    * @param api - settings wire face used for durable reads and writes.
@@ -46,22 +48,28 @@ export class WelcomeNoticeStore {
   /** Load the acknowledgement from Host settings or initialize process-local state. */
   async load(): Promise<void> {
     const generation = ++this.generation
-    if (this.persistence === 'memory') {
-      this.store.update((state) => { state.status = 'ready'; state.error = null })
+    if (this.persistence === 'memory' || this.localAcknowledged) {
+      this.store.update((state) => {
+        state.status = 'ready'
+        state.acknowledged = this.localAcknowledged
+        state.error = null
+      })
       return
     }
     this.store.update((state) => { state.status = 'loading'; state.error = null })
     try {
       const response = await this.api.settings.describe({})
       if (!response.result.ok) throw new Error(response.result.error.message)
-      const view = response.result.value.namespaces.find(
+      const { namespaces, writable } = response.result.value
+      const view = namespaces.find(
         candidate => candidate.ns === WELCOME_NOTICE_SETTINGS_NAMESPACE,
       )
-      if (view === undefined) throw new Error('welcome acknowledgement settings are unavailable')
+      if (view === undefined && writable) throw new Error('welcome acknowledgement settings are unavailable')
       if (generation !== this.generation) return
+      this.hostWritable = writable
       this.store.update((state) => {
         state.status = 'ready'
-        state.acknowledged = acknowledgementOf(view) === WELCOME_NOTICE_VERSION
+        state.acknowledged = view !== undefined && acknowledgementOf(view) === WELCOME_NOTICE_VERSION
         state.error = null
       })
     } catch (error) {
@@ -80,7 +88,8 @@ export class WelcomeNoticeStore {
    */
   async acknowledge(): Promise<boolean> {
     const generation = ++this.generation
-    if (this.persistence === 'memory') {
+    if (this.persistence === 'memory' || this.hostWritable === false) {
+      this.localAcknowledged = true
       this.store.update((state) => {
         state.status = 'ready'
         state.acknowledged = true

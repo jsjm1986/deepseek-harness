@@ -36,7 +36,7 @@ DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用
 | `HGW_READINESS_TIMEOUT_MS` | 30 秒 | 实例就绪等待上限 |
 | `HGW_LAUNCHER` | `local` | 实例启动驱动：`local`（macOS 开发子进程）/ `systemd`（Linux 生产每用户单元） |
 | `HGW_SYSTEMD_UNIT_DIR` | `/etc/systemd/system` | systemd 驱动写每用户单元文件的目录 |
-| `HGW_GUARD_PATCH` | `<仓库>/plugins/dsh-directory-guard/cordis.patch.yml` | 挂载进每个实例的 directory-guard bundle 补丁；`off` 关闭 |
+| `HGW_GUARD_PATCH` | `<仓库>/plugins/dsh-directory-guard/cordis.patch.yml` | 挂载进每个实例的 directory-guard bundle 补丁；同目录的管理员覆盖层为管理员恢复 Full access；`off` 关闭 |
 | `HGW_MODEL_GOVERNANCE_PACKAGE` | `<仓库>/plugins/dsh-model-governance` | 链接进每个 profile 的树外实例授权与用量插件 |
 | `HGW_DEFAULT_ENV_FILE` | （空） | 每次启动复制到实例 `$DSH_HOME/.env` 的公司默认凭据 |
 | `HGW_MEMORY_MAX` / `HGW_CPU_QUOTA` | `1G` / `100%` | 每实例 systemd 资源限额 |
@@ -46,7 +46,7 @@ DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用
 
 ## 管理端与项目授权
 
-`/admin` 托管从 `gateway/admin-ui` 构建到 `gateway/public/admin` 的 Vite SPA；`/admin/api/*` 是网关 JSON API（非 `admin` 角色 403）。授权按项目：一个项目对应一个已存在的绝对目录，成员为 `ro` 或 `rw`，每个用户的有效列表（私有 home 加成员身份，每条带 `label`）写入 `$DSH_HOME/directory-grants.json`。创建项目不会创建宿主机目录；路径不存在、不是目录或 Gateway 无权访问时，创建弹窗会保留输入并显示修正提示。项目路径不能与另一项目、用户 home、用户根或项目运行时根重叠；systemd 启动器还要求每个项目严格位于某个 `HGW_PROJECT_PATH_ROOTS` 条目之下，并避开 Gateway 目录。
+`/admin` 托管从 `gateway/admin-ui` 构建到 `gateway/public/admin` 的 Vite SPA；`/admin/api/*` 是网关 JSON API（非 `admin` 角色 403）。授权按项目：一个项目对应一个已存在的绝对目录，成员为 `ro` 或 `rw`，普通用户的有效列表（私有 home 加成员身份，每条带 `label`）写入 `$DSH_HOME/directory-grants.json`。管理员改为得到一条文件系统根目录的 `rw` 授权，以及一份恢复 Full access 预设的 Cordis 覆盖层。角色变化会重写这份投影，并重启正在运行的个人实例。创建项目不会创建宿主机目录；路径不存在、不是目录或 Gateway 无权访问时，创建弹窗会保留输入并显示修正提示。项目路径不能与另一项目、用户 home、用户根或项目运行时根重叠；systemd 启动器还要求每个项目严格位于某个 `HGW_PROJECT_PATH_ROOTS` 条目之下，并避开 Gateway 目录。
 
 管理端的用户、项目、模型、用量和审计页面共用一套视觉系统：克制的表面色、统一的页面与分区标题、状态徽标、明确的加载/空状态/错误状态、键盘焦点环，以及用于变更操作的弹窗表单。项目详情包含成员、实例状态、自然月 token/成本/缺失用量汇总，并要求明确选择额度模式：继承普通成员额度，或同时提交项目 token 与公司成本额度。视口宽度大于 `840px` 时使用固定侧栏和便于横向比较的数据表；宽度不超过 `840px` 时，侧栏变为吸顶品牌栏加五项固定底部导航，表格行切换为易读的卡片。宽度不超过 `560px` 时，表单网格改为单列、操作按钮填满可用宽度，弹窗接近全屏并让正文独立滚动。粗指针控件预留 `44px` 触控目标，同时遵循深色配色和减少动画偏好。修改界面后运行 `npm run build --prefix gateway/admin-ui` 重新生成静态资源；运行中的网关直接提供生成后的 `gateway/public/admin` 文件，不需要数据库迁移。
 
@@ -70,4 +70,4 @@ Session ACL 检查会在每次操作中查询当前成员身份。只依赖 scop
 
 ## 目录强制的分层
 
-网关只做认证与编排；目录边界由两层强制：Linux 生产的 systemd 挂载命名空间（内核层，读写都管，覆盖整个进程树），加每个实例内加载的 [dsh-directory-guard](../plugins/dsh-directory-guard/README.md) 插件（检查结构化路径工具参数的 `tools/pre-execute` 监听器）。每个单元会先把用户根、项目运行时根和所有已配置项目根挂成空的只读文件系统，再仅回绑该运行时的 home、`$DSH_HOME` 与获准项目目录；`ProtectHome=tmpfs` 和移除 `CAP_SYS_ADMIN` 会阻止进程通过普通 home 访问或挂载操作找回被隐藏的宿主路径。同一份 home 补丁会停用 `directory-picker-auto` 并挂上应用内 browse 组合，使公网域名上的浏览器在页面里选择工作区目录，而不是在宿主桌面打开系统选文件夹框。授权文件含至少一条有效 path 时，该 browse 后端列出这些根并拒绝根外路径。共享项目单元以 `HGW_PROJECT_RUNTIME_USER` 运行，只绑定项目路径与其私有 `$DSH_HOME`，并把凭据设置暴露为只读。macOS 没有 systemd 挂载命名空间，因此个人和共享项目的全进程约束仍属于开发环境限制。
+网关只做认证与编排；普通用户目录访问由 Linux 生产的 systemd 挂载命名空间和每个实例内加载的 [dsh-directory-guard](../plugins/dsh-directory-guard/README.md) 插件共同强制。普通用户单元会先遮蔽用户根、项目运行时根和已配置项目根，再仅回绑运行时 home、`$DSH_HOME` 与获准项目目录；`ProtectSystem=strict`、`ProtectHome=tmpfs` 和移除 `CAP_SYS_ADMIN` 覆盖整个进程树。home 补丁还会用应用内目录浏览器替代宿主操作系统选择器，由浏览器列出授权根并拒绝根外路径。管理员保留同一插件组合，但得到文件系统根目录授权和 Full access 预设；其 systemd 单元取消普通用户的目录遮蔽与系统/home 只读设置，同时继续使用非 root 运行时账户，并保留 `NoNewPrivileges`、能力限制和 Gateway 目录排除。共享项目单元以 `HGW_PROJECT_RUNTIME_USER` 运行，只绑定项目路径与其私有 `$DSH_HOME`，并把凭据设置暴露为只读。macOS 没有 systemd 挂载命名空间，因此普通用户和共享项目的全进程约束仍属于开发环境限制。

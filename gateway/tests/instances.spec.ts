@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -20,6 +20,7 @@ async function setup(extraEnv: Record<string, string> = {}) {
   const guardDir = join(root, 'plugins', 'dsh-directory-guard')
   mkdirSync(guardDir, { recursive: true })
   writeFileSync(join(guardDir, 'cordis.patch.yml'), '- insert: []\n')
+  writeFileSync(join(guardDir, 'cordis.admin.patch.yml'), '- id: permission\n  config:\n    presets:\n      danger-full-access:\n        sandbox: danger-full-access\n        approval: never\n')
   const governanceDir = join(root, 'plugins', 'dsh-model-governance')
   mkdirSync(governanceDir, { recursive: true })
   writeFileSync(join(governanceDir, 'package.json'), '{}')
@@ -141,6 +142,23 @@ describe('InstanceManager', () => {
     const modules = join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
     expect(readlinkSync(join(modules, 'dsh-directory-guard'))).toBe(join(root, 'plugins', 'dsh-directory-guard'))
     expect(readlinkSync(join(modules, 'dsh-model-governance'))).toBe(join(root, 'plugins', 'dsh-model-governance'))
+  })
+
+  it('appends the administrator permission overlay after the restricted guard patch', async () => {
+    const { root, users, manager } = await setup({ HGW_INSTANCE_PORT_BASE: '43130' })
+    const admin = await users.create({ username: 'admin', password: 'pw-123456', role: 'admin' })
+    await manager.ensureRunning(admin)
+    const patch = readFileSync(join(root, 'users', 'admin', 'dsh', 'cordis.patch.yml'), 'utf8')
+    expect(patch).toContain('- insert: []\n- id: permission\n')
+    expect(patch).toContain('danger-full-access:\n        sandbox: danger-full-access\n        approval: never\n')
+  })
+
+  it('refuses an administrator start when the configured guard has no admin overlay', async () => {
+    const { root, users, manager } = await setup({ HGW_INSTANCE_PORT_BASE: '43150' })
+    rmSync(join(root, 'plugins', 'dsh-directory-guard', 'cordis.admin.patch.yml'))
+    const admin = await users.create({ username: 'admin', password: 'pw-123456', role: 'admin' })
+    await expect(manager.ensureRunning(admin)).rejects.toThrow(/directory-guard admin patch not found/)
+    expect(await manager.stateOf(admin.id)).not.toBe('ready')
   })
 
   it('HGW_GUARD_PATCH=off disables only the directory guard and keeps model governance', async () => {

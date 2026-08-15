@@ -14,6 +14,7 @@ import {
 const POLL_INTERVAL_MS = 300
 const STOP_GRACE_MS = 5000
 const MANAGED_CREDENTIALS_FILENAME = '.credentials.yaml'
+const ADMIN_GUARD_PATCH_FILENAME = 'cordis.admin.patch.yml'
 const PROJECT_RUNTIME_PATCH = `- id: session-persistence-jsonl
   disabled: true
 - insert:
@@ -246,6 +247,7 @@ export class InstanceManager {
         username: subject.username,
         runtimeKey: subject.username,
         systemUser: `harness-${subject.username}`,
+        privileged: subject.role === 'admin',
         port: await this.portOf(target),
         homePath: subject.homePath,
         dshHome: join(this.cfg.usersRoot, subject.username, 'dsh'),
@@ -260,6 +262,7 @@ export class InstanceManager {
       username: `project-${String(subject.id)}`,
       runtimeKey: `project-${String(subject.id)}`,
       systemUser: this.cfg.projectRuntimeUser,
+      privileged: false,
       port: await this.portOf(target),
       homePath: subject.path,
       dshHome: join(this.cfg.projectRuntimesRoot, String(subject.id), 'dsh'),
@@ -312,6 +315,13 @@ export class InstanceManager {
         if (lstatSync(guardLink, { throwIfNoEntry: false }) !== undefined) rmSync(guardLink, { recursive: true })
         symlinkSync(guardDir, guardLink, 'dir')
         patchText += readFileSync(guardPatch, 'utf8').trimEnd() + '\n'
+        if (runtime.user?.role === 'admin') {
+          const adminPatch = join(guardDir, ADMIN_GUARD_PATCH_FILENAME)
+          if (!existsSync(adminPatch)) {
+            throw new Error(`directory-guard admin patch not found: ${adminPatch}`)
+          }
+          patchText += readFileSync(adminPatch, 'utf8').trimEnd() + '\n'
+        }
       }
       if (runtime.kind === 'project') patchText += PROJECT_RUNTIME_PATCH
       writeFileSync(join(dshHome, 'cordis.patch.yml'), patchText)

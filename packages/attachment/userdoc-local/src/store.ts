@@ -1,6 +1,6 @@
 /** Real-file document storage below a per-user upload root. */
 
-import { constants } from 'node:fs'
+import { constants, type Stats } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { lstat, link, mkdir, open, readdir, realpath, unlink } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -21,6 +21,7 @@ import { assertInside, docIdFor, pathForDocId, resolveTargetIn } from './name.ts
 
 /** Suffix identifying an unpublished random staging file. */
 const PARTIAL_SUFFIX = '.part'
+/* v8 ignore next -- the fallback runs only on platforms whose fs constants omit O_NOFOLLOW. */
 // oxlint-disable-next-line typescript/no-unnecessary-condition -- O_NOFOLLOW is absent on platforms that do not expose the flag.
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0
 
@@ -53,6 +54,18 @@ async function openDocument(root: string, path: string) {
       throw new UserDocError('Document not found.', DOCUMENT_NOT_FOUND_CODE)
     }
     throw new UserDocError('Unable to read the stored document.', DOCUMENT_READ_FAILED_CODE, { cause: error })
+  }
+}
+
+function documentRef(root: string, path: string, info: Pick<Stats, 'size' | 'mtimeMs'>): UserDocRef {
+  const name = basename(path)
+  return {
+    docId: docIdFor(root, path),
+    path,
+    name,
+    bytes: info.size,
+    mediaType: mediaTypeFor(name),
+    modifiedAt: info.mtimeMs,
   }
 }
 
@@ -218,14 +231,7 @@ export async function listDocFiles(root: string, signal?: AbortSignal): Promise<
       if (entry.name.endsWith(PARTIAL_SUFFIX)) continue
       const { handle, info } = await openDocument(root, path)
       await handle.close()
-      refs.push({
-        docId: docIdFor(root, path),
-        path,
-        name: entry.name,
-        bytes: info.size,
-        mediaType: mediaTypeFor(entry.name),
-        modifiedAt: info.mtimeMs,
-      })
+      refs.push(documentRef(root, path, info))
     }
   }
   return refs.sort((left, right) => right.modifiedAt - left.modifiedAt)
@@ -244,15 +250,7 @@ export async function statDocFile(root: string, docId: UserDocId, signal?: Abort
   const path = pathForDocId(root, docId)
   const { handle, info } = await openDocument(root, path)
   await handle.close()
-  const name = basename(path)
-  return {
-    docId: docIdFor(root, path),
-    path,
-    name,
-    bytes: info.size,
-    mediaType: mediaTypeFor(name),
-    modifiedAt: info.mtimeMs,
-  }
+  return documentRef(root, path, info)
 }
 
 /**
@@ -267,11 +265,7 @@ export async function readDocFile(root: string, docId: UserDocId, signal?: Abort
   signal?.throwIfAborted()
   const path = pathForDocId(root, docId)
   const { handle, info } = await openDocument(root, path)
-  const name = basename(path)
-  const ref: UserDocRef = {
-    docId: docIdFor(root, path), path, name, bytes: info.size,
-    mediaType: mediaTypeFor(name), modifiedAt: info.mtimeMs,
-  }
+  const ref = documentRef(root, path, info)
   try {
     return { ref, data: new Uint8Array(await handle.readFile(signal === undefined ? undefined : { signal })) }
   } catch (error) {
@@ -299,11 +293,7 @@ export async function openDocFile(
 ): Promise<{ ref: UserDocRef; body: ReadableStream<Uint8Array> }> {
   const path = pathForDocId(root, docId)
   const { handle, info } = await openDocument(root, path)
-  const name = basename(path)
-  const ref: UserDocRef = {
-    docId: docIdFor(root, path), path, name, bytes: info.size,
-    mediaType: mediaTypeFor(name), modifiedAt: info.mtimeMs,
-  }
+  const ref = documentRef(root, path, info)
   // The handle's own stream closes the descriptor when the consumer cancels or
   // reaches the end, so an abandoned download cannot leak it.
   return { ref, body: Readable.toWeb(handle.createReadStream()) as ReadableStream<Uint8Array> }

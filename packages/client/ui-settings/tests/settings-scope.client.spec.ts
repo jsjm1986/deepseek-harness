@@ -78,6 +78,17 @@ describe('SettingsScopeController', () => {
     })
   })
 
+  it('marks an initially rejected Host read as unavailable', async () => {
+    const scope = new SettingsScopeController<UiTestSettings>(
+      { settings: { describe: vi.fn().mockResolvedValueOnce(rejected()) } } as never,
+      { namespace: 'ui-test' },
+    )
+
+    await scope.load()
+
+    expect(scope.getSnapshot()).toMatchObject({ status: 'unavailable', value: undefined })
+  })
+
   it('keeps the last good value across invalid, rejected, and failed reads while tracking revisions', async () => {
     const describeCall = vi.fn()
       .mockResolvedValueOnce(described({ preference: 'dark' }, 3))
@@ -273,6 +284,28 @@ describe('SettingsScopeController', () => {
     await scope.load()
     expect(mutate).toHaveBeenCalledOnce()
     expect(describeCall).not.toHaveBeenCalled()
+    expect(published).toEqual([undefined])
+  })
+
+  it('drains an in-flight read without publishing after disposal', async () => {
+    const pending = deferred<ReturnType<typeof described>>()
+    const describeCall = vi.fn().mockReturnValueOnce(pending.promise)
+    const scope = new SettingsScopeController<UiTestSettings>(
+      { settings: { describe: describeCall } } as never,
+      { namespace: 'ui-test' },
+    )
+    const published = trackValues(scope)
+    const load = scope.load()
+    await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledOnce() })
+    let stopped = false
+    const stop = scope.dispose().then(() => { stopped = true })
+
+    await Promise.resolve()
+    expect(stopped).toBe(false)
+    pending.resolve(described({ preference: 'dark' }, 1))
+    await Promise.all([load, stop])
+
+    expect(scope.getSnapshot().status).toBe('loading')
     expect(published).toEqual([undefined])
   })
 

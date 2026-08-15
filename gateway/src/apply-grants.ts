@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { GatewayConfig } from './config.ts'
 import type { EffectiveGrant } from './projects.ts'
+import { runtimeDirectoryGrants } from './runtime-directory-grants.ts'
 import type { GatewayDeps } from './server.ts'
 
 /**
@@ -38,7 +39,7 @@ export async function applyGrantsToUser(
 ): Promise<'restarted' | 'written'> {
   const user = await deps.users.getById(userId)
   if (user === null) throw new Error(`no user ${userId}`)
-  writeGrantsFile(deps.cfg, user.username, await deps.projects.effectiveGrants(userId))
+  writeGrantsFile(deps.cfg, user.username, await runtimeDirectoryGrants(user, deps.projects))
   const state = await deps.instances.stateOf(userId)
   if (state !== 'ready' && state !== 'starting') return 'written'
   try {

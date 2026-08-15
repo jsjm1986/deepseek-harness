@@ -1,5 +1,5 @@
-// Trusted non-loopback Web access cannot call the loopback-only settings API;
-// the notice therefore advances for this browser process and returns on reload.
+// Direct non-loopback Web access cannot call the loopback-only settings API;
+// acknowledgement therefore fails closed and the notice remains across reloads.
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -38,22 +38,23 @@ describe.skipIf(MODE === 'record')('web e2e: remote welcome notice', () => {
     await scaffold?.close()
   })
 
-  it('advances process-locally and presents the notice again after reload', async () => {
+  it('keeps the notice blocking when acknowledgement cannot be persisted', async () => {
     const welcome = page.getByRole('dialog', { name: WELCOME_NOTICE_COPY.zh.title })
     await welcome.waitFor({ timeout: 15_000 })
     expect(await page.locator('#root').evaluate(root => (root as HTMLElement).inert)).toBe(true)
 
     await welcome.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel }).click()
-    await welcome.waitFor({ state: 'detached', timeout: 15_000 })
-    await expect.poll(
-      () => page.locator('#root').evaluate(root => (root as HTMLElement).inert),
-      { timeout: 15_000 },
-    ).toBe(false)
+    const error = welcome.getByRole('alert')
+    await error.waitFor({ timeout: 15_000 })
+    expect(await error.textContent()).toBe('暂时无法保存确认状态，请重试。')
+    expect(await welcome.count()).toBe(1)
+    expect(await page.locator('#root').evaluate(root => (root as HTMLElement).inert)).toBe(true)
 
     const reloadWarnings = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     acknowledgeReloadConnectionLoss(tripwire, reloadWarnings)
     await welcome.waitFor({ timeout: 15_000 })
+    expect(await page.locator('#root').evaluate(root => (root as HTMLElement).inert)).toBe(true)
     expect(tripwire.warnings).toEqual([])
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)

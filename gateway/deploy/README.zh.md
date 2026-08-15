@@ -12,8 +12,10 @@
 
 ## 安装
 
-1. 把 `gateway/` 复制到 `/srv/harness/gateway`；用生产 Node 在该目录执行 `npm install && npm rebuild better-sqlite3 argon2`。`public/admin` 已被 gitignore，因此还须执行 `npm run build --prefix gateway/admin-ui`（在仓库根目录；复制之后则是 `npm run build --prefix admin-ui`），否则不会提供管理端 SPA。
-2. 把 `plugins/dsh-directory-guard/` 复制到 `/srv/harness/plugins/dsh-directory-guard`，把 `plugins/dsh-model-governance/` 复制到 `/srv/harness/plugins/dsh-model-governance`。复制前分别按其 TypeScript 配置构建，或直接复制已纳入版本控制的 `lib/` 产物；钉死的 npm dsh 以纯 Node 运行，没有 tsx。即使 `HGW_GUARD_PATCH=off`，模型治理仍是强制项。
+在精确的发布 checkout 中执行 `pnpm install --frozen-lockfile && pnpm run build:production`。该生产入口会构建 Harness 库与 Web 应用、两个树外插件和 Admin SPA，对 Gateway 做类型检查，并在缺少任何 CLI、Web、Gateway、Admin、插件、管理员覆盖层或协作 migration 产物时拒绝发布。
+
+1. 把构建完成的 `gateway/` 目录复制到 `/srv/harness/gateway`；用生产 Node 在该目录执行 `npm install && npm rebuild better-sqlite3 argon2`。`public/admin` 已被 gitignore，因此只能在 `build:production` 生成该目录后再从 checkout 复制。
+2. 把构建完成的 `plugins/dsh-directory-guard/` 目录复制到 `/srv/harness/plugins/dsh-directory-guard`，把 `plugins/dsh-model-governance/` 复制到 `/srv/harness/plugins/dsh-model-governance`。钉死的 npm dsh 以纯 Node 运行插件 `lib/`，不使用 tsx。即使 `HGW_GUARD_PATCH=off`，模型治理仍是强制项。
 3. 把公司默认凭据写入 `/srv/harness/gateway-data/company.env`（`DEEPSEEK_API_KEY=...`，权限 600）。每次运行时启动都会把它复制到 `$DSH_HOME/.env`；用户在 Settings 里设置的个人 key 存放于 `.credentials.yaml`，优先级更高，共享项目运行时则把凭据设置暴露为只读并使用公司来源。
 4. 启动 [`deploy/postgres/`](postgres/README.md)，应用 migration，并创建权限为 `0600` 的数据库 URL 文件。在启动 Gateway 前，导入冻结的 SQLite 控制面，或创建配置的企业与计算节点。
 5. 创建仅所有者可访问的 `/srv/harness/gateway-data/principal-keys` 和 `/srv/harness/gateway-data/runtime-credentials`，以及 `/srv/harness/project-runtimes` 和 `/srv/harness/projects`。把 `deploy/harness-gateway.service` 复制到 `/etc/systemd/system/`；调整数据库 URL 文件、`HGW_ORGANIZATION_SLUG`、`HGW_COMPUTE_NODE_NAME`、`HGW_PUBLIC_ORIGINS`、`HGW_PROJECT_PATH_ROOTS`、项目运行时账户/根目录、principal/凭据目录、插件路径和其他宿主机路径，然后执行 `systemctl daemon-reload && systemctl enable --now harness-gateway`。

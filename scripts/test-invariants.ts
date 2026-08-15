@@ -16,6 +16,15 @@ import type {
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
+import { UserDocStore } from '@deepseek-ai/dsh-userdoc'
+import type {
+  ResolveUserDocTarget,
+  StoredUserDoc,
+  UserDocId,
+  UserDocLimits,
+  UserDocRef,
+  UserDocTarget,
+} from '@deepseek-ai/dsh-userdoc'
 
 declare global {
   interface ImportMeta {
@@ -110,6 +119,7 @@ export function usesManualInvariantTree(testPath: string): boolean {
 
 const ALL_COMPANION_TESTS = ['/scripts/test-invariants.spec.ts'] as const
 const ATTACHMENT_COMPANION = '../packages/attachment/attachment-local/src/invariant.ts'
+const USERDOC_COMPANION = '../packages/attachment/userdoc-local/src/invariant.ts'
 
 class TestAttachmentStore extends AttachmentStore {
   readonly imageLimits: ImageAttachmentLimits = {
@@ -130,6 +140,47 @@ class TestAttachmentStore extends AttachmentStore {
 
   readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
     return Promise.reject(new Error('test invariant attachment store does not read images'))
+  }
+}
+
+class TestUserDocStore extends UserDocStore {
+  readonly limits: UserDocLimits = {
+    maxFileBytes: 1,
+    maxFilesPerMessage: 1,
+    maxMessageBytes: 1,
+    maxInlineTextBytes: 1,
+  }
+
+  resolveTarget(_input: ResolveUserDocTarget): Promise<UserDocTarget> {
+    return Promise.reject(new Error('test invariant user document store does not resolve targets'))
+  }
+
+  save(
+    _target: UserDocTarget,
+    _body: ReadableStream<Uint8Array>,
+    _signal?: AbortSignal,
+  ): Promise<UserDocRef> {
+    return Promise.reject(new Error('test invariant user document store does not save documents'))
+  }
+
+  list(_signal?: AbortSignal): Promise<UserDocRef[]> {
+    return Promise.reject(new Error('test invariant user document store does not list documents'))
+  }
+
+  stat(_docId: UserDocId, _signal?: AbortSignal): Promise<UserDocRef> {
+    return Promise.reject(new Error('test invariant user document store does not stat documents'))
+  }
+
+  read(_docId: UserDocId, _signal?: AbortSignal): Promise<StoredUserDoc> {
+    return Promise.reject(new Error('test invariant user document store does not read documents'))
+  }
+
+  openRead(_docId: UserDocId): Promise<{ ref: UserDocRef; body: ReadableStream<Uint8Array> }> {
+    return Promise.reject(new Error('test invariant user document store does not open documents'))
+  }
+
+  remove(_docId: UserDocId, _signal?: AbortSignal): Promise<void> {
+    return Promise.reject(new Error('test invariant user document store does not remove documents'))
   }
 }
 
@@ -178,9 +229,14 @@ function startInvariantHost(root: Context): InvariantHost {
   const testPath = expect.getState().testPath ?? ''
   const companionPaths = testInvariantCompanionPaths(testPath)
   const ready = requireActive(serviceFiber, 'invariant service').then(async () => {
-    const attachmentFiber = companionPaths.includes(ATTACHMENT_COMPANION)
-      ? mount(TestAttachmentStore)
-      : undefined
+    const supportFibers = [
+      ...(companionPaths.includes(ATTACHMENT_COMPANION)
+        ? [{ fiber: mount(TestAttachmentStore), label: 'test attachment store' }]
+        : []),
+      ...(companionPaths.includes(USERDOC_COMPANION)
+        ? [{ fiber: mount(TestUserDocStore), label: 'test user document store' }]
+        : []),
+    ]
     const companions = await Promise.all(companionPaths.map(async (path) => {
       const load = testInvariantCompanions[path]
       if (load === undefined) {
@@ -197,9 +253,7 @@ function startInvariantHost(root: Context): InvariantHost {
       path,
     }))
     await Promise.all([
-      ...(attachmentFiber === undefined
-        ? []
-        : [requireActive(attachmentFiber, 'test attachment store')]),
+      ...supportFibers.map(({ fiber, label }) => requireActive(fiber, label)),
       ...companionFibers.map(({ fiber, path }) => requireActive(fiber, path)),
     ])
     root.provide(TEST_INVARIANT_READY_SERVICE, true)

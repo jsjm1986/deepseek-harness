@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { applyGrantsToUser } from '../src/apply-grants.ts'
 import { AuditService } from '../src/audit.ts'
@@ -68,5 +68,15 @@ describe('applyGrantsToUser', () => {
     const audited = deps.audit.query({ action: 'admin.instances.restart-failed' })
     expect(audited[0]?.userId).toBe(admin.id)
     expect(audited[0]?.detail).toContain(String(alice.id))
+  })
+
+  it('writes a filesystem-root rw grant for administrators', async () => {
+    const { deps, admin, root } = await setup()
+    expect(await applyGrantsToUser(deps, admin.id, admin.id)).toBe('written')
+    const body = JSON.parse(
+      readFileSync(join(root, 'users', 'admin', 'dsh', 'directory-grants.json'), 'utf8'),
+    )
+    const filesystemRoot = parse(admin.homePath).root
+    expect(body).toEqual([{ path: filesystemRoot, mode: 'rw', label: filesystemRoot }])
   })
 })

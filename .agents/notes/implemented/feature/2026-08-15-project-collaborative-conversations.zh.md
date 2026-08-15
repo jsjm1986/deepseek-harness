@@ -22,7 +22,7 @@ Gateway 为个人 scope 的每个用户分配一个运行时，并为每个项�
 
 每条获准的人类消息都会附上已认证项目参与者元数据，并存入普通 `user/message` source。`dsh-collaboration-context` 在 `agent/pre-step` waterfall 委托后，立即在该消息前插入一条持久、模型可见的元数据提示，因此模型能够区分贡献者，回放也能重建相同归属。PostgreSQL 从已提交事件投影参与者和贡献次数；后续账户或成员身份编辑不会重写历史归属。
 
-`dsh-client-ui-collaboration` 负责浏览器 scope 选择器、新根对话可见性选择、对话可见性/创建者/参与者菜单，以及供 `ro` 成员使用的完整只读 composer 替换。它使用已有 Client slot 和 `sessions/prepare-create` waterfall，而不修改对话 shell。切换 scope 会刷新页面，因为个人与项目 scope 指向不同 Host 进程。浏览器控件只提供操作入口；签名 principal、Host 授权、内部 API 和 PostgreSQL 事务仍具有权威性。
+`dsh-client-ui-collaboration` 负责浏览器 scope 选择器、新根对话可见性选择、对话可见性/创建者/参与者菜单，以及供 `ro` 成员使用的完整只读 composer 替换。它使用已有 Client slot 和 `sessions/prepare-create` waterfall，而不修改对话 shell。切换 scope 会刷新页面，因为个人与项目 scope 指向不同 Host 进程。共享项目运行时把 Host 设置暴露为只读：设置消费方不会尝试修改，欢迎提示只在当前 Client 进程内保留确认，因此整页重新加载后会再次显示。浏览器控件只提供操作入口；签名 principal、Host 授权、内部 API 和 PostgreSQL 事务仍具有权威性。
 
 Linux systemd 单元会先用只读临时文件系统遮蔽用户根、项目运行时根与所有已配置项目数据根，再仅回绑当前运行时 home、`$DSH_HOME` 和获准项目路径。`ProtectHome=tmpfs` 与不含 `CAP_SYS_ADMIN` 的 capability 集合会阻止实例通过 home 目录或挂载操作找回被隐藏的宿主目录树。项目创建会拒绝与用户、运行时数据、Gateway 目录或另一项目重叠的路径，并要求每个生产项目路径严格位于某个互不重叠的 `HGW_PROJECT_PATH_ROOTS` 条目之下。共享单元不得以 root 运行。Gateway 启动会用 PostgreSQL advisory transaction lock 串行化节点本地端口分配，并从 `HGW_INSTANCE_PORT_BASE` 开始创建缺失的活跃项目运行时记录。
 
@@ -30,9 +30,11 @@ Linux systemd 单元会先用只读临时文件系统遮蔽用户根、项目运
 
 删除项目时会先停止共享运行时，同时继续持有该运行时的串行实例操作槽，再删除 PostgreSQL 项目。外键级联会移除它的运行时行、成员与挂载、对话树与事件、参与者与交互记录、模型用量、额度与告警行、intake token 和内容文件元数据。项目目录本身永远不会被删除。
 
+仓库生产入口 `pnpm run build:production` 会构建 Harness 库与 Web 应用、两个必需的树外插件和 Admin SPA，对 Gateway 做类型检查，并在发布树缺少任何必需的 CLI、Web、Admin、插件、管理员覆盖层或协作 migration 产物时拒绝发布。
+
 ## 验证
 
-包测试覆盖 principal 与启动凭据验证、提供方 dispose、严格事件响应解码、根继承 ACL、参与者归属与 invariant、Gateway 持久化行为、Client 状态与组件行为，以及 `ro` composer 替换。Gateway 测试覆盖 systemd 遮蔽与回绑、项目根校验、运行时写入 envelope 拒绝和配置端口解析。Host/API Proxy 测试覆盖各类会话操作拒绝、可读列表过滤、参与者传播、根创建可见性，以及审批/问题原子抢占。真实 PostgreSQL 测试覆盖迁移 3、从空节点配置端口基准分配共享运行时、创建者/私密可见性、子会话继承、贡献投影、成员移除保护、交互竞态、项目凭据、项目用量和显式项目额度模式。无密钥组装态 Web 浏览器场景通过交付的 Client 组合覆盖项目 scope、可见性控件、参与者展示和 `ro` 体验。
+包测试覆盖 principal 与启动凭据验证、提供方 dispose、严格事件响应解码、根继承 ACL、参与者归属与 invariant、Gateway 持久化行为、Client 状态与组件行为、只读欢迎确认回退，以及 `ro` composer 替换。Gateway 测试覆盖 systemd 遮蔽与回绑、项目根校验、运行时写入 envelope 拒绝和配置端口解析。Host/API Proxy 测试覆盖各类会话操作拒绝、可读列表过滤、参与者传播、根创建可见性，以及审批/问题原子抢占。真实 PostgreSQL 测试覆盖 migration 3、从空节点配置端口基准分配共享运行时、创建者/私密可见性、子会话继承、贡献投影、成员移除保护、交互竞态、项目凭据、项目用量和显式项目额度模式。无密钥组装态 Web 浏览器场景通过交付的 Client 组合覆盖项目 scope、可见性控件、参与者展示、`ro` 体验和进程内欢迎确认。生产构建入口会在每个组件构建后验证完整运行时载荷。
 
 ## 曾考虑的替代方案
 
