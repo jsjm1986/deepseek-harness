@@ -19,6 +19,7 @@ import { SettingsProvider, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
+import type { CollaborationAuthority } from '@deepseek-ai/dsh-collaboration'
 import type { HostFrame } from '../src/api/index.ts'
 import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
@@ -173,6 +174,7 @@ async function harness(options?: {
   credentials?: false | { shadowed?: string[] }
   /** Skip the directory registration to exercise a namespace the proxy does not expose. */
   configurableProviders?: false
+  projectScope?: 'ro' | 'rw'
 }): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -193,6 +195,32 @@ async function harness(options?: {
   // Host-stream opener reads the committed-workspace baseline; the stub
   // suffices — the real workspace composition is api-proxy-workspace.spec's.
   ctx.provide('workspaceRegistry', { list: () => [] } as never)
+  if (options?.projectScope !== undefined) {
+    const authority: CollaborationAuthority = {
+      participant: {
+        userId: 7,
+        username: 'alice',
+        displayName: 'Alice',
+        role: 'user',
+        scope: {
+          kind: 'project',
+          projectId: 41,
+          projectName: 'Compiler',
+          mode: options.projectScope,
+        },
+      },
+      expiresAt: Date.now() + 60_000,
+      signal: new AbortController().signal,
+      authorize: () => Promise.reject(new Error('session authorization is not exercised')),
+      readableSessionIds: ids => Promise.resolve(new Set(ids)),
+      claimInteraction: () => Promise.resolve(true),
+    }
+    ctx.provide('collaboration', {
+      capture: () => authority,
+      currentCreation: () => undefined,
+      withSessionCreation: (_creation: unknown, operation: () => Promise<unknown>) => operation(),
+    } as never)
+  }
   return ctx
 }
 
@@ -576,6 +604,30 @@ describe('settings domain', () => {
     expect(error.code).toBe('settings-rejected')
     expect(error.message).toContain('read-only')
   })
+
+  it.each(['ro', 'rw'] as const)('keeps project runtime settings read-only for %s participants', async (mode) => {
+    const ctx = await harness({
+      projectScope: mode,
+      settings: { documentPath: '/tmp/settings.yaml' },
+    })
+    ctx.settings.register(NS, AdapterConfig)
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    const value = expectOk(await api.settings.describe(request({})))
+    expect(value.writable).toBe(false)
+    expect(value.hasDocument).toBe(false)
+    for (const error of [
+      expectErr(await api.settings.update(request({ ns: 'llm-deepseek', patch: { apiKey: 'personal' } }))),
+      expectErr(await api.settings.replace(request({ ns: 'llm-deepseek', section: {} }))),
+      expectErr(await api.settings.mutate(request({ ns: 'llm-deepseek', ops: [] }))),
+      expectErr(await api.settings.openDocument(request({}), new AbortController().signal)),
+    ]) {
+      expect(error).toMatchObject({
+        code: 'collaboration-forbidden',
+        details: { action: 'write', reason: 'forbidden' },
+      })
+    }
+  })
 })
 
 describe('credentials domain', () => {
@@ -615,6 +667,21 @@ describe('credentials domain', () => {
     expect(setError.details).toEqual({ ref: 'DEEPSEEK_API_KEY' })
     const unsetError = expectErr(await api.credentials.unset(request({ ref: 'DEEPSEEK_API_KEY' })))
     expect(unsetError.code).toBe('credential-rejected')
+  })
+
+  it.each(['ro', 'rw'] as const)('keeps project credentials read-only for %s participants', async (mode) => {
+    const ctx = await harness({ projectScope: mode })
+    const api = createApiProxy(ctx, DEFAULTS)
+    const described = expectOk(await api.credentials.describe(request({ refs: ['DEEPSEEK_API_KEY'] })))
+    expect(described.credentials.DEEPSEEK_API_KEY).toEqual({ configured: false, writable: false })
+    expect(expectErr(await api.credentials.set(request({ ref: 'DEEPSEEK_API_KEY', value: 'personal' })))).toMatchObject({
+      code: 'collaboration-forbidden',
+      details: { action: 'write', reason: 'forbidden' },
+    })
+    expect(expectErr(await api.credentials.unset(request({ ref: 'DEEPSEEK_API_KEY' })))).toMatchObject({
+      code: 'collaboration-forbidden',
+      details: { action: 'write', reason: 'forbidden' },
+    })
   })
 })
 
@@ -674,6 +741,23 @@ describe('llm domain', () => {
 })
 
 describe('llm.discoverModels', () => {
+  it.each(['ro', 'rw'] as const)('rejects project runtime draft discovery for %s participants', async (mode) => {
+    const ctx = await harness({ projectScope: mode })
+    const discover = vi.fn(() => Promise.resolve([]))
+    ctx.llm.registerModelDiscovery('llm-pi-ai', discover)
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    expect(expectErr(await api.llm.discoverModels(request({
+      settingsNs: 'llm-pi-ai',
+      baseURL: 'https://gateway.acme.example/v1',
+      apiKey: 'personal',
+    })))).toMatchObject({
+      code: 'collaboration-forbidden',
+      details: { action: 'write', reason: 'forbidden' },
+    })
+    expect(discover).not.toHaveBeenCalled()
+  })
+
   it('carries a draft to its namespace and returns candidates without storing anything', async () => {
     const ctx = await harness()
     const seen: unknown[] = []

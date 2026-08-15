@@ -10,8 +10,8 @@ import {
   LoadingState,
   PageHeader,
   Section,
-  StatusBadge,
 } from '../components/ui.tsx'
+import { formatCompact, formatMoney, MeteringState, Metric, QuotaSummary } from '../components/usage.tsx'
 
 type QuotaMode = 'inherit' | 'unlimited' | 'custom'
 
@@ -132,7 +132,7 @@ export function UsagePage() {
                       <td>{formatMoney(row.estimatedCostMicros)}</td>
                       <td>{formatMoney(row.companyCostMicros)}</td>
                       <td><MeteringState missing={row.missingUsageCalls} /></td>
-                      <td><QuotaSummary row={row} /></td>
+                      <td><QuotaSummary summary={row} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -149,7 +149,7 @@ export function UsagePage() {
                       <Definition label="估算成本">{formatMoney(row.estimatedCostMicros)}</Definition>
                       <Definition label="公司成本">{formatMoney(row.companyCostMicros)}</Definition>
                     </dl>
-                    <QuotaSummary row={row} />
+                    <QuotaSummary summary={row} />
                   </div>
                 </article>
               ))}
@@ -219,10 +219,6 @@ export function UsagePage() {
   )
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: 'warning' }) {
-  return <div className={`metric ${tone === undefined ? '' : `metric-${tone}`}`.trim()}><span>{label}</span><strong>{value}</strong></div>
-}
-
 function UsageIdentity({ row }: { row: AdminUsageSummary }) {
   return (
     <div className="userIdentity">
@@ -234,47 +230,6 @@ function UsageIdentity({ row }: { row: AdminUsageSummary }) {
 
 function TokenBreakdown({ row }: { row: AdminUsageSummary }) {
   return <div className="stackedValue"><strong>{row.totalTokens.toLocaleString()}</strong><span className="muted">输入 {formatCompact(row.inputTokens)} · 输出 {formatCompact(row.outputTokens)}</span></div>
-}
-
-function MeteringState({ missing }: { missing: number }) {
-  return missing === 0
-    ? <StatusBadge tone="success">完整</StatusBadge>
-    : <StatusBadge tone="warning">缺失 {missing} 次</StatusBadge>
-}
-
-function QuotaSummary({ row }: { row: AdminUsageSummary }) {
-  return (
-    <div className="quotaBlock">
-      <QuotaLine label="Token" used={row.totalTokens} limit={row.tokenLimit} format={value => formatCompact(value)} />
-      <QuotaLine label="成本" used={row.companyCostMicros} limit={row.companyCostMicrosLimit} format={value => formatMoney(value, 2)} />
-      {row.alerts.length === 0 ? null : (
-        <div className="alertList">
-          {row.alerts.map(alert => (
-            <StatusBadge key={`${alert.metric}:${alert.threshold}`} tone={alert.threshold === 100 ? 'danger' : 'warning'}>
-              {alert.metric === 'tokens' ? 'Token' : '成本'} {alert.threshold}%
-            </StatusBadge>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function QuotaLine({ label, used, limit, format }: {
-  label: string
-  used: number
-  limit: number | null
-  format: (value: number) => string
-}) {
-  const percent = limit === null || limit === 0 ? 0 : Math.round((used / limit) * 100)
-  const width = Math.min(100, Math.max(0, percent))
-  return (
-    <div className="quotaLine">
-      <span>{label}</span>
-      <span className="quotaTrack" data-warning={percent >= 80}><span style={{ width: `${width}%` }} /></span>
-      <span>{limit === null ? '不限' : `${format(used)} / ${format(limit)}`}</span>
-    </div>
-  )
 }
 
 function QuotaEditor({ label, mode, subjectType, value, inputLabel, inputMode, onMode, onValue }: {
@@ -308,14 +263,6 @@ function QuotaEditor({ label, mode, subjectType, value, inputLabel, inputMode, o
 
 function Definition({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="definitionRow"><dt>{label}</dt><dd>{children}</dd></div>
-}
-
-function formatCompact(value: number): string {
-  return new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
-}
-
-function formatMoney(micros: number, digits = 4): string {
-  return `¥${(micros / 1_000_000).toFixed(digits)}`
 }
 
 function messageFrom(cause: unknown): string {

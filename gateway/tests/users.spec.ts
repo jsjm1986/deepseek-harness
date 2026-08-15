@@ -6,10 +6,10 @@ import { loadConfig } from '../src/config.ts'
 import { openDb } from '../src/db.ts'
 import { UserService } from '../src/users.ts'
 
-function setup() {
+function setup(env: Record<string, string> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'hgw-'))
   const db = openDb(join(root, 'g.sqlite'))
-  const cfg = loadConfig({ HGW_USERS_ROOT: join(root, 'users') })
+  const cfg = loadConfig({ HGW_USERS_ROOT: join(root, 'users'), ...env })
   return { db, cfg, users: new UserService(db, cfg) }
 }
 
@@ -30,6 +30,14 @@ describe('UserService', () => {
     await users.create({ username: 'alice', password: 'pw-123456' })
     await expect(users.create({ username: 'alice', password: 'x' })).rejects.toThrow()
     await expect(users.create({ username: 'Bad Name', password: 'x' })).rejects.toThrow()
+  })
+
+  it('does not allocate below the configured port base when older rows use lower ports', async () => {
+    const { db, users } = setup({ HGW_INSTANCE_PORT_BASE: '47000' })
+    const legacy = await users.create({ username: 'legacy', password: 'pw-123456' })
+    db.prepare('UPDATE instances SET port=46000 WHERE user_id=?').run(legacy.id)
+    const current = await users.create({ username: 'current', password: 'pw-123456' })
+    expect(users.list().find(user => user.id === current.id)?.port).toBe(47000)
   })
 
   it('manages status, role and password lifecycle', async () => {

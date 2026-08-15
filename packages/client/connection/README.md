@@ -12,6 +12,8 @@ The node half guards every entry under `/api` before bridging or upgrading (`src
 
 `/api/events.mux` and `/api/events.host` each accept a WebSocket upgrade and send only the corresponding `ServerRequest` text messages to the browser; the client sends no application data over these sockets. If either socket ends, the current connection generation fails and rebuilds both streams; readiness still requires both sockets to be open and the `host.describe` HTTP call to succeed. Host teardown terminates both sockets, aborts their sources, and waits for source cleanup before returning. Ordinary network GETs to these paths return 426 with no SSE fallback; `toFetchHandler`'s SSE codec serves only the isomorphic in-process carrier.
 
+`connection/request` is the Host-side waterfall around every request accepted by the browser-trust fence. It receives the entry-time Node request headers and a `kind` of `http` or `upgrade`, then completes before RPC dispatch or event-stream opening. Authentication and request-context listeners must treat the headers as immutable and call `next()` so independent plugins compose; returning without delegation prevents later listeners and the carrier handler from running.
+
 ## Model Experience
 
 None, as the wire consumer layer moves already-composed messages between browser and host; nothing here reaches a model request.

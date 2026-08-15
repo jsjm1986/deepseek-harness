@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { applyGrantsToUser } from './apply-grants.ts'
-import { applyModelGovernanceToUser } from './apply-model-governance.ts'
+import { applyModelGovernanceToProject, applyModelGovernanceToUser } from './apply-model-governance.ts'
 import type { UserRow } from './auth.ts'
+import { CollaborationDeniedError } from './collaboration.ts'
 import type { GrantMode } from './projects.ts'
 import type { GatewayDeps, GatewayHandlers } from './server.ts'
 
@@ -38,6 +39,9 @@ function isCodedError(error: unknown): error is Error & { code: string } {
 function mapError(error: unknown): { status: number; error: string } {
   if (error instanceof Error && error.message === 'cannot-remove-last-admin') {
     return { status: 409, error: 'cannot-remove-last-admin' }
+  }
+  if (error instanceof CollaborationDeniedError && error.code === 'visibility-locked') {
+    return { status: 409, error: error.code }
   }
   if (error instanceof Error && error.message === 'invalid json') {
     return { status: 400, error: 'invalid json' }
@@ -201,6 +205,7 @@ async function dispatch(
       })
       await write('admin.models.upsert', { provider, model })
       for (const target of await deps.users.list()) await applyModelGovernanceToUser(deps, target.id)
+      for (const project of await deps.projects.list()) await applyModelGovernanceToProject(deps, project.id)
       sendNoContent(res); return true
     }
     return false
@@ -235,11 +240,14 @@ async function dispatch(
   if (pathname === '/admin/api/quotas') {
     if (deps.governance === undefined || method !== 'PUT') return false
     const input = parseObject(body); const subjectType = str(input, 'subjectType'); const subjectId = str(input, 'subjectId')
-    if ((subjectType !== 'role' && subjectType !== 'user') || subjectId === undefined) { sendError(res, 400, 'invalid quota subject'); return true }
+    if ((subjectType !== 'role' && subjectType !== 'user' && subjectType !== 'project') || subjectId === undefined) {
+      sendError(res, 400, 'invalid quota subject'); return true
+    }
     const nullable = (key: string): number | null | 'inherit' => {
+      if (!Object.hasOwn(input, key)) throw new Error(`${key} required`)
       const value = input[key]
       if (value === 'inherit') return 'inherit'
-      if (value === null || value === undefined) return null
+      if (value === null) return null
       if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
         throw new Error(`${key} must be a non-negative safe integer, null, or inherit`)
       }
@@ -252,15 +260,22 @@ async function dispatch(
   if (pathname === '/admin/api/usage') {
     if (deps.governance === undefined || method !== 'GET') return false
     const query = new URL(req.url ?? '/', 'http://x').searchParams
-    const month = query.get('month') ?? undefined; const requested = query.get('userId')
+    const month = query.get('month') ?? undefined
+    const requestedProject = query.get('projectId')
+    if (requestedProject !== null) {
+      const projectId = Number(requestedProject)
+      if (await deps.projects.getById(projectId) === null) { sendError(res, 404, 'project not found'); return true }
+      sendJson(res, 200, await deps.governance.summary({ kind: 'project', id: projectId }, month)); return true
+    }
+    const requested = query.get('userId')
     if (requested !== null) {
       const userId = Number(requested); if (await deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
-      sendJson(res, 200, await deps.governance.summary(userId, month)); return true
+      sendJson(res, 200, await deps.governance.summary({ kind: 'user', id: userId }, month)); return true
     }
     const summaries = await Promise.all((await deps.users.list()).map(async user => ({
       userId: user.id,
       username: user.username,
-      ...await deps.governance!.summary(user.id, month),
+      ...await deps.governance!.summary({ kind: 'user', id: user.id }, month),
     })))
     sendJson(res, 200, summaries)
     return true
@@ -321,7 +336,10 @@ async function dispatch(
       return true
     }
     if (method === 'DELETE') {
-      const userIds = await deps.projects.remove(projectId)
+      const userIds = await deps.instances.withStopped(
+        { kind: 'project', id: projectId },
+        async () => deps.projects.remove(projectId),
+      )
       await write('admin.projects.delete', { id: projectId })
       for (const userId of userIds) await apply(userId)
       sendNoContent(res)

@@ -93,7 +93,7 @@ export class PostgresUserService {
           WHERE assigned_node_id=$1`, [this.context.nodeId])
         const port = ports.rows[0]?.port === null || ports.rows[0]?.port === undefined
           ? this.cfg.instancePortBase
-          : ports.rows[0].port + 1
+          : Math.max(this.cfg.instancePortBase, ports.rows[0].port + 1)
         if (port > 65535) throw new Error(`no instance ports remain on node ${this.context.nodeName}`)
         await client.query(`INSERT INTO harness.instances(
           organization_id,user_id,assigned_node_id,port

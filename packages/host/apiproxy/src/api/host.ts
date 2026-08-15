@@ -40,7 +40,7 @@ export interface HostApi {
    * directory (root for session persistence and tool execution); provider/model = the defaults
    * applied when a new agent doesn't specify them explicitly, absent when the host configures
    * no explicit default (the adapter falls back internally);
-   * attachedSessions = count of currently attached sessions (those with a live agent);
+   * attachedSessions = count of currently attached sessions readable by this request principal;
    * canOpenPath = whether this deployment can hand a path to a user-visible native desktop.
    */
   describe(request: RpcRequest<{}>): Promise<RpcResponse<{

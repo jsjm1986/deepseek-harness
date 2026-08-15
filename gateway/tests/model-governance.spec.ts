@@ -48,24 +48,24 @@ describe('ModelGovernanceService', () => {
       adminAllowed: true, userAllowed: true, inputMicrosPerMillion: 1_000_000,
       outputMicrosPerMillion: 2_000_000, cacheReadMicrosPerMillion: 500_000, cacheWriteMicrosPerMillion: 0 })
     governance.setQuota('user', String(user.id), 1_000, 1_800)
-    expect(governance.ingest(user.id, event())).toEqual({ inserted: true, alerts: 3 })
-    expect(governance.ingest(user.id, event())).toEqual({ inserted: false, alerts: 0 })
-    const summary = governance.summary(user.id, '2026-08')
+    expect(governance.ingest({ kind: 'user', id: user.id }, event())).toEqual({ inserted: true, alerts: 3 })
+    expect(governance.ingest({ kind: 'user', id: user.id }, event())).toEqual({ inserted: false, alerts: 0 })
+    const summary = governance.summary({ kind: 'user', id: user.id }, '2026-08')
     expect(summary.totalTokens).toBe(1_000)
     expect(summary.estimatedCostMicros).toBe(1_450)
     expect(summary.companyCostMicros).toBe(1_450)
     expect(summary.alerts.map(a => [a.metric, a.threshold])).toEqual([
       ['tokens', 80], ['tokens', 100], ['company-cost', 80],
     ])
-    governance.ingest(user.id, event({ eventId: 'evt-personal', credentialSource: 'file', credentialClass: 'personal' }))
-    expect(governance.summary(user.id, '2026-08').companyCostMicros).toBe(1_450)
+    governance.ingest({ kind: 'user', id: user.id }, event({ eventId: 'evt-personal', credentialSource: 'file', credentialClass: 'personal' }))
+    expect(governance.summary({ kind: 'user', id: user.id }, '2026-08').companyCostMicros).toBe(1_450)
     vi.useRealTimers()
   })
 
   it('rejects unknown model exceptions and malformed intake values', async () => {
     const { governance, user } = await setup()
     expect(() => governance.setUserAccess(user.id, 'missing', 'm', true)).toThrow(/unknown model/)
-    expect(() => governance.ingest(user.id, event({ occurredAt: -1 }))).toThrow(/occurredAt/)
+    expect(() => governance.ingest({ kind: 'user', id: user.id }, event({ occurredAt: -1 }))).toThrow(/occurredAt/)
     expect(() => governance.setQuota('role', 'owner', 1, null)).toThrow(/admin or user/)
   })
 })

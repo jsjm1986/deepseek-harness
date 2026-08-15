@@ -36,7 +36,7 @@ describe('model governance integration', () => {
   it('authenticates intake, deduplicates denial audit, and rejects source/class spoofing', async () => {
     const { db, user, governance } = await fixture()
     const audit = new AuditService(db)
-    const token = governance.issueIntakeToken(user.id)
+    const token = governance.issueIntakeToken({ kind: 'user', id: user.id })
     const server = createUsageIntakeServer(governance, audit)
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     closers.push(() => new Promise(resolve => server.close(() => resolve())))
@@ -78,12 +78,13 @@ describe('model governance integration', () => {
     const { user, governance } = await fixture('America/New_York')
     governance.setQuota('role', 'user', 100, 200)
     governance.setQuota('user', String(user.id), 'inherit', null)
-    expect(governance.summary(user.id, '2026-03')).toMatchObject({ tokenLimit: 100, companyCostMicrosLimit: null })
-    governance.ingest(user.id, { ...deniedEvent('before-midnight'), status: 'succeeded', occurredAt: Date.parse('2026-04-01T03:30:00Z'),
+    expect(governance.summary({ kind: 'user', id: user.id }, '2026-03'))
+      .toMatchObject({ tokenLimit: 100, companyCostMicrosLimit: null })
+    governance.ingest({ kind: 'user', id: user.id }, { ...deniedEvent('before-midnight'), status: 'succeeded', occurredAt: Date.parse('2026-04-01T03:30:00Z'),
       credentialSource: 'user-env', credentialClass: 'company', usage: { inputTokens: 7, outputTokens: 0 } })
-    expect(governance.summary(user.id, '2026-03').totalTokens).toBe(7)
-    expect(governance.summary(user.id, '2026-04').totalTokens).toBe(0)
+    expect(governance.summary({ kind: 'user', id: user.id }, '2026-03').totalTokens).toBe(7)
+    expect(governance.summary({ kind: 'user', id: user.id }, '2026-04').totalTokens).toBe(0)
     governance.setQuota('user', String(user.id), 'inherit', 'inherit')
-    expect(governance.summary(user.id).companyCostMicrosLimit).toBe(200)
+    expect(governance.summary({ kind: 'user', id: user.id }).companyCostMicrosLimit).toBe(200)
   })
 })

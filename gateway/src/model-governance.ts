@@ -5,6 +5,9 @@ import type { UserRow } from './auth.ts'
 export type CredentialClass = 'company' | 'personal' | 'unknown'
 export type UsageStatus = 'succeeded' | 'failed' | 'cancelled' | 'missing-usage' | 'denied'
 
+/** Durable owner charged for one model-usage record. */
+export type ModelUsageSubject = { kind: 'user'; id: number } | { kind: 'project'; id: number }
+
 export interface ModelRow {
   provider: string
   model: string
@@ -198,7 +201,21 @@ export class ModelGovernanceService {
     }
   }
 
-  issueIntakeToken(userId: number): string {
+  policyForProject(_projectId: number): {
+    version: number
+    defaultAllowed: false
+    models: Array<{ provider: string; model: string; allowed: boolean }>
+  } {
+    throw new Error('SQLite model governance has no project runtime support')
+  }
+
+  private userId(subject: ModelUsageSubject): number {
+    if (subject.kind !== 'user') throw new Error('SQLite model governance has no project runtime support')
+    return subject.id
+  }
+
+  issueIntakeToken(subject: ModelUsageSubject): string {
+    const userId = this.userId(subject)
     const token = randomBytes(32).toString('base64url')
     this.db.prepare(`INSERT INTO model_intake_tokens(user_id,token_hash,created_at) VALUES(?,?,?)
       ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,created_at=excluded.created_at`)
@@ -206,19 +223,20 @@ export class ModelGovernanceService {
     return token
   }
 
-  userForIntakeToken(token: string): number | null {
+  subjectForIntakeToken(token: string): ModelUsageSubject | null {
     const row = this.db.prepare(`SELECT user_id FROM model_intake_tokens WHERE token_hash=?`).get(tokenHash(token)) as
       { user_id: number } | undefined
-    return row?.user_id ?? null
+    return row === undefined ? null : { kind: 'user', id: row.user_id }
   }
 
   setQuota(
-    subjectType: 'role' | 'user',
+    subjectType: 'role' | 'user' | 'project',
     subjectId: string,
     tokenLimit: number | null | 'inherit',
     costLimit: number | null | 'inherit',
   ): void {
     subjectId = nonEmpty(subjectId, 'subjectId')
+    if (subjectType === 'project') throw new Error('SQLite model governance has no project runtime support')
     if (subjectType === 'role' && subjectId !== 'admin' && subjectId !== 'user') throw new Error('role quota subject must be admin or user')
     if (subjectType === 'user' && (!Number.isSafeInteger(Number(subjectId)) || Number(subjectId) <= 0)) throw new Error('user quota subject must be a positive user id')
     if (subjectType === 'role' && (tokenLimit === 'inherit' || costLimit === 'inherit')) {
@@ -236,7 +254,8 @@ export class ModelGovernanceService {
       .run(subjectType, subjectId, stored(tokenLimit, 'tokenLimit'), stored(costLimit, 'companyCostMicrosLimit'))
   }
 
-  ingest(userId: number, event: UsageEvent): { inserted: boolean; alerts: number } {
+  ingest(subject: ModelUsageSubject, event: UsageEvent): { inserted: boolean; alerts: number } {
+    const userId = this.userId(subject)
     if (event === null || typeof event !== 'object') throw new Error('usage event must be an object')
     nonEmpty(event.eventId, 'eventId')
     if (!Number.isSafeInteger(event.occurredAt) || event.occurredAt < 0) throw new Error('occurredAt must be a non-negative safe integer')
@@ -273,7 +292,8 @@ export class ModelGovernanceService {
     return { inserted: true, alerts: this.evaluateAlerts(userId, monthOf(event.occurredAt, this.timeZone)) }
   }
 
-  summary(userId: number, month = monthOf(Date.now(), this.timeZone)): UsageSummary {
+  summary(subject: ModelUsageSubject, month = monthOf(Date.now(), this.timeZone)): UsageSummary {
+    const userId = this.userId(subject)
     const { start, end } = monthBounds(month, this.timeZone)
     const row = this.db.prepare(`SELECT COALESCE(SUM(input_tokens),0) AS input,COALESCE(SUM(output_tokens),0) AS output,
       COALESCE(SUM(cache_read_tokens),0) AS read,COALESCE(SUM(cache_write_tokens),0) AS write,
@@ -303,7 +323,7 @@ export class ModelGovernanceService {
   }
 
   private evaluateAlerts(userId: number, month: string): number {
-    const summary = this.summary(userId, month)
+    const summary = this.summary({ kind: 'user', id: userId }, month)
     let inserted = 0
     for (const [metric, value, limit] of [
       ['tokens', summary.totalTokens, summary.tokenLimit],

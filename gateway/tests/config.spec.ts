@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { loadConfig } from '../src/config.ts'
+import { DEFAULT_RUNTIME_API_BODY_LIMIT_BYTES, loadConfig } from '../src/config.ts'
 
 describe('loadConfig', () => {
   it('provides workable defaults', () => {
@@ -10,6 +10,8 @@ describe('loadConfig', () => {
     expect(cfg.publicOrigins).toEqual(['http://127.0.0.1:8899'])
     expect(cfg.secureCookies).toBe(false)
     expect(cfg.dshCommand).toContain('{port}')
+    expect(cfg.runtimeApiBodyLimitBytes).toBe(DEFAULT_RUNTIME_API_BODY_LIMIT_BYTES)
+    expect(cfg.projectPathRoots).toEqual([])
     // The default CLI entry must be an ABSOLUTE path (resolved against
     // dshRepoRoot), because instances spawn with cwd = user home.
     const bin = cfg.dshCommand.find(arg => arg.endsWith('apps/cli/src/bin.ts'))
@@ -45,6 +47,7 @@ describe('loadConfig', () => {
       HGW_PUBLIC_ORIGINS: 'https://harness.maycran.com,http://127.0.0.1:9001',
       HGW_USERS_ROOT: '/srv/harness/users',
       HGW_IDLE_TIMEOUT_MS: '60000',
+      HGW_RUNTIME_API_BODY_LIMIT_BYTES: '8388608',
     })
     expect(cfg.port).toBe(9001)
     expect(cfg.organizationSlug).toBe('internal')
@@ -52,6 +55,38 @@ describe('loadConfig', () => {
     expect(cfg.publicOrigins).toEqual(['https://harness.maycran.com', 'http://127.0.0.1:9001'])
     expect(cfg.usersRoot).toBe('/srv/harness/users')
     expect(cfg.idleTimeoutMs).toBe(60000)
+    expect(cfg.runtimeApiBodyLimitBytes).toBe(8 * 1024 * 1024)
     expect(cfg.secureCookies).toBe(true)
+  })
+
+  it('rejects a project runtime account that systemd cannot address', () => {
+    expect(() => loadConfig({ HGW_PROJECT_RUNTIME_USER: 'Project Runtime' }))
+      .toThrow(/HGW_PROJECT_RUNTIME_USER/)
+    expect(() => loadConfig({ HGW_PROJECT_RUNTIME_USER: `harness-${'x'.repeat(40)}` }))
+      .toThrow(/HGW_PROJECT_RUNTIME_USER/)
+    expect(() => loadConfig({ HGW_PROJECT_RUNTIME_USER: 'root' }))
+      .toThrow(/HGW_PROJECT_RUNTIME_USER/)
+  })
+
+  it('requires non-overlapping project path roots for the systemd launcher', () => {
+    expect(() => loadConfig({ HGW_LAUNCHER: 'systemd' })).toThrow(/HGW_PROJECT_PATH_ROOTS/)
+    expect(loadConfig({ HGW_LAUNCHER: 'systemd', HGW_PROJECT_PATH_ROOTS: '/srv/projects,/mnt/projects' })
+      .projectPathRoots).toEqual(['/srv/projects', '/mnt/projects'])
+    expect(() => loadConfig({ HGW_PROJECT_PATH_ROOTS: '/srv/projects,/srv/projects/team' }))
+      .toThrow(/overlapping roots/)
+    expect(() => loadConfig({ HGW_PROJECT_PATH_ROOTS: '/' })).toThrow(/filesystem root/)
+  })
+
+  it('rejects an invalid runtime API body limit', () => {
+    expect(() => loadConfig({ HGW_RUNTIME_API_BODY_LIMIT_BYTES: '0' }))
+      .toThrow(/positive safe integer/)
+    expect(() => loadConfig({ HGW_RUNTIME_API_BODY_LIMIT_BYTES: 'not-a-number' }))
+      .toThrow(/positive safe integer/)
+  })
+
+  it('rejects an invalid instance port base', () => {
+    expect(() => loadConfig({ HGW_INSTANCE_PORT_BASE: '1023' })).toThrow(/HGW_INSTANCE_PORT_BASE/)
+    expect(() => loadConfig({ HGW_INSTANCE_PORT_BASE: '65536' })).toThrow(/HGW_INSTANCE_PORT_BASE/)
+    expect(() => loadConfig({ HGW_INSTANCE_PORT_BASE: 'not-a-number' })).toThrow(/HGW_INSTANCE_PORT_BASE/)
   })
 })

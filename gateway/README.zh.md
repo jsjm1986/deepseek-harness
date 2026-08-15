@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用户/项目/目录授权、HTTP+WS 反向代理（把 Host/Origin 改写为实例回环地址）、每用户 dsh 实例生命周期、`/admin` SPA 与 `/admin/api` JSON、模型治理、用量核算与审计。设计与阶段计划见[设计文档](../.agents/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md)、[Phase 1 计划](../.agents/superpowers/plans/2026-08-14-gateway-phase1.md)与[项目制管理端](../.agents/superpowers/specs/2026-08-14-project-centric-admin-design.md)。
+DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用户/项目/目录授权、HTTP+WS 反向代理（把 Host/Origin 改写为实例回环地址）、个人与共享项目 dsh 运行时生命周期、`/admin` SPA 与 `/admin/api` JSON、协作对话、模型治理、用量核算与审计。设计与阶段计划见[设计文档](../.agents/superpowers/specs/2026-08-14-user-directory-permission-gateway-design.md)、[Phase 1 计划](../.agents/superpowers/plans/2026-08-14-gateway-phase1.md)与[项目制管理端](../.agents/superpowers/specs/2026-08-14-project-centric-admin-design.md)。
 
 ## 工具链
 
@@ -22,6 +22,13 @@ DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用
 | `HGW_USAGE_TIME_ZONE` | `Asia/Shanghai` | 定义自然月边界的 IANA 时区 |
 | `HGW_PUBLIC_ORIGINS` | `http://127.0.0.1:8899` | 逗号分隔的公网 Origin 白名单（CSRF 校验；https 时 Cookie 标记 Secure） |
 | `HGW_USERS_ROOT` | `~/harness-users` | 用户目录根（生产 `/srv/harness/users`） |
+| `HGW_PROJECT_RUNTIMES_ROOT` | `~/harness-project-runtimes` | 共享项目运行时由宿主拥有的 `$DSH_HOME` 根目录 |
+| `HGW_PROJECT_PATH_ROOTS` | （`systemd` 必填） | 包含项目目录的逗号分隔、互不重叠 Linux 绝对根路径；禁止使用 `/` |
+| `HGW_PROJECT_RUNTIME_USER` | `harness-project` | 项目 scope systemd 单元使用的专用 Linux 账户 |
+| `HGW_PRINCIPAL_KEY_DIR` | `~/.harness-gateway/principal-keys` | 用于签发浏览器请求 principal 的仅所有者可读 Ed25519 密钥对 |
+| `HGW_PRINCIPAL_ASSERTION_TTL_MS` | 30 秒 | 一份签名 principal 的生命周期；WebSocket 客户端会在过期前重连 |
+| `HGW_RUNTIME_CREDENTIAL_DIR` | `~/.harness-gateway/runtime-credentials` | systemd 用户/项目运行时加载的宿主私有凭据文件 |
+| `HGW_RUNTIME_API_BODY_LIMIT_BYTES` | 64 MiB | 单次认证私有运行时 API 请求允许的最大 body 大小 |
 | `HGW_DSH_COMMAND` | 源码入口 `apps/cli/src/bin.ts web --port {port}` | 实例启动命令；生产指向钉死版本的 npm `dsh` bin |
 | `HGW_DSH_REPO_ROOT` | 仓库根 | 解析源码运行入口 |
 | `HGW_INSTANCE_PORT_BASE` | 42000 | 实例端口分配起点 |
@@ -39,9 +46,17 @@ DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用
 
 ## 管理端与项目授权
 
-`/admin` 托管从 `gateway/admin-ui` 构建到 `gateway/public/admin` 的 Vite SPA；`/admin/api/*` 是网关 JSON API（非 `admin` 角色 403）。授权按项目：一个项目对应一个已存在的绝对目录，成员为 `ro` 或 `rw`，用户的有效列表（私有 home 加成员身份，每条带 `label`）写入 `$DSH_HOME/directory-grants.json`。创建项目不会创建宿主机目录；路径不存在、不是目录或 Gateway 无权访问时，创建弹窗会保留输入并显示修正提示。
+`/admin` 托管从 `gateway/admin-ui` 构建到 `gateway/public/admin` 的 Vite SPA；`/admin/api/*` 是网关 JSON API（非 `admin` 角色 403）。授权按项目：一个项目对应一个已存在的绝对目录，成员为 `ro` 或 `rw`，每个用户的有效列表（私有 home 加成员身份，每条带 `label`）写入 `$DSH_HOME/directory-grants.json`。创建项目不会创建宿主机目录；路径不存在、不是目录或 Gateway 无权访问时，创建弹窗会保留输入并显示修正提示。项目路径不能与另一项目、用户 home、用户根或项目运行时根重叠；systemd 启动器还要求每个项目严格位于某个 `HGW_PROJECT_PATH_ROOTS` 条目之下，并避开 Gateway 目录。
 
-管理端的用户、项目、模型、用量和审计页面共用一套视觉系统：克制的表面色、统一的页面与分区标题、状态徽标、明确的加载/空状态/错误状态、键盘焦点环，以及用于变更操作的弹窗表单。视口宽度大于 `840px` 时使用固定侧栏和便于横向比较的数据表；宽度不超过 `840px` 时，侧栏变为吸顶品牌栏加五项固定底部导航，表格行切换为易读的卡片。宽度不超过 `560px` 时，表单网格改为单列、操作按钮填满可用宽度，弹窗接近全屏并让正文独立滚动。粗指针控件预留 `44px` 触控目标，同时遵循深色配色和减少动画偏好。修改界面后运行 `npm run build --prefix gateway/admin-ui` 重新生成静态资源；运行中的网关直接提供生成后的 `gateway/public/admin` 文件，不需要数据库迁移。
+管理端的用户、项目、模型、用量和审计页面共用一套视觉系统：克制的表面色、统一的页面与分区标题、状态徽标、明确的加载/空状态/错误状态、键盘焦点环，以及用于变更操作的弹窗表单。项目详情包含成员、实例状态、自然月 token/成本/缺失用量汇总，并要求明确选择额度模式：继承普通成员额度，或同时提交项目 token 与公司成本额度。视口宽度大于 `840px` 时使用固定侧栏和便于横向比较的数据表；宽度不超过 `840px` 时，侧栏变为吸顶品牌栏加五项固定底部导航，表格行切换为易读的卡片。宽度不超过 `560px` 时，表单网格改为单列、操作按钮填满可用宽度，弹窗接近全屏并让正文独立滚动。粗指针控件预留 `44px` 触控目标，同时遵循深色配色和减少动画偏好。修改界面后运行 `npm run build --prefix gateway/admin-ui` 重新生成静态资源；运行中的网关直接提供生成后的 `gateway/public/admin` 文件，不需要数据库迁移。
+
+## 项目协作对话
+
+账户运行在个人 scope 或一个可访问项目 scope 中。个人 scope 保留每用户运行时及其持久化；每个项目使用一个覆盖项目路径的共享运行时。Gateway 为所选运行时签发短期请求 principal，并在每次代理的 HTTP/WebSocket 操作中转发。运行时会在 Host 代码观察请求前验证组织、用户、scope、运行时 id 和 generation。私有运行时凭据与协作端点只允许 loopback 访问。完整决策见[项目协作对话](../.agents/notes/implemented/feature/2026-08-15-project-collaborative-conversations.md)。
+
+项目成员分为 `ro` 和 `rw`。根对话选择项目公开或仅创建者可见，后代继承根 ACL。Host 操作会授权读取、写入、管理、fork、stream、审批和问题；PostgreSQL 只接受每项共享审批/问题的一份响应。项目运行时通过 Gateway PostgreSQL 提供方保存 Session header 和完整事件；其写入和读取解码器会在数据进入活动 Session 前要求精确的事件 envelope 字段与 surface 元数据。持久参与者元数据使模型与 transcript 能区分贡献者。Web 插件展示 scope、可见性、创建者、参与者和贡献次数，并为 `ro` 成员替换完整 composer；浏览器不是授权边界。
+
+Session ACL 检查会在每次操作中查询当前成员身份。只依赖 scope 的 Host 操作最多在 `HGW_PRINCIPAL_ASSERTION_TTL_MS` 内使用已签名模式（默认 30 秒），长连接 stream 会在 principal 过期时断开。删除项目时，Gateway 会在该运行时的串行操作槽内停止共享运行时，再由 PostgreSQL 级联删除项目所属的运行时与协作记录；项目目录仍保留在磁盘上。
 
 ## 模型治理与用量核算
 
@@ -49,10 +64,10 @@ DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用
 
 ## PostgreSQL 控制面
 
-钉死版本的 PostgreSQL 17 部署位于 [`deploy/postgres/`](deploy/postgres/README.md)。Gateway 入口会应用其不可变 migration，并在配置的活跃企业与计算节点无法解析时拒绝监听。认证、用户、项目、节点本地实例、审计、模型治理、额度与用量都由 PostgreSQL 支撑。内部 UUID 保留企业外键，数字公共 ID 保持现有 HTTP API 稳定。SQLite 只保留为停止写入后的最终导入源和回滚备份；运行中的 Gateway 不会打开它。
+钉死版本的 PostgreSQL 17 部署位于 [`deploy/postgres/`](deploy/postgres/README.md)。Gateway 入口会应用其不可变 migration，并在配置的活跃企业与计算节点无法解析时拒绝监听。认证、用户、项目、个人/项目实例、共享项目对话、协作抢占、审计、模型治理、额度与用量都由 PostgreSQL 支撑。内部 UUID 保留企业外键，数字公共 ID 保持现有 HTTP API 稳定。SQLite 只保留为停止写入后的最终导入源和回滚备份；运行中的 Gateway 不会打开它。
 
-每次调用都会先以 UUID 写入实例本地的崩溃安全 outbox。仅回环的 intake 在 PostgreSQL 中按 UUID 去重，按调用时间选择生效价格版本，并根据非秘密凭据来源标签归属公司成本（`file`/`project-env`/`request` 为个人，启动环境来源为公司，未知来源按公司成本保守计入）。账本不写 API Key、提示词或回复内容。自然月使用 `HGW_USAGE_TIME_ZONE`；Token 与公司成本额度支持角色默认以及按用户继承/不限/自定义。额度只在 80% 和 100% 提醒，不阻断调用。用户在 Web shell 看到持久阈值提醒；管理员看到按用户自然月汇总、缺失计量次数、估算成本和公司成本。
+每次调用都会先以 UUID 写入运行时本地的崩溃安全 outbox。仅回环的 intake 在 PostgreSQL 中按 UUID 去重，按调用时间选择生效价格版本，并根据非秘密凭据来源标签归属公司成本（`file`/`project-env`/`request` 为个人，启动环境来源为公司，未知来源按公司成本保守计入）。账本不写 API Key、提示词或回复内容。自然月使用 `HGW_USAGE_TIME_ZONE`；Token 与公司成本额度支持角色默认、按用户继承/不限/自定义，以及项目继承或显式额度。额度只在 80% 和 100% 提醒，不阻断调用。用户在 Web shell 看到持久阈值提醒；管理员看到按用户和按项目自然月汇总、缺失计量次数、估算成本和公司成本。
 
 ## 目录强制的分层
 
-网关只做认证与编排；目录边界由两层强制：Linux 生产的 systemd 挂载命名空间（内核层，读写都管，覆盖整个进程树），加每个实例内加载的 [dsh-directory-guard](../plugins/dsh-directory-guard/README.md) 插件（作用于结构化路径工具参数的 `tools/pre-execute` 门）。同一份 home 补丁会停用 `directory-picker-auto` 并挂上应用内 browse 组合，使公网域名上的浏览器在页面里选择工作区目录，而不是在宿主桌面打开系统选文件夹框。授权文件含至少一条有效 path 时，该 browse 后端列出这些根并拒绝根外路径。macOS 开发环境无 systemd，插件层是那里唯一的强制点——仅供开发使用。
+网关只做认证与编排；目录边界由两层强制：Linux 生产的 systemd 挂载命名空间（内核层，读写都管，覆盖整个进程树），加每个实例内加载的 [dsh-directory-guard](../plugins/dsh-directory-guard/README.md) 插件（检查结构化路径工具参数的 `tools/pre-execute` 监听器）。每个单元会先把用户根、项目运行时根和所有已配置项目根挂成空的只读文件系统，再仅回绑该运行时的 home、`$DSH_HOME` 与获准项目目录；`ProtectHome=tmpfs` 和移除 `CAP_SYS_ADMIN` 会阻止进程通过普通 home 访问或挂载操作找回被隐藏的宿主路径。同一份 home 补丁会停用 `directory-picker-auto` 并挂上应用内 browse 组合，使公网域名上的浏览器在页面里选择工作区目录，而不是在宿主桌面打开系统选文件夹框。授权文件含至少一条有效 path 时，该 browse 后端列出这些根并拒绝根外路径。共享项目单元以 `HGW_PROJECT_RUNTIME_USER` 运行，只绑定项目路径与其私有 `$DSH_HOME`，并把凭据设置暴露为只读。macOS 没有 systemd 挂载命名空间，因此个人和共享项目的全进程约束仍属于开发环境限制。

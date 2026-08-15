@@ -16,6 +16,17 @@ import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
 import type { UserDocIdType, UserDocPromptAttachment } from '@deepseek-ai/dsh-userdoc'
 
+/** Durable attribution for one authenticated human prompt in a shared project. */
+export interface AuthenticatedParticipant {
+  userId: number
+  username: string
+  displayName: string
+  role: 'admin' | 'user'
+  scope:
+    | { kind: 'personal' }
+    | { kind: 'project'; projectId: number; projectName: string; mode: 'ro' | 'rw' }
+}
+
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /**
@@ -57,6 +68,8 @@ declare module '@deepseek-ai/dsh-llm' {
       kind: 'user'
       rpcId: RpcId
       clientTimeZone?: string
+      /** Authenticated project participant permanently attributed to this prompt. */
+      participant?: AuthenticatedParticipant
       /** Host-admitted snapshots; never accepted from a client as paths or text. */
       documents?: UserDocPromptAttachment[]
     }
@@ -266,7 +279,13 @@ export interface SessionsApi {
    * id fails with `agent-preset-not-found`, and a preset whose composition
    * cannot be mounted fails with `agent-preset-invalid`.
    */
-  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentPreset?: string }>):
+  create(request: RpcRequest<{
+    workspaceId?: WorkspaceId
+    cwd?: string
+    sessionId?: SessionId
+    agentPreset?: string
+    visibility?: 'project' | 'private'
+  }>):
   Promise<RpcResponse<{ sessionId: SessionId; agentPreset?: string }>>
 
   /**

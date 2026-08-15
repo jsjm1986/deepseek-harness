@@ -184,7 +184,7 @@ export function setModelAccess(userId: number, provider: string, model: string, 
 }
 
 export function setQuota(body: {
-  subjectType: 'role' | 'user'
+  subjectType: 'role' | 'user' | 'project'
   subjectId: string
   tokenLimit: number | null | 'inherit'
   companyCostMicrosLimit: number | null | 'inherit'
@@ -194,4 +194,10 @@ export function setQuota(body: {
 
 export function listUsage(month?: string): Promise<AdminUsageSummary[]> {
   return request(`/admin/api/usage${month === undefined || month === '' ? '' : `?month=${encodeURIComponent(month)}`}`)
+}
+
+export function getProjectUsage(projectId: number, month?: string): Promise<UsageSummary> {
+  const query = new URLSearchParams({ projectId: String(projectId) })
+  if (month !== undefined && month !== '') query.set('month', month)
+  return request(`/admin/api/usage?${query.toString()}`)
 }

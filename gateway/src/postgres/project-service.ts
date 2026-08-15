@@ -1,7 +1,10 @@
 import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
+import { CollaborationDeniedError } from '../collaboration.ts'
 import type { GatewayConfig } from '../config.ts'
 import {
+  isProjectPathIsolated,
+  projectPathsOverlap,
   resolveProjectDirectory,
   type EffectiveGrant,
   type GrantMode,
@@ -43,6 +46,7 @@ export class PostgresProjectService {
       return await transaction(this.context.pool, async (client) => {
         const createdBy = await internalUserId(client, this.context.organizationId, input.createdBy)
         if (createdBy === null) throw new Error(`unknown user ${String(input.createdBy)}`)
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`gateway-port:${this.context.nodeId}`])
         const project = await client.query<{ id: string; public_id: string }>(`INSERT INTO harness.projects(
           organization_id,name,created_by
         ) VALUES($1,$2,$3) RETURNING id,public_id::text`, [this.context.organizationId, input.name, createdBy])
@@ -51,7 +55,19 @@ export class PostgresProjectService {
         await client.query(`INSERT INTO harness.project_mounts(
           organization_id,project_id,node_id,local_path,canonical_path
         ) VALUES($1,$2,$3,$4,$4)`, [this.context.organizationId, row.id, this.context.nodeId, canonical])
-        return { id: publicNumber(row.public_id, 'project'), name: input.name, path: canonical, memberCount: 0 }
+        await client.query(`INSERT INTO harness.project_members(
+          organization_id,project_id,user_id,access_mode
+        ) VALUES($1,$2,$3,'rw')`, [this.context.organizationId, row.id, createdBy])
+        const ports = await client.query<{ port: number | null }>(`SELECT MAX(port) port FROM harness.instances
+          WHERE assigned_node_id=$1`, [this.context.nodeId])
+        const port = ports.rows[0]?.port === null || ports.rows[0]?.port === undefined
+          ? this.cfg.instancePortBase
+          : Math.max(this.cfg.instancePortBase, ports.rows[0].port + 1)
+        if (port > 65535) throw new Error(`no instance ports remain on node ${this.context.nodeName}`)
+        await client.query(`INSERT INTO harness.instances(
+          organization_id,project_id,assigned_node_id,port
+        ) VALUES($1,$2,$3,$4)`, [this.context.organizationId, row.id, this.context.nodeId, port])
+        return { id: publicNumber(row.public_id, 'project'), name: input.name, path: canonical, memberCount: 1 }
       })
     } catch (error) {
       if (isCodedError(error) && error.code === '23505') {
@@ -166,10 +182,28 @@ export class PostgresProjectService {
   }
 
   async removeMember(projectId: number, userId: number): Promise<void> {
-    await this.context.pool.query(`DELETE FROM harness.project_members m USING harness.projects p,harness.users u
-      WHERE m.organization_id=$1 AND p.id=m.project_id AND p.organization_id=m.organization_id
-        AND u.id=m.user_id AND u.organization_id=m.organization_id AND p.public_id=$2 AND u.public_id=$3`,
-    [this.context.organizationId, projectId, userId])
+    await transaction(this.context.pool, async (client) => {
+      const membership = await client.query<{ project_id: string; user_id: string }>(`SELECT
+        m.project_id,m.user_id
+        FROM harness.project_members m
+        JOIN harness.projects p ON p.id=m.project_id AND p.organization_id=m.organization_id
+        JOIN harness.users u ON u.id=m.user_id AND u.organization_id=m.organization_id
+        WHERE m.organization_id=$1 AND p.public_id=$2 AND u.public_id=$3
+        FOR UPDATE OF m`, [this.context.organizationId, projectId, userId])
+      const locked = membership.rows[0]
+      if (locked === undefined) return
+      const privateConversation = await client.query<{ blocked: boolean }>(`SELECT EXISTS(
+        SELECT 1 FROM harness.conversation_sessions c
+        WHERE c.organization_id=$1 AND c.project_id=$2 AND c.creator_user_id=$3
+          AND c.id=c.root_session_id AND c.visibility='private' AND c.status<>'deleted'
+      ) blocked`, [this.context.organizationId, locked.project_id, locked.user_id])
+      if (privateConversation.rows[0]?.blocked === true) {
+        throw new CollaborationDeniedError('visibility-locked')
+      }
+      await client.query(`DELETE FROM harness.project_members
+        WHERE organization_id=$1 AND project_id=$2 AND user_id=$3`,
+      [this.context.organizationId, locked.project_id, locked.user_id])
+    })
   }
 
   async effectiveGrants(userId: number): Promise<EffectiveGrant[]> {
@@ -193,18 +227,44 @@ export class PostgresProjectService {
   }
 
   private async assertNotReserved(canonical: string): Promise<void> {
+    if (this.cfg.launcher === 'systemd' && !isProjectPathIsolated(canonical, this.cfg.projectPathRoots)) {
+      throw new Error(`project path is outside HGW_PROJECT_PATH_ROOTS: ${canonical}`)
+    }
+    const reservedPaths = [this.cfg.usersRoot, this.cfg.projectRuntimesRoot]
+      .map(path => realpathIfPresent(path) ?? path)
+    for (const reserved of reservedPaths) {
+      if (canonical === reserved) throw new Error(`project path overlaps reserved path: ${reserved}`)
+    }
+    if (this.cfg.launcher === 'systemd' && projectPathsOverlap(canonical, this.cfg.gatewayDir)) {
+      throw new Error(`project path overlaps gateway directory: ${this.cfg.gatewayDir}`)
+    }
     const users = await this.context.pool.query<{ username: string; home_path: string }>(
       'SELECT username::text,home_path FROM harness.users WHERE organization_id=$1',
       [this.context.organizationId],
     )
     for (const user of users.rows) {
-      if (canonical === user.home_path || canonical === realpathIfPresent(user.home_path)) {
+      const home = realpathIfPresent(user.home_path) ?? user.home_path
+      if (projectPathsOverlap(canonical, home)) {
         throw new Error(`path is a user home: ${canonical}`)
       }
       const dsh = join(this.cfg.usersRoot, user.username, 'dsh')
-      if (canonical === dsh || canonical === realpathIfPresent(dsh)) {
+      const canonicalDsh = realpathIfPresent(dsh) ?? dsh
+      if (projectPathsOverlap(canonical, canonicalDsh)) {
         throw new Error(`path is a user dsh home: ${canonical}`)
       }
     }
+    for (const reserved of reservedPaths) {
+      if (projectPathsOverlap(canonical, reserved)) throw new Error(`project path overlaps reserved path: ${reserved}`)
+    }
+    const projects = await this.context.pool.query<{ path: string }>(`SELECT pm.canonical_path path
+      FROM harness.project_mounts pm
+      JOIN harness.projects p ON p.id=pm.project_id AND p.organization_id=pm.organization_id
+      WHERE pm.organization_id=$1 AND pm.node_id=$2 AND pm.status='active' AND p.status='active'`,
+    [this.context.organizationId, this.context.nodeId])
+    if (projects.rows.some(project => project.path === canonical)) {
+      throw new Error(`duplicate project path: ${canonical}`)
+    }
+    const overlap = projects.rows.find(project => projectPathsOverlap(canonical, project.path))
+    if (overlap !== undefined) throw new Error(`project path overlaps existing project: ${overlap.path}`)
   }
 }

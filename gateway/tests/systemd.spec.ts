@@ -3,6 +3,8 @@ import { renderUserUnit, unitName, type SystemdOptions, type SystemdUser } from 
 
 const OPTS: SystemdOptions = {
   usersRoot: '/srv/harness/users',
+  projectRuntimesRoot: '/srv/harness/project-runtimes',
+  projectPathRoots: ['/data/projects'],
   execStart: '/usr/local/bin/node /opt/dsh/lib/bin.js web --port {port}',
   gatewayDir: '/srv/harness/gateway',
   memoryMax: '1G',
@@ -25,8 +27,8 @@ describe('unitName', () => {
 describe('renderUserUnit', () => {
   const grants = [
     { path: '/srv/harness/users/alice/home', mode: 'rw' as const },
-    { path: '/data/team-alpha', mode: 'rw' as const },
-    { path: '/data/company-docs', mode: 'ro' as const },
+    { path: '/data/projects/team-alpha', mode: 'rw' as const },
+    { path: '/data/projects/company-docs', mode: 'ro' as const },
   ]
   const unit = renderUserUnit(ALICE, grants, OPTS)
 
@@ -34,19 +36,22 @@ describe('renderUserUnit', () => {
     expect(unit).toContain('ProtectSystem=strict')
     expect(unit).toContain('NoNewPrivileges=yes')
     expect(unit).toContain('PrivateTmp=yes')
-    expect(unit).toContain('ProtectHome=yes')
+    expect(unit).toContain('ProtectHome=tmpfs')
+    expect(unit).toContain('CapabilityBoundingSet=~CAP_SYS_ADMIN')
   })
 
   it('hides all user dirs then binds only this user home and grants', () => {
     // Every user directory is masked read-only...
     expect(unit).toContain('TemporaryFileSystem=/srv/harness/users:ro')
+    expect(unit).toContain('TemporaryFileSystem=/srv/harness/project-runtimes:ro')
+    expect(unit).toContain('TemporaryFileSystem=/data/projects:ro')
     // ...then this user's home + rw grants are bound writable...
     expect(unit).toContain('BindPaths=/srv/harness/users/alice/home')
-    expect(unit).toContain('BindPaths=/data/team-alpha')
+    expect(unit).toContain('BindPaths=/data/projects/team-alpha')
     // ...and ro grants bound read-only.
-    expect(unit).toContain('BindReadOnlyPaths=/data/company-docs')
+    expect(unit).toContain('BindReadOnlyPaths=/data/projects/company-docs')
     // A ro grant must NOT appear as a writable bind.
-    expect(unit).not.toContain('BindPaths=/data/company-docs')
+    expect(unit).not.toContain('BindPaths=/data/projects/company-docs')
   })
 
   it('marks the gateway dir inaccessible', () => {
@@ -73,5 +78,25 @@ describe('renderUserUnit', () => {
 
   it('rejects an unsafe username', () => {
     expect(() => renderUserUnit({ ...ALICE, username: 'bad name' }, grants, OPTS)).toThrow()
+  })
+
+  it('rejects root and paths outside managed isolation roots', () => {
+    expect(() => renderUserUnit({ ...ALICE, systemUser: 'root' }, grants, OPTS)).toThrow(/system user/)
+    expect(() => renderUserUnit(ALICE, [{ path: '/data/unmanaged', mode: 'ro' }], OPTS)).toThrow(/managed roots/)
+  })
+
+  it('renders a project runtime with only its project and private dsh home re-bound', () => {
+    const project = renderUserUnit({
+      kind: 'project',
+      username: 'project-41',
+      runtimeKey: 'project-41',
+      systemUser: 'harness-project',
+      port: 42041,
+      homePath: '/data/projects/compiler',
+      dshHome: '/srv/harness/project-runtimes/41/dsh',
+    }, [{ path: '/srv/harness/project-runtimes/41/dsh', mode: 'rw' }], OPTS)
+    expect(project).toContain('BindPaths=/data/projects/compiler')
+    expect(project).toContain('BindPaths=/srv/harness/project-runtimes/41/dsh')
+    expect(project).not.toContain('BindPaths=/data/projects/other')
   })
 })

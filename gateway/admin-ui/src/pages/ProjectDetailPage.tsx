@@ -1,16 +1,19 @@
-import { ArrowLeft, Pencil, Trash2, Users } from 'lucide-react'
+import { ArrowLeft, Pencil, Settings2, Trash2, Users } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   deleteProject,
   getProject,
+  getProjectUsage,
   listUsers,
   removeMember,
   renameProject,
   setMember,
+  setQuota,
   type AdminUser,
   type GrantMode,
   type ProjectDetail,
+  type UsageSummary,
 } from '../api.ts'
 import {
   Button,
@@ -24,8 +27,16 @@ import {
   Section,
   StatusBadge,
 } from '../components/ui.tsx'
+import { formatCompact, formatMoney, Metric, QuotaSummary } from '../components/usage.tsx'
 
 type MatrixMode = GrantMode | 'none'
+type ProjectQuotaSource = 'choose' | 'inherit' | 'independent'
+type ProjectLimitMode = 'unlimited' | 'custom'
+
+function currentMonth(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
 
 export function ProjectDetailPage() {
   const { id } = useParams()
@@ -40,6 +51,18 @@ export function ProjectDetailPage() {
   const [projectName, setProjectName] = useState('')
   const [removeTarget, setRemoveTarget] = useState<AdminUser | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [month, setMonth] = useState(currentMonth())
+  const [usage, setUsage] = useState<UsageSummary | null>(null)
+  const [usageLoading, setUsageLoading] = useState(true)
+  const [usageError, setUsageError] = useState('')
+  const [quotaOpen, setQuotaOpen] = useState(false)
+  const [quotaSaving, setQuotaSaving] = useState(false)
+  const [quotaError, setQuotaError] = useState('')
+  const [quotaSource, setQuotaSource] = useState<ProjectQuotaSource>('choose')
+  const [tokenMode, setTokenMode] = useState<ProjectLimitMode>('unlimited')
+  const [costMode, setCostMode] = useState<ProjectLimitMode>('unlimited')
+  const [tokenLimit, setTokenLimit] = useState('')
+  const [costLimit, setCostLimit] = useState('')
 
   const reload = useCallback(async (showLoading = false) => {
     if (!Number.isInteger(projectId) || projectId <= 0) {
@@ -62,6 +85,25 @@ export function ProjectDetailPage() {
   }, [projectId])
 
   useEffect(() => { void reload(true) }, [reload])
+
+  const reloadUsage = useCallback(async (showLoading = false) => {
+    if (!Number.isInteger(projectId) || projectId <= 0) {
+      setUsageError('项目 ID 无效')
+      setUsageLoading(false)
+      return
+    }
+    if (showLoading) setUsageLoading(true)
+    try {
+      setUsage(await getProjectUsage(projectId, month))
+      setUsageError('')
+    } catch (cause) {
+      setUsageError(messageFrom(cause))
+    } finally {
+      if (showLoading) setUsageLoading(false)
+    }
+  }, [month, projectId])
+
+  useEffect(() => { void reloadUsage(true) }, [reloadUsage])
 
   const assigned = useMemo(() => new Map((project?.members ?? []).map(member => [member.userId, member.mode])), [project])
 
@@ -116,6 +158,55 @@ export function ProjectDetailPage() {
     }
   }
 
+  function openQuotaDialog() {
+    setQuotaSource('choose')
+    setTokenMode('unlimited')
+    setCostMode('unlimited')
+    setTokenLimit('')
+    setCostLimit('')
+    setQuotaError('')
+    setQuotaOpen(true)
+  }
+
+  async function saveQuota(event: FormEvent) {
+    event.preventDefault()
+    if (quotaSource === 'choose') {
+      setQuotaError('请选择项目额度来源')
+      return
+    }
+    setQuotaSaving(true)
+    setQuotaError('')
+    try {
+      let nextTokenLimit: number | null | 'inherit' = 'inherit'
+      let nextCostLimit: number | null | 'inherit' = 'inherit'
+      if (quotaSource === 'independent') {
+        const parsedToken = Number(tokenLimit)
+        const parsedCost = Number(costLimit)
+        if (tokenMode === 'custom' && (!Number.isSafeInteger(parsedToken) || parsedToken < 0)) {
+          throw new Error('Token 额度必须是非负整数')
+        }
+        const costMicros = Math.round(parsedCost * 1_000_000)
+        if (costMode === 'custom' && (!Number.isFinite(parsedCost) || parsedCost < 0 || !Number.isSafeInteger(costMicros))) {
+          throw new Error('成本额度必须是有效的非负数')
+        }
+        nextTokenLimit = tokenMode === 'unlimited' ? null : parsedToken
+        nextCostLimit = costMode === 'unlimited' ? null : costMicros
+      }
+      await setQuota({
+        subjectType: 'project',
+        subjectId: String(projectId),
+        tokenLimit: nextTokenLimit,
+        companyCostMicrosLimit: nextCostLimit,
+      })
+      setQuotaOpen(false)
+      await reloadUsage()
+    } catch (cause) {
+      setQuotaError(messageFrom(cause))
+    } finally {
+      setQuotaSaving(false)
+    }
+  }
+
   return (
     <div className="page">
       <Link className="breadcrumb" to="/projects"><ArrowLeft aria-hidden="true" />返回项目</Link>
@@ -130,6 +221,49 @@ export function ProjectDetailPage() {
         <Section><EmptyState title="无法加载项目" detail="请返回项目列表后重试。" /></Section>
       ) : (
         <>
+          <Section
+            className="projectUsageSection"
+            title="项目用量"
+            meta={usage?.month}
+            actions={(
+              <div className="projectUsageToolbar">
+                <label className="monthPicker"><span>月份</span><input className="input" type="month" value={month} onChange={event => setMonth(event.target.value)} /></label>
+                <Button icon={Settings2} onClick={openQuotaDialog}>配置额度</Button>
+              </div>
+            )}
+          >
+            <ErrorBanner message={usageError} />
+            {usageLoading ? <LoadingState label="正在加载项目用量" /> : usage === null ? (
+              <EmptyState title="无法加载项目用量" detail="请稍后重试或选择其他月份。" />
+            ) : (
+              <>
+                <div className="projectUsageMetrics" aria-label="项目用量汇总">
+                  <Metric label="调用次数" value={usage.calls.toLocaleString()} />
+                  <Metric label="Token 总量" value={formatCompact(usage.totalTokens)} />
+                  <Metric label="公司成本" value={formatMoney(usage.companyCostMicros, 2)} />
+                  <Metric label="计量状态" value={usage.missingUsageCalls === 0 ? '完整' : `缺失 ${usage.missingUsageCalls} 次`} tone={usage.missingUsageCalls > 0 ? 'warning' : undefined} />
+                </div>
+                <div className="projectUsageDetails">
+                  <div className="projectUsagePanel">
+                    <h3>计量明细</h3>
+                    <dl className="definitionGrid projectUsageDefinitions">
+                      <Definition label="输入 Token">{usage.inputTokens.toLocaleString()}</Definition>
+                      <Definition label="输出 Token">{usage.outputTokens.toLocaleString()}</Definition>
+                      <Definition label="缓存读取">{usage.cacheReadTokens.toLocaleString()}</Definition>
+                      <Definition label="缓存写入">{usage.cacheWriteTokens.toLocaleString()}</Definition>
+                      <Definition label="估算成本">{formatMoney(usage.estimatedCostMicros)}</Definition>
+                      <Definition label="缺失计量">{usage.missingUsageCalls.toLocaleString()} 次</Definition>
+                    </dl>
+                  </div>
+                  <div className="projectUsagePanel projectQuotaPanel">
+                    <div className="projectUsagePanelHeading"><h3>生效额度</h3><span>告警不阻断调用</span></div>
+                    <QuotaSummary summary={usage} />
+                    <p className="quotaEffectiveNote">这里显示当前生效值；配置时需明确选择继承普通成员额度或使用项目独立额度。</p>
+                  </div>
+                </div>
+              </>
+            )}
+          </Section>
           <Section className="responsiveSection" title="成员权限" meta={`${users.length} 位可分配用户`}>
             {users.length === 0 ? (
               <EmptyState icon={Users} title="没有可分配用户" detail="先在用户页面创建账号，再配置项目权限。" />
@@ -178,6 +312,46 @@ export function ProjectDetailPage() {
           </div>
         </>
       )}
+
+      <Dialog
+        open={quotaOpen}
+        title="配置项目额度"
+        description="额度按自然月统计，在 80% 和 100% 产生告警，但不会阻断模型调用。"
+        onClose={() => { if (!quotaSaving) setQuotaOpen(false) }}
+        footer={(
+          <>
+            <Button type="button" disabled={quotaSaving} onClick={() => setQuotaOpen(false)}>取消</Button>
+            <Button type="submit" form="project-quota-form" variant="primary" loading={quotaSaving} disabled={quotaSource === 'choose'}>保存额度</Button>
+          </>
+        )}
+      >
+        <form id="project-quota-form" onSubmit={event => void saveQuota(event)}>
+          <ErrorBanner message={quotaError} />
+          <fieldset className="projectQuotaSource">
+            <legend>额度来源</legend>
+            <div className="quotaSourceOptions">
+              <label className="quotaSourceOption" data-selected={quotaSource === 'inherit'}>
+                <input type="radio" name="project-quota-source" checked={quotaSource === 'inherit'} onChange={() => setQuotaSource('inherit')} />
+                <span><strong>继承普通成员额度</strong><small>跟随普通用户角色的默认额度</small></span>
+              </label>
+              <label className="quotaSourceOption" data-selected={quotaSource === 'independent'}>
+                <input type="radio" name="project-quota-source" checked={quotaSource === 'independent'} onChange={() => setQuotaSource('independent')} />
+                <span><strong>项目独立额度</strong><small>为此项目单独设置 Token 和成本额度</small></span>
+              </label>
+            </div>
+          </fieldset>
+          {quotaSource === 'independent' ? (
+            <div className="quotaEditorGrid projectQuotaEditors">
+              <ProjectQuotaEditor label="Token 额度" mode={tokenMode} value={tokenLimit} inputLabel="每月 Token" inputMode="numeric" onMode={setTokenMode} onValue={setTokenLimit} />
+              <ProjectQuotaEditor label="公司成本额度" mode={costMode} value={costLimit} inputLabel="每月人民币元" inputMode="decimal" onMode={setCostMode} onValue={setCostLimit} />
+            </div>
+          ) : (
+            <div className="quotaModeNote projectQuotaModeNote">
+              {quotaSource === 'inherit' ? '此项目将使用普通成员角色的月度额度。' : '请先选择此项目的额度来源。'}
+            </div>
+          )}
+        </form>
+      </Dialog>
 
       <Dialog
         open={renameOpen}
@@ -244,6 +418,37 @@ function PermissionControl({ user, mode, pending, onChange }: {
       ))}
     </div>
   )
+}
+
+function ProjectQuotaEditor({ label, mode, value, inputLabel, inputMode, onMode, onValue }: {
+  label: string
+  mode: ProjectLimitMode
+  value: string
+  inputLabel: string
+  inputMode: 'numeric' | 'decimal'
+  onMode: (mode: ProjectLimitMode) => void
+  onValue: (value: string) => void
+}) {
+  return (
+    <fieldset className="quotaEditor">
+      <legend>{label}</legend>
+      <Field label="额度模式">
+        <select className="select" value={mode} onChange={event => onMode(event.target.value as ProjectLimitMode)}>
+          <option value="unlimited">无限制</option>
+          <option value="custom">自定义</option>
+        </select>
+      </Field>
+      {mode === 'custom' ? (
+        <Field label={inputLabel}>
+          <input className="input" required min="0" inputMode={inputMode} value={value} onChange={event => onValue(event.target.value)} />
+        </Field>
+      ) : <div className="quotaModeNote">不设置月度上限。</div>}
+    </fieldset>
+  )
+}
+
+function Definition({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div className="definitionRow"><dt>{label}</dt><dd>{children}</dd></div>
 }
 
 function changeMode(

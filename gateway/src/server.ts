@@ -2,12 +2,16 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { createServer } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { UserRow } from './auth.ts'
+import { CollaborationDeniedError } from './collaboration.ts'
 import type { GatewayConfig } from './config.ts'
+import type { ProjectRuntime } from './instances.ts'
+import type { PrincipalScope } from './principal.ts'
 import { loginPage, passwordPage } from './html.ts'
 import type {
   Awaitable,
   GatewayAuditService,
   GatewayAuthService,
+  GatewayCollaborationService,
   GatewayInstanceService,
   GatewayModelGovernanceService,
   GatewayProjectService,
@@ -23,10 +27,12 @@ export interface GatewayDeps {
   audit: GatewayAuditService
   instances: GatewayInstanceService
   governance?: GatewayModelGovernanceService
+  collaboration?: GatewayCollaborationService
   readiness?: () => Awaitable<void>
 }
 
 export const SESSION_COOKIE = 'hgw_session'
+export const SCOPE_COOKIE = 'hgw_scope'
 
 export function parseCookies(header: string | undefined): Map<string, string> {
   const map = new Map<string, string>()
@@ -43,6 +49,11 @@ export function sessionCookie(token: string, cfg: GatewayConfig, clear = false):
     + (cfg.secureCookies ? '; Secure' : '')
 }
 
+export function scopeCookie(scope: 'personal' | `project:${number}`, cfg: GatewayConfig): string {
+  return `${SCOPE_COOKIE}=${scope}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(cfg.sessionAbsoluteTtlMs / 1000)}`
+    + (cfg.secureCookies ? '; Secure' : '')
+}
+
 function clientIp(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? ''
 }
@@ -51,12 +62,14 @@ function wantsHtml(req: IncomingMessage): boolean {
   return (req.headers.accept ?? '').includes('text/html')
 }
 
+class BodyTooLargeError extends Error {}
+
 async function readBody(req: IncomingMessage, limit = 1024 * 1024): Promise<string> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
     size += (chunk as Buffer).length
-    if (size > limit) throw new Error('body too large')
+    if (size > limit) throw new BodyTooLargeError('body too large')
     chunks.push(chunk as Buffer)
   }
   return Buffer.concat(chunks).toString()
@@ -87,13 +100,20 @@ function csrfOk(req: IncomingMessage, cfg: GatewayConfig, pathname: string): boo
   return pathname.startsWith('/api')
 }
 
-export type ProxyHandler = (req: IncomingMessage, res: ServerResponse, user: UserRow) => Promise<void>
-export type UpgradeHandler = (req: IncomingMessage, socket: Duplex, head: Buffer, user: UserRow) => Promise<void>
+export interface GatewayRequestContext {
+  user: UserRow
+  scope: PrincipalScope
+  runtime: UserRow | ProjectRuntime
+}
+
+export type ProxyHandler = (req: IncomingMessage, res: ServerResponse, context: GatewayRequestContext) => Promise<void>
+export type UpgradeHandler = (req: IncomingMessage, socket: Duplex, head: Buffer, context: GatewayRequestContext) => Promise<void>
 
 export interface GatewayHandlers {
   proxy?: ProxyHandler
   upgrade?: UpgradeHandler
   admin?: (req: IncomingMessage, res: ServerResponse, user: UserRow, pathname: string, body: string) => Promise<boolean>
+  runtime?: (req: IncomingMessage, res: ServerResponse, pathname: string, body: string) => Promise<boolean>
   /** Override `serveAdmin` root (tests); default `gateway/public/admin`. */
   adminRoot?: string
 }
@@ -106,6 +126,33 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
     if (token === undefined) return null
     const user = await auth.validate(token)
     return user === null ? null : { token, user }
+  }
+
+  const requestContext = async (req: IncomingMessage, user: UserRow): Promise<{
+    context: GatewayRequestContext
+    resetScope: boolean
+  }> => {
+    const raw = parseCookies(req.headers.cookie).get(SCOPE_COOKIE)
+    const match = raw?.match(/^project:([1-9][0-9]*)$/)
+    if (match === null || match === undefined || deps.collaboration === undefined) {
+      return { context: { user, scope: { kind: 'personal' }, runtime: user }, resetScope: raw !== undefined && raw !== 'personal' }
+    }
+    const projectId = Number(match[1])
+    if (!Number.isSafeInteger(projectId)) {
+      return { context: { user, scope: { kind: 'personal' }, runtime: user }, resetScope: true }
+    }
+    const project = await deps.collaboration.projectForUser(projectId, user.id)
+    if (project === null) {
+      return { context: { user, scope: { kind: 'personal' }, runtime: user }, resetScope: true }
+    }
+    return {
+      context: {
+        user,
+        scope: { kind: 'project', projectId, projectName: project.name, mode: project.mode },
+        runtime: { kind: 'project', id: projectId, name: project.name, path: project.path },
+      },
+      resetScope: false,
+    }
   }
 
   const server = createServer((req, res) => {
@@ -125,6 +172,22 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
       } catch {
         send(res, 503, '{"ok":false}', 'application/json')
       }
+      return
+    }
+
+    if (pathname.startsWith('/internal/runtime/')) {
+      let body = ''
+      try {
+        body = req.method === 'GET' || req.method === 'HEAD'
+          ? ''
+          : await readBody(req, cfg.runtimeApiBodyLimitBytes)
+      } catch (error: unknown) {
+        if (!(error instanceof BodyTooLargeError)) throw error
+        send(res, 413, '{"error":"runtime-request-too-large"}', 'application/json')
+        return
+      }
+      if (handlers.runtime !== undefined && await handlers.runtime(req, res, pathname, body)) return
+      send(res, 404, '{"error":"not-found"}', 'application/json')
       return
     }
 
@@ -168,7 +231,7 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
     if (pathname === '/account/api/usage' && req.method === 'GET') {
       if (deps.governance === undefined) { send(res, 503, '{"error":"usage-unavailable"}', 'application/json'); return }
       const month = new URL(req.url ?? '/', 'http://x').searchParams.get('month') ?? undefined
-      send(res, 200, JSON.stringify(await deps.governance.summary(user.id, month)), 'application/json')
+      send(res, 200, JSON.stringify(await deps.governance.summary({ kind: 'user', id: user.id }, month)), 'application/json')
       return
     }
 
@@ -184,6 +247,108 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
       }
     }
 
+    if (pathname === '/account/api/scope' && req.method === 'POST') {
+      let requested: unknown
+      try {
+        requested = JSON.parse(await readBody(req))
+      } catch {
+        send(res, 400, '{"error":"invalid-json"}', 'application/json')
+        return
+      }
+      if (typeof requested !== 'object' || requested === null || Array.isArray(requested)) {
+        send(res, 400, '{"error":"invalid-scope"}', 'application/json')
+        return
+      }
+      const value = requested as { kind?: unknown; projectId?: unknown }
+      if (value.kind === 'personal') {
+        res.writeHead(204, { 'set-cookie': scopeCookie('personal', cfg) })
+        res.end()
+        return
+      }
+      if (value.kind !== 'project' || typeof value.projectId !== 'number'
+        || !Number.isSafeInteger(value.projectId) || value.projectId <= 0) {
+        send(res, 400, '{"error":"invalid-scope"}', 'application/json')
+        return
+      }
+      const project = await deps.collaboration?.projectForUser(value.projectId, user.id)
+      if (project === undefined || project === null) {
+        send(res, 403, '{"error":"not-member"}', 'application/json')
+        return
+      }
+      res.writeHead(204, { 'set-cookie': scopeCookie(`project:${value.projectId}`, cfg) })
+      res.end()
+      return
+    }
+
+    const resolved = await requestContext(req, user)
+    if (resolved.resetScope) res.setHeader('set-cookie', scopeCookie('personal', cfg))
+
+    if (pathname === '/account/api/context' && req.method === 'GET') {
+      const projects = await deps.collaboration?.projectsForUser(user.id) ?? []
+      send(res, 200, JSON.stringify({
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName,
+          role: user.role,
+        },
+        scope: resolved.context.scope,
+        projects,
+      }), 'application/json')
+      return
+    }
+
+    if (pathname === '/account/api/conversations' && req.method === 'GET') {
+      if (resolved.context.scope.kind !== 'project' || deps.collaboration === undefined) {
+        send(res, 400, '{"error":"project-scope-required"}', 'application/json')
+        return
+      }
+      send(res, 200, JSON.stringify({
+        items: await deps.collaboration.listConversations(user.id, resolved.context.scope.projectId),
+      }), 'application/json')
+      return
+    }
+
+    const conversationRoute = pathname.match(/^\/account\/api\/conversations\/([^/]+)$/)
+    if (conversationRoute !== null && deps.collaboration !== undefined) {
+      try {
+        const sessionId = decodeURIComponent(conversationRoute[1] ?? '')
+        if (req.method === 'GET') {
+          const access = await deps.collaboration.access(user.id, sessionId, 'read')
+          const items = await deps.collaboration.listConversations(user.id, access.projectId)
+          send(res, 200, JSON.stringify({ access, conversation: items.find(item => item.sessionId === access.rootSessionId) ?? null }), 'application/json')
+          return
+        }
+        if (req.method === 'PATCH') {
+          const body = JSON.parse(await readBody(req)) as { visibility?: unknown }
+          if (body.visibility !== 'project' && body.visibility !== 'private') {
+            send(res, 400, '{"error":"invalid-visibility"}', 'application/json')
+            return
+          }
+          await deps.collaboration.setVisibility(user.id, sessionId, body.visibility)
+          res.writeHead(204)
+          res.end()
+          return
+        }
+      } catch (error) {
+        if (error instanceof CollaborationDeniedError) {
+          const status = error.code === 'conversation-not-found' ? 404
+            : error.code === 'visibility-locked' ? 409 : 403
+          send(res, status, JSON.stringify({ error: error.code }), 'application/json')
+          return
+        }
+        if (error instanceof SyntaxError) {
+          send(res, 400, '{"error":"invalid-json"}', 'application/json')
+          return
+        }
+        if (error instanceof URIError) {
+          send(res, 400, '{"error":"invalid-session-id"}', 'application/json')
+          return
+        }
+        throw error
+      }
+    }
+
     if (isAdminPath(pathname)) {
       if (user.role !== 'admin') { sendAdminGate(res, pathname, 'forbidden'); return }
       const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await readBody(req)
@@ -193,7 +358,7 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
       return
     }
 
-    if (handlers.proxy !== undefined) { await handlers.proxy(req, res, user); return }
+    if (handlers.proxy !== undefined) { await handlers.proxy(req, res, resolved.context); return }
     send(res, 503, '{"error":"proxy-not-configured"}', 'application/json')
   }
 
@@ -205,7 +370,8 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
       const session = await currentUser(req)
       if (session === null || session.user.mustChangePassword) { socket.destroy(); return }
       if (handlers.upgrade === undefined || !pathname.startsWith('/api')) { socket.destroy(); return }
-      await handlers.upgrade(req, socket, head, session.user)
+      const resolved = await requestContext(req, session.user)
+      await handlers.upgrade(req, socket, head, resolved.context)
     }
     void finish().catch(() => socket.destroy())
   })

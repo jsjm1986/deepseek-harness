@@ -138,6 +138,10 @@ export async function importSqliteControlPlane(pool: Pool, options: SqliteImport
           await idForLegacy(client, 'users', organizationId, row.user_id), row.mode,
         ])
       }
+      await client.query(`INSERT INTO harness.project_members(organization_id,project_id,user_id,access_mode)
+        SELECT organization_id,id,created_by,'rw' FROM harness.projects
+        WHERE organization_id=$1 AND created_by IS NOT NULL
+        ON CONFLICT(project_id,user_id) DO UPDATE SET access_mode='rw',updated_at=now()`, [organizationId])
 
       const sourceInstances = rows(db, 'instances')
       for (const row of sourceInstances) {
@@ -145,7 +149,8 @@ export async function importSqliteControlPlane(pool: Pool, options: SqliteImport
         await client.query(`INSERT INTO harness.instances(
           organization_id,user_id,assigned_node_id,desired_state,observed_state,port,legacy_user_id,started_at,last_activity_at
         ) VALUES($1,$2,$3,'stopped','stopped',$4,$5,$6,$7)
-        ON CONFLICT(organization_id,user_id) DO UPDATE SET assigned_node_id=excluded.assigned_node_id,
+        ON CONFLICT(organization_id,user_id) WHERE user_id IS NOT NULL DO UPDATE
+          SET assigned_node_id=excluded.assigned_node_id,
           desired_state='stopped',observed_state='stopped',port=excluded.port,started_at=excluded.started_at,
           last_activity_at=excluded.last_activity_at,updated_at=now()`,
         [organizationId, userId, nodeId, row.port, row.user_id, epoch(row.started_at), epoch(row.last_activity_at)])

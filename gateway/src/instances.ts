@@ -1,31 +1,86 @@
+import { createHash, randomBytes } from 'node:crypto'
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type Database from 'better-sqlite3'
 import type { UserRow } from './auth.ts'
 import type { GatewayConfig } from './config.ts'
-import { LocalLauncher, type InstanceProc, type Launcher, type LaunchUser } from './launcher.ts'
+import {
+  LocalLauncher,
+  type InstanceProc,
+  type Launcher,
+  type RuntimePolicyIdentity,
+} from './launcher.ts'
 
 const POLL_INTERVAL_MS = 300
 const STOP_GRACE_MS = 5000
+const MANAGED_CREDENTIALS_FILENAME = '.credentials.yaml'
+const PROJECT_RUNTIME_PATCH = `- id: session-persistence-jsonl
+  disabled: true
+- insert:
+    - id: gateway-runtime
+      name: '@deepseek-ai/dsh-gateway-runtime'
+    - id: collaboration-gateway
+      name: '@deepseek-ai/dsh-collaboration-gateway'
+    - id: collaboration-context
+      name: '@deepseek-ai/dsh-collaboration-context'
+    - id: session-persistence-gateway
+      name: '@deepseek-ai/dsh-session-persistence-gateway'
+`
 
 interface InstanceOwner {
+  kind: 'user' | 'project'
   id: number
   username: string
   homePath: string
+  name?: string
+}
+
+/** Durable instance owner. Numeric inputs remain the personal-runtime shorthand. */
+export type RuntimeTarget = { kind: 'user'; id: number } | { kind: 'project'; id: number }
+export type RuntimeTargetInput = RuntimeTarget | number
+
+/** Project facts required to launch its shared runtime. */
+export interface ProjectRuntime {
+  kind: 'project'
+  id: number
+  name: string
+  path: string
+}
+
+/** Fully resolved launch facts passed to policy projection and launch drivers. */
+export interface RuntimeLaunchContext extends RuntimePolicyIdentity {
+  target: RuntimeTarget
+  user?: UserRow
+  project?: ProjectRuntime
+}
+
+/** Host facts embedded into each private runtime credential. */
+export interface RuntimeSecurityConfig {
+  principalPublicKey: string
+}
+
+function targetOf(input: RuntimeTargetInput): RuntimeTarget {
+  return typeof input === 'number' ? { kind: 'user', id: input } : input
+}
+
+function targetKey(input: RuntimeTargetInput): string {
+  const target = targetOf(input)
+  return `${target.kind}:${String(target.id)}`
 }
 
 /** Durable instance rows required by {@link InstanceManager}. */
 export interface InstanceRepository {
   initialize(instancesOutliveGateway: boolean): Promise<void>
-  portOf(userId: number): Promise<number>
-  stateOf(userId: number): Promise<string>
-  touch(userId: number, at: number): Promise<void>
-  markStarting(userId: number, at: number): Promise<void>
-  markReady(userId: number): Promise<void>
-  idleUserIds(cutoff: number): Promise<number[]>
-  markStopping(userId: number): Promise<void>
-  markStopped(userId: number): Promise<void>
-  owner(userId: number): Promise<InstanceOwner | null>
+  portOf(target: RuntimeTarget): Promise<number>
+  stateOf(target: RuntimeTarget): Promise<string>
+  generationOf(target: RuntimeTarget): Promise<number>
+  touch(target: RuntimeTarget, at: number): Promise<void>
+  beginStart(target: RuntimeTarget, at: number, runtimeTokenHash: Buffer): Promise<number>
+  markReady(target: RuntimeTarget, generation: number): Promise<void>
+  idleTargets(cutoff: number): Promise<RuntimeTarget[]>
+  markStopping(target: RuntimeTarget): Promise<void>
+  markStopped(target: RuntimeTarget): Promise<void>
+  owner(target: RuntimeTarget): Promise<InstanceOwner | null>
 }
 
 class SqliteInstanceRepository implements InstanceRepository {
@@ -35,52 +90,71 @@ class SqliteInstanceRepository implements InstanceRepository {
     if (!instancesOutliveGateway) this.db.prepare(`UPDATE instances SET state = 'stopped', pid = NULL`).run()
   }
 
-  async portOf(userId: number): Promise<number> {
+  private userId(target: RuntimeTarget): number {
+    if (target.kind !== 'user') throw new Error('SQLite test repository has no project runtimes')
+    return target.id
+  }
+
+  async portOf(target: RuntimeTarget): Promise<number> {
+    const userId = this.userId(target)
     const row = this.db.prepare(`SELECT port FROM instances WHERE user_id = ?`).get(userId) as
       { port: number } | undefined
     if (row === undefined) throw new Error(`no instance row for user ${userId}`)
     return row.port
   }
 
-  async stateOf(userId: number): Promise<string> {
+  async stateOf(target: RuntimeTarget): Promise<string> {
+    const userId = this.userId(target)
     const row = this.db.prepare(`SELECT state FROM instances WHERE user_id = ?`).get(userId) as
       { state: string } | undefined
     return row?.state ?? 'stopped'
   }
 
-  async touch(userId: number, at: number): Promise<void> {
+  async generationOf(target: RuntimeTarget): Promise<number> {
+    this.userId(target)
+    return 1
+  }
+
+  async touch(target: RuntimeTarget, at: number): Promise<void> {
+    const userId = this.userId(target)
     this.db.prepare(`UPDATE instances SET last_activity_at = ? WHERE user_id = ?`).run(at, userId)
   }
 
-  async markStarting(userId: number, at: number): Promise<void> {
+  async beginStart(target: RuntimeTarget, at: number, _runtimeTokenHash: Buffer): Promise<number> {
+    const userId = this.userId(target)
     this.db.prepare(`UPDATE instances SET state = 'starting', started_at = ?, last_activity_at = ? WHERE user_id = ?`)
       .run(at, at, userId)
+    return 1
   }
 
-  async markReady(userId: number): Promise<void> {
+  async markReady(target: RuntimeTarget, _generation: number): Promise<void> {
+    const userId = this.userId(target)
     this.db.prepare(`UPDATE instances SET state = 'ready' WHERE user_id = ?`).run(userId)
   }
 
-  async idleUserIds(cutoff: number): Promise<number[]> {
+  async idleTargets(cutoff: number): Promise<RuntimeTarget[]> {
     const rows = this.db.prepare(
       `SELECT user_id FROM instances WHERE state = 'ready' AND last_activity_at < ?`,
     ).all(cutoff) as Array<{ user_id: number }>
-    return rows.map(row => row.user_id)
+    return rows.map(row => ({ kind: 'user' as const, id: row.user_id }))
   }
 
-  async markStopping(userId: number): Promise<void> {
+  async markStopping(target: RuntimeTarget): Promise<void> {
+    const userId = this.userId(target)
     this.db.prepare(`UPDATE instances SET state = 'stopping' WHERE user_id = ?`).run(userId)
   }
 
-  async markStopped(userId: number): Promise<void> {
+  async markStopped(target: RuntimeTarget): Promise<void> {
+    const userId = this.userId(target)
     this.db.prepare(`UPDATE instances SET state = 'stopped', pid = NULL WHERE user_id = ?`).run(userId)
   }
 
-  async owner(userId: number): Promise<InstanceOwner | null> {
+  async owner(target: RuntimeTarget): Promise<InstanceOwner | null> {
+    const userId = this.userId(target)
     const row = this.db.prepare(`SELECT id, username, home_path FROM users WHERE id = ?`).get(userId) as
       | { id: number; username: string; home_path: string }
       | undefined
-    return row === undefined ? null : { id: row.id, username: row.username, homePath: row.home_path }
+    return row === undefined ? null : { kind: 'user', id: row.id, username: row.username, homePath: row.home_path }
   }
 }
 
@@ -88,33 +162,43 @@ export class InstanceManager {
   private readonly launcher: Launcher
   private readonly repository: InstanceRepository
   private readonly initialized: Promise<void>
-  private readonly procs = new Map<number, InstanceProc>()
-  private readonly wsRefs = new Map<number, number>()
-  /** Per-user operation chain: serializes start vs stop so a reap cannot orphan a fresh spawn. */
-  private readonly ops = new Map<number, Promise<unknown>>()
+  private readonly procs = new Map<string, InstanceProc>()
+  private readonly wsRefs = new Map<string, number>()
+  /** Per-runtime operation chain: serializes start vs stop so a reap cannot orphan a fresh spawn. */
+  private readonly ops = new Map<string, Promise<unknown>>()
 
   /**
-   * Called with the user just before its instance is spawned, on every start.
+   * Called with the resolved runtime just before it is spawned, on every start.
    * The wiring uses it to write the per-instance directory-grants file so the
    * grants handoff is intrinsic to starting an instance rather than a caller's
    * responsibility.
    */
-  beforeStart?: (user: UserRow) => void | Promise<void>
+  beforeStart?: (runtime: RuntimeLaunchContext) => void | Promise<void>
 
-  constructor(source: Database.Database | InstanceRepository, private readonly cfg: GatewayConfig, launcher?: Launcher) {
+  constructor(
+    source: Database.Database | InstanceRepository,
+    private readonly cfg: GatewayConfig,
+    launcher?: Launcher,
+    private readonly security: RuntimeSecurityConfig = { principalPublicKey: '' },
+  ) {
     this.repository = 'prepare' in source ? new SqliteInstanceRepository(source) : source
     this.launcher = launcher ?? new LocalLauncher(cfg)
     this.initialized = this.repository.initialize(this.launcher.instancesOutliveGateway)
   }
 
-  async portOf(userId: number): Promise<number> {
+  async portOf(target: RuntimeTargetInput): Promise<number> {
     await this.initialized
-    return this.repository.portOf(userId)
+    return this.repository.portOf(targetOf(target))
   }
 
-  async stateOf(userId: number): Promise<string> {
+  async stateOf(target: RuntimeTargetInput): Promise<string> {
     await this.initialized
-    return this.repository.stateOf(userId)
+    return this.repository.stateOf(targetOf(target))
+  }
+
+  async generationOf(target: RuntimeTargetInput): Promise<number> {
+    await this.initialized
+    return this.repository.generationOf(targetOf(target))
   }
 
   /**
@@ -126,44 +210,73 @@ export class InstanceManager {
    * @param userId - instance owner
    * @returns true only when the row is `ready` and the tracked child has not exited
    */
-  async isLive(userId: number): Promise<boolean> {
-    const proc = this.procs.get(userId)
-    return await this.stateOf(userId) === 'ready' && proc !== undefined && !proc.hasExited()
+  async isLive(target: RuntimeTargetInput): Promise<boolean> {
+    const proc = this.procs.get(targetKey(target))
+    return await this.stateOf(target) === 'ready' && proc !== undefined && !proc.hasExited()
   }
 
-  async touch(userId: number): Promise<void> {
+  async touch(target: RuntimeTargetInput): Promise<void> {
     await this.initialized
-    await this.repository.touch(userId, Date.now())
+    await this.repository.touch(targetOf(target), Date.now())
   }
 
-  async wsRef(userId: number, delta: 1 | -1): Promise<void> {
-    this.wsRefs.set(userId, Math.max(0, (this.wsRefs.get(userId) ?? 0) + delta))
-    if (delta === -1) await this.touch(userId)
+  async wsRef(target: RuntimeTargetInput, delta: 1 | -1): Promise<void> {
+    const key = targetKey(target)
+    this.wsRefs.set(key, Math.max(0, (this.wsRefs.get(key) ?? 0) + delta))
+    if (delta === -1) await this.touch(target)
   }
 
-  /** Run `fn` after any in-flight start/stop for this user has settled. */
-  private serialize<T>(userId: number, fn: () => Promise<T>): Promise<T> {
-    const prev = this.ops.get(userId) ?? Promise.resolve()
+  /** Run `fn` after any in-flight start/stop for this runtime has settled. */
+  private serialize<T>(target: RuntimeTargetInput, fn: () => Promise<T>): Promise<T> {
+    const key = targetKey(target)
+    const prev = this.ops.get(key) ?? Promise.resolve()
     const run = prev.then(fn, fn)
-    this.ops.set(userId, run.then(() => undefined, () => undefined))
+    this.ops.set(key, run.then(() => undefined, () => undefined))
     return run
   }
 
-  private async launchUser(user: UserRow): Promise<LaunchUser> {
+  private async launchContext(subject: UserRow | ProjectRuntime): Promise<Omit<RuntimeLaunchContext, 'generation'>> {
+    if ('username' in subject) {
+      const target: RuntimeTarget = { kind: 'user', id: subject.id }
+      return {
+        kind: 'user',
+        ownerId: subject.id,
+        target,
+        user: subject,
+        username: subject.username,
+        runtimeKey: subject.username,
+        systemUser: `harness-${subject.username}`,
+        port: await this.portOf(target),
+        homePath: subject.homePath,
+        dshHome: join(this.cfg.usersRoot, subject.username, 'dsh'),
+      }
+    }
+    const target: RuntimeTarget = { kind: 'project', id: subject.id }
     return {
-      username: user.username,
-      port: await this.portOf(user.id),
-      homePath: user.homePath,
-      dshHome: join(this.cfg.usersRoot, user.username, 'dsh'),
+      kind: 'project',
+      ownerId: subject.id,
+      target,
+      project: subject,
+      username: `project-${String(subject.id)}`,
+      runtimeKey: `project-${String(subject.id)}`,
+      systemUser: this.cfg.projectRuntimeUser,
+      port: await this.portOf(target),
+      homePath: subject.path,
+      dshHome: join(this.cfg.projectRuntimesRoot, String(subject.id), 'dsh'),
     }
   }
 
-  async ensureRunning(user: UserRow): Promise<{ port: number }> {
-    return this.serialize(user.id, async () => {
-      const port = await this.portOf(user.id)
-      const proc = this.procs.get(user.id)
-      if (await this.stateOf(user.id) === 'ready' && proc !== undefined && !proc.hasExited()) return { port }
-      return this.start(user, port)
+  async ensureRunning(subject: UserRow | ProjectRuntime): Promise<{ port: number; generation: number }> {
+    const target: RuntimeTarget = 'username' in subject
+      ? { kind: 'user', id: subject.id }
+      : { kind: 'project', id: subject.id }
+    return this.serialize(target, async () => {
+      const port = await this.portOf(target)
+      const proc = this.procs.get(targetKey(target))
+      if (await this.stateOf(target) === 'ready' && proc !== undefined && !proc.hasExited()) {
+        return { port, generation: await this.repository.generationOf(target) }
+      }
+      return this.start(await this.launchContext(subject), port)
     })
   }
 
@@ -173,14 +286,14 @@ export class InstanceManager {
    * into the one home-level patch file dsh loads. Turning the directory guard
    * off must never turn model authorization or usage accounting off.
    */
-  private mountPolicyBundles(user: UserRow): void {
+  private mountPolicyBundles(runtime: RuntimeLaunchContext): void {
     const governanceDir = this.cfg.modelGovernancePackage
     const governancePatch = join(governanceDir, 'cordis.patch.yml')
     if (!existsSync(join(governanceDir, 'package.json')) || !existsSync(governancePatch)) {
       throw new Error(`model-governance package is incomplete: ${governanceDir}`)
     }
 
-    const dshHome = join(this.cfg.usersRoot, user.username, 'dsh')
+    const dshHome = runtime.dshHome
     const linkParent = join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
     mkdirSync(linkParent, { recursive: true })
     try {
@@ -200,38 +313,59 @@ export class InstanceManager {
         symlinkSync(guardDir, guardLink, 'dir')
         patchText += readFileSync(guardPatch, 'utf8').trimEnd() + '\n'
       }
+      if (runtime.kind === 'project') patchText += PROJECT_RUNTIME_PATCH
       writeFileSync(join(dshHome, 'cordis.patch.yml'), patchText)
     } catch (error) {
-      throw new Error(`policy bundle mount failed for ${user.username}: ${String(error)}`)
+      throw new Error(`policy bundle mount failed for ${runtime.runtimeKey ?? runtime.username}: ${String(error)}`)
     }
   }
 
   /**
    * Copy the company default credentials file to the instance's
    * `$DSH_HOME/.env` (the dsh user-env layer). Refreshed every start so a
-   * rotated company key propagates; a personal key set from the instance's
-   * Settings lives in the managed `.credentials.yaml`, which outranks this
-   * layer, so seeding never overrides it.
+   * rotated company key propagates. Personal runtimes retain their managed
+   * override; project runtimes remove it and expose credential writes as read-only.
    */
-  private seedDefaultEnv(user: UserRow): void {
+  private seedDefaultEnv(runtime: RuntimeLaunchContext): void {
+    if (runtime.kind === 'project') {
+      rmSync(join(runtime.dshHome, MANAGED_CREDENTIALS_FILENAME), { force: true })
+    }
     const source = this.cfg.defaultEnvFile
     if (source === '') return
     if (!existsSync(source)) throw new Error(`default env file not found: ${source} (unset HGW_DEFAULT_ENV_FILE to disable)`)
-    const dshHome = join(this.cfg.usersRoot, user.username, 'dsh')
+    const dshHome = runtime.dshHome
     mkdirSync(dshHome, { recursive: true })
     copyFileSync(source, join(dshHome, '.env'))
   }
 
-  private async start(user: UserRow, port: number): Promise<{ port: number }> {
+  private async start(
+    descriptor: Omit<RuntimeLaunchContext, 'generation'>,
+    port: number,
+  ): Promise<{ port: number; generation: number }> {
     // Mount policy bundles first: a missing mandatory policy must refuse the
     // start before any state transition, not strand the row in 'starting'.
-    this.mountPolicyBundles(user)
-    this.seedDefaultEnv(user)
+    this.mountPolicyBundles({ ...descriptor, generation: 0 })
+    this.seedDefaultEnv({ ...descriptor, generation: 0 })
     const now = Date.now()
-    await this.repository.markStarting(user.id, now)
-    await this.beforeStart?.(user)
-    const proc = await this.launcher.start(await this.launchUser(user))
-    this.procs.set(user.id, proc)
+    const runtimeToken = randomBytes(32).toString('base64url')
+    const generation = await this.repository.beginStart(
+      descriptor.target,
+      now,
+      createHash('sha256').update(runtimeToken).digest(),
+    )
+    const runtime: RuntimeLaunchContext = { ...descriptor, generation }
+    await this.beforeStart?.(runtime)
+    const gatewayCredential = JSON.stringify({
+      version: 1,
+      gatewayUrl: `http://127.0.0.1:${String(this.cfg.port)}`,
+      organization: this.cfg.organizationSlug,
+      runtime: { kind: runtime.kind, id: runtime.ownerId, generation },
+      token: runtimeToken,
+      principalPublicKey: this.security.principalPublicKey,
+    })
+    const proc = await this.launcher.start({ ...runtime, gatewayCredential })
+    const key = targetKey(runtime.target)
+    this.procs.set(key, proc)
 
     const deadline = Date.now() + this.cfg.readinessTimeoutMs
     while (Date.now() < deadline) {
@@ -239,33 +373,46 @@ export class InstanceManager {
       try {
         const response = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
         if (response.ok) {
-          await this.repository.markReady(user.id)
-          return { port }
+          await this.repository.markReady(runtime.target, generation)
+          return { port, generation }
         }
       } catch { /* not up yet */ }
       await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
     }
     // Already inside the serialized op — terminate directly (calling the public
     // serialized stop here would deadlock on this same user's chain).
-    await this.terminate(user.id)
-    throw new Error(`instance for ${user.username} failed to become ready on port ${port}`)
+    await this.terminate(runtime.target)
+    throw new Error(`instance for ${runtime.runtimeKey ?? runtime.username} failed to become ready on port ${port}`)
   }
 
   async reapIdle(): Promise<number> {
     await this.initialized
     const cutoff = Date.now() - this.cfg.idleTimeoutMs
-    const userIds = await this.repository.idleUserIds(cutoff)
+    const targets = await this.repository.idleTargets(cutoff)
     let stopped = 0
-    for (const userId of userIds) {
-      if ((this.wsRefs.get(userId) ?? 0) > 0) continue
-      await this.stop(userId)
+    for (const target of targets) {
+      if ((this.wsRefs.get(targetKey(target)) ?? 0) > 0) continue
+      await this.stop(target)
       stopped += 1
     }
     return stopped
   }
 
-  async stop(userId: number): Promise<void> {
-    return this.serialize(userId, () => this.terminate(userId))
+  async stop(target: RuntimeTargetInput): Promise<void> {
+    return this.withStopped(target, async () => {})
+  }
+
+  /**
+   * Stop one runtime and keep its operation slot until the supplied work settles.
+   * @param target - runtime whose starts and stops remain serialized
+   * @param operation - work that requires the runtime to remain stopped
+   * @returns the operation result
+   */
+  async withStopped<T>(target: RuntimeTargetInput, operation: () => Promise<T>): Promise<T> {
+    return this.serialize(target, async () => {
+      await this.terminate(targetOf(target))
+      return operation()
+    })
   }
 
   /**
@@ -273,30 +420,46 @@ export class InstanceManager {
    * previous gateway process started (systemd survivors). Assumes the caller
    * holds the per-user op slot.
    */
-  private async terminate(userId: number): Promise<void> {
+  private async terminate(target: RuntimeTarget): Promise<void> {
     await this.initialized
-    await this.repository.markStopping(userId)
-    let proc = this.procs.get(userId)
+    await this.repository.markStopping(target)
+    const key = targetKey(target)
+    let proc = this.procs.get(key)
     if (proc === undefined && this.launcher.attach !== undefined) {
-      const row = await this.repository.owner(userId)
+      const row = await this.repository.owner(target)
       if (row !== null) {
+        const runtimeKey = row.kind === 'user' ? row.username : `project-${String(row.id)}`
         proc = this.launcher.attach({
+          kind: row.kind,
+          ownerId: row.id,
           username: row.username,
-          port: await this.portOf(userId),
+          runtimeKey,
+          systemUser: row.kind === 'user' ? `harness-${row.username}` : this.cfg.projectRuntimeUser,
+          port: await this.portOf(target),
           homePath: row.homePath,
-          dshHome: join(this.cfg.usersRoot, row.username, 'dsh'),
+          dshHome: row.kind === 'user'
+            ? join(this.cfg.usersRoot, row.username, 'dsh')
+            : join(this.cfg.projectRuntimesRoot, String(row.id), 'dsh'),
         })
       }
     }
     if (proc !== undefined) await proc.terminate(STOP_GRACE_MS)
-    this.procs.delete(userId)
-    await this.repository.markStopped(userId)
+    this.procs.delete(key)
+    await this.repository.markStopped(target)
   }
 
   async stopAll(): Promise<void> {
     // Local children must not outlive the gateway; systemd units stay up
     // across a gateway restart by design.
     if (this.launcher.instancesOutliveGateway) return
-    await Promise.all([...this.procs.keys()].map(id => this.stop(id)))
+    const targets = await Promise.all([...this.procs.keys()].map(async (key) => {
+      const [kind, rawId] = key.split(':')
+      const id = Number(rawId)
+      if ((kind !== 'user' && kind !== 'project') || !Number.isSafeInteger(id)) {
+        throw new Error(`invalid runtime process key ${key}`)
+      }
+      return { kind, id } as RuntimeTarget
+    }))
+    await Promise.all(targets.map(target => this.stop(target)))
   }
 }

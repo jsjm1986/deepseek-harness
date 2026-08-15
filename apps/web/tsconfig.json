@@ -50,6 +50,7 @@
     "tests/seeded-history.e2e.ts",
     "tests/cold-blank-session.e2e.ts",
     "tests/responsive-shell.e2e.ts",
+    "tests/project-collaboration.e2e.ts",
     "tests/stats-paged-history.e2e.ts",
     "tests/sidebar-scrollbar.e2e.ts",
     "tests/conversation-column-overflow.e2e.ts",

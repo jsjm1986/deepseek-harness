@@ -318,6 +318,11 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/context/collaboration": {
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
     "packages/context/tmux-context": {
       "entry": [
         "tests/**/*.spec.ts"

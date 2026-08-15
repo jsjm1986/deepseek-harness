@@ -16,7 +16,7 @@
  */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
 import type {
-  IApiClient, RpcError, RpcResult, SessionId, SubagentAddress, JobView, WorkspaceId,
+  IApiClient, RpcError, RpcResult, SessionId, SubagentAddress, JobView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -25,6 +25,7 @@ import type {
   HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
+import type { SessionCreateOptions } from '../contract/session-create.ts'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionFace } from '../contract/session.ts'
@@ -482,9 +483,12 @@ export class SessionRuntime implements ISessions {
    * @returns the new session id.
    * @throws {SessionCreateError} with the requested id.
    */
-  async create(opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {}): Promise<SessionId> {
-    const result = await this.manager.create(opts)
-    if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
+  async create(opts: SessionCreateOptions = {}): Promise<SessionId> {
+    const prepared = await this.rootCtx.waterfall(
+      'sessions/prepare-create', opts, () => Promise.resolve(opts),
+    )
+    const result = await this.manager.create(prepared)
+    if (!result.ok) throw new SessionCreateError(result.error, prepared.sessionId)
     this.projectList()
     return result.value.sessionId
   }

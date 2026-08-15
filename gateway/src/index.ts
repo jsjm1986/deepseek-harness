@@ -7,13 +7,17 @@ import { InstanceManager } from './instances.ts'
 import { selectLauncher } from './launcher.ts'
 import { PostgresAuditService } from './postgres/audit-service.ts'
 import { PostgresAuthService } from './postgres/auth-service.ts'
+import { PostgresCollaborationService } from './postgres/collaboration-service.ts'
 import { createPostgresPool, databaseUrlFromFile, runMigrations } from './postgres/database.ts'
+import { ConversationRepository } from './postgres/conversation-repository.ts'
 import { PostgresInstanceRepository } from './postgres/instance-repository.ts'
 import { PostgresModelGovernanceService } from './postgres/model-governance-service.ts'
 import { PostgresProjectService } from './postgres/project-service.ts'
 import { checkPostgresReadiness, resolvePostgresRuntimeContext } from './postgres/runtime-context.ts'
 import { PostgresUserService } from './postgres/user-service.ts'
+import { loadPrincipalKeys } from './principal.ts'
 import { createProxyHandlers } from './proxy.ts'
+import { createRuntimeApiHandler } from './runtime-api.ts'
 import { createGatewayServer, type GatewayDeps } from './server.ts'
 import { createUsageIntakeServer } from './usage-intake.ts'
 
@@ -30,19 +34,27 @@ const users = new PostgresUserService(context, cfg)
 const projects = new PostgresProjectService(context, cfg)
 const audit = new PostgresAuditService(context)
 const governance = new PostgresModelGovernanceService(context, cfg.usageTimeZone)
+const collaboration = new PostgresCollaborationService(context)
+const principalKeys = loadPrincipalKeys(cfg.principalKeyDir, cfg.organizationSlug, cfg.principalAssertionTtlMs)
+const instanceRepository = new PostgresInstanceRepository(context, cfg.instancePortBase)
+const conversations = new ConversationRepository(pool)
 // Launcher is local child-process (dev) unless HGW_LAUNCHER=systemd (Linux prod);
 // the systemd options factory is only evaluated in the systemd case.
 const launcher = selectLauncher(cfg, () => ({
   systemd: {
     usersRoot: cfg.usersRoot,
+    projectRuntimesRoot: cfg.projectRuntimesRoot,
+    projectPathRoots: cfg.projectPathRoots,
     execStart: cfg.dshCommand.join(' '),
     gatewayDir: cfg.gatewayDir,
     memoryMax: cfg.memoryMax,
     cpuQuota: cfg.cpuQuota,
   },
+  credentialDir: cfg.runtimeCredentialDir,
   unitDir: cfg.systemdUnitDir,
-  grantsProvider: async (username) => {
-    const user = await users.getByUsername(username)
+  grantsProvider: async (runtime) => {
+    if (runtime.kind === 'project') return []
+    const user = await users.getById(runtime.ownerId)
     if (user === null) return []
     return (await projects.effectiveGrants(user.id)).map(({ path, mode }) => ({ path, mode }))
   },
@@ -54,7 +66,10 @@ const deps: GatewayDeps = {
   projects,
   audit,
   governance,
-  instances: new InstanceManager(new PostgresInstanceRepository(context), cfg, launcher),
+  collaboration,
+  instances: new InstanceManager(instanceRepository, cfg, launcher, {
+    principalPublicKey: principalKeys.publicKeyPem,
+  }),
   readiness: () => checkPostgresReadiness(context),
 }
 
@@ -65,8 +80,18 @@ if (await deps.users.count() === 0) {
   console.log('[gateway] 首次登录后会强制修改密码。')
 }
 
-const proxyHandlers = createProxyHandlers(deps)
-const server = createGatewayServer(deps, { ...proxyHandlers, admin: createAdminApiHandler(deps) })
+const proxyHandlers = createProxyHandlers(deps, principalKeys.signer)
+const server = createGatewayServer(deps, {
+  ...proxyHandlers,
+  admin: createAdminApiHandler(deps),
+  runtime: createRuntimeApiHandler({
+    context,
+    instances: instanceRepository,
+    conversations,
+    collaboration,
+    principals: principalKeys.signer,
+  }),
+})
 // Bind loopback only: the gateway is reached through the TLS entry (Cloudflare
 // tunnel / Nginx) that connects to 127.0.0.1, never directly over the LAN.
 server.listen(cfg.port, '127.0.0.1', () => {

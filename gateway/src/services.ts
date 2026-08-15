@@ -1,7 +1,14 @@
 import type { AuditRow } from './audit.ts'
 import type { UserRow } from './auth.ts'
+import type {
+  CollaborationAction,
+  ConversationAccess,
+  ConversationCollaborationView,
+  ProjectMembershipView,
+} from './collaboration.ts'
 import type { InstanceManager } from './instances.ts'
 import type {
+  ModelUsageSubject,
   ModelRow,
   UsageEvent,
   UsageSummary,
@@ -59,6 +66,23 @@ export interface GatewayProjectService {
   effectiveGrants(userId: number): Awaitable<EffectiveGrant[]>
 }
 
+/** Project membership and shared-conversation authorization operations. */
+export interface GatewayCollaborationService {
+  projectsForUser(userId: number): Awaitable<ProjectMembershipView[]>
+  projectForUser(projectId: number, userId: number): Awaitable<ProjectMembershipView | null>
+  access(userId: number, sessionId: string, action: CollaborationAction): Awaitable<ConversationAccess>
+  listConversations(userId: number, projectId: number): Awaitable<ConversationCollaborationView[]>
+  readableSessionIds(userId: number, projectId: number, sessionIds: readonly string[]): Awaitable<string[]>
+  setVisibility(userId: number, sessionId: string, visibility: 'project' | 'private'): Awaitable<void>
+  claimInteraction(
+    userId: number,
+    sessionId: string,
+    kind: 'approval' | 'question',
+    interactionId: string,
+    outcome: unknown,
+  ): Awaitable<boolean>
+}
+
 /** Audit operations consumed by request handlers and policy application. */
 export interface GatewayAuditService {
   write(entry: {
@@ -94,21 +118,26 @@ export interface GatewayModelGovernanceService {
     defaultAllowed: boolean
     models: Array<{ provider: string; model: string; allowed: boolean }>
   }>
-  issueIntakeToken(userId: number): Awaitable<string>
-  userForIntakeToken(token: string): Awaitable<number | null>
+  policyForProject(projectId: number): Awaitable<{
+    version: number
+    defaultAllowed: false
+    models: Array<{ provider: string; model: string; allowed: boolean }>
+  }>
+  issueIntakeToken(subject: ModelUsageSubject): Awaitable<string>
+  subjectForIntakeToken(token: string): Awaitable<ModelUsageSubject | null>
   setQuota(
-    subjectType: 'role' | 'user',
+    subjectType: 'role' | 'user' | 'project',
     subjectId: string,
     tokenLimit: number | null | 'inherit',
     costLimit: number | null | 'inherit',
   ): Awaitable<void>
-  ingest(userId: number, event: UsageEvent): Awaitable<{ inserted: boolean; alerts: number }>
-  summary(userId: number, month?: string): Awaitable<UsageSummary>
+  ingest(subject: ModelUsageSubject, event: UsageEvent): Awaitable<{ inserted: boolean; alerts: number }>
+  summary(subject: ModelUsageSubject, month?: string): Awaitable<UsageSummary>
 }
 
 /** Instance lifecycle operations used by HTTP, proxy, and policy handlers. */
 export type GatewayInstanceService = Pick<
   InstanceManager,
-  'beforeStart' | 'portOf' | 'stateOf' | 'isLive' | 'touch' | 'wsRef' | 'ensureRunning' | 'reapIdle'
-  | 'stop' | 'stopAll'
+  'beforeStart' | 'portOf' | 'stateOf' | 'generationOf' | 'isLive' | 'touch' | 'wsRef' | 'ensureRunning' | 'reapIdle'
+  | 'stop' | 'stopAll' | 'withStopped'
 >

@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, posix, resolve } from 'node:path'
 
 export interface GatewayConfig {
   port: number
@@ -14,6 +14,20 @@ export interface GatewayConfig {
   usageTimeZone: string
   publicOrigins: string[]
   usersRoot: string
+  /** Host-owned runtime homes for project-scoped Harness processes. */
+  projectRuntimesRoot: string
+  /** Host directory roots hidden from every systemd unit before authorized project paths are re-bound. */
+  projectPathRoots: string[]
+  /** Linux account used by project-scoped systemd units. */
+  projectRuntimeUser: string
+  /** Private directory containing the Gateway's Ed25519 assertion keypair. */
+  principalKeyDir: string
+  /** Lifetime of one browser-request principal assertion. */
+  principalAssertionTtlMs: number
+  /** Maximum buffered body bytes accepted by one authenticated runtime API call. */
+  runtimeApiBodyLimitBytes: number
+  /** Private host directory used as the source for systemd runtime credentials. */
+  runtimeCredentialDir: string
   dshCommand: string[]
   dshRepoRoot: string
   instancePortBase: number
@@ -53,12 +67,38 @@ export interface GatewayConfig {
 }
 
 const gatewayRoot = resolve(import.meta.dirname, '..')
+const SYSTEMD_ACCOUNT_RE = /^[a-z][a-z0-9-]{1,30}$/
+export const DEFAULT_RUNTIME_API_BODY_LIMIT_BYTES = 64 * 1024 * 1024
+
+function projectPathRoots(value: string | undefined): string[] {
+  if (value === undefined) return []
+  const roots = value.split(',').map(path => path.trim()).filter(Boolean).map((path) => {
+    if (!posix.isAbsolute(path)) throw new Error(`HGW_PROJECT_PATH_ROOTS must contain absolute Linux paths: ${path}`)
+    return posix.normalize(path)
+  })
+  for (const [index, root] of roots.entries()) {
+    if (root === '/') throw new Error('HGW_PROJECT_PATH_ROOTS must not include the filesystem root')
+    for (const prior of roots.slice(0, index)) {
+      const nested = root === prior || posix.relative(prior, root).split('/')[0] !== '..'
+        || posix.relative(root, prior).split('/')[0] !== '..'
+      if (nested) throw new Error(`HGW_PROJECT_PATH_ROOTS contains overlapping roots: ${prior}, ${root}`)
+    }
+  }
+  return roots
+}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const port = Number(env.HGW_PORT ?? 8899)
   const publicOrigins = (env.HGW_PUBLIC_ORIGINS ?? `http://127.0.0.1:${port}`)
     .split(',').map(s => s.trim()).filter(Boolean)
   const dshRepoRoot = env.HGW_DSH_REPO_ROOT ?? resolve(gatewayRoot, '..')
+  const usersRoot = env.HGW_USERS_ROOT ?? join(homedir(), 'harness-users')
+  const stateRoot = env.HGW_STATE_ROOT ?? join(homedir(), '.harness-gateway')
+  const launcher = env.HGW_LAUNCHER === 'systemd' ? 'systemd' : 'local'
+  const configuredProjectPathRoots = projectPathRoots(env.HGW_PROJECT_PATH_ROOTS)
+  if (launcher === 'systemd' && configuredProjectPathRoots.length === 0) {
+    throw new Error('HGW_PROJECT_PATH_ROOTS is required when HGW_LAUNCHER=systemd')
+  }
   // The default source-run entry is resolved to ABSOLUTE paths against
   // dshRepoRoot: instances spawn with cwd = user home (outside the repo), so
   // neither a relative `apps/cli/src/bin.ts` nor the bare `tsx/esm` specifier
@@ -79,6 +119,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
   const guardPatch = env.HGW_GUARD_PATCH === 'off'
     ? ''
     : env.HGW_GUARD_PATCH ?? join(dshRepoRoot, 'plugins/dsh-directory-guard/cordis.patch.yml')
+  const projectRuntimeUser = env.HGW_PROJECT_RUNTIME_USER ?? 'harness-project'
+  if (!SYSTEMD_ACCOUNT_RE.test(projectRuntimeUser) || projectRuntimeUser === 'root') {
+    throw new Error(`HGW_PROJECT_RUNTIME_USER is not a valid systemd account: ${projectRuntimeUser}`)
+  }
+  const runtimeApiBodyLimitBytes = Number(
+    env.HGW_RUNTIME_API_BODY_LIMIT_BYTES ?? DEFAULT_RUNTIME_API_BODY_LIMIT_BYTES,
+  )
+  if (!Number.isSafeInteger(runtimeApiBodyLimitBytes) || runtimeApiBodyLimitBytes < 1) {
+    throw new Error('HGW_RUNTIME_API_BODY_LIMIT_BYTES must be a positive safe integer')
+  }
+  const instancePortBase = Number(env.HGW_INSTANCE_PORT_BASE ?? 42000)
+  if (!Number.isSafeInteger(instancePortBase) || instancePortBase < 1024 || instancePortBase > 65535) {
+    throw new Error('HGW_INSTANCE_PORT_BASE must be an integer between 1024 and 65535')
+  }
   return {
     port,
     organizationSlug: env.HGW_ORGANIZATION_SLUG ?? 'default',
@@ -86,16 +140,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     intakePort: Number(env.HGW_INTAKE_PORT ?? port + 1),
     usageTimeZone: env.HGW_USAGE_TIME_ZONE ?? 'Asia/Shanghai',
     publicOrigins,
-    usersRoot: env.HGW_USERS_ROOT ?? join(homedir(), 'harness-users'),
+    usersRoot,
+    projectRuntimesRoot: env.HGW_PROJECT_RUNTIMES_ROOT ?? join(homedir(), 'harness-project-runtimes'),
+    projectPathRoots: configuredProjectPathRoots,
+    projectRuntimeUser,
+    principalKeyDir: env.HGW_PRINCIPAL_KEY_DIR ?? join(stateRoot, 'principal-keys'),
+    principalAssertionTtlMs: Number(env.HGW_PRINCIPAL_ASSERTION_TTL_MS ?? 30_000),
+    runtimeApiBodyLimitBytes,
+    runtimeCredentialDir: env.HGW_RUNTIME_CREDENTIAL_DIR ?? join(stateRoot, 'runtime-credentials'),
     dshCommand,
     dshRepoRoot,
-    instancePortBase: Number(env.HGW_INSTANCE_PORT_BASE ?? 42000),
+    instancePortBase,
     idleTimeoutMs: Number(env.HGW_IDLE_TIMEOUT_MS ?? 30 * 60 * 1000),
     readinessTimeoutMs: Number(env.HGW_READINESS_TIMEOUT_MS ?? 30 * 1000),
     sessionTtlMs: Number(env.HGW_SESSION_TTL_MS ?? 7 * 24 * 3600 * 1000),
     sessionAbsoluteTtlMs: Number(env.HGW_SESSION_ABS_TTL_MS ?? 30 * 24 * 3600 * 1000),
     secureCookies: publicOrigins.some(o => o.startsWith('https://')),
-    launcher: env.HGW_LAUNCHER === 'systemd' ? 'systemd' : 'local',
+    launcher,
     memoryMax: env.HGW_MEMORY_MAX ?? '1G',
     cpuQuota: env.HGW_CPU_QUOTA ?? '100%',
     gatewayDir: env.HGW_GATEWAY_DIR ?? gatewayRoot,

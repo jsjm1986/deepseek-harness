@@ -29,7 +29,7 @@ export class UserService {
       const userId = Number(info.lastInsertRowid)
       const maxPort = (this.db.prepare(`SELECT MAX(port) AS p FROM instances`).get() as { p: number | null }).p
       this.db.prepare(`INSERT INTO instances(user_id, port, state) VALUES(?, ?, 'stopped')`)
-        .run(userId, maxPort === null ? this.cfg.instancePortBase : maxPort + 1)
+        .run(userId, maxPort === null ? this.cfg.instancePortBase : Math.max(this.cfg.instancePortBase, maxPort + 1))
       return userId
     })
     const id = insert()

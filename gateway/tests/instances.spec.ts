@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { loadConfig } from '../src/config.ts'
 import { openDb } from '../src/db.ts'
 import { InstanceManager } from '../src/instances.ts'
+import type { InstanceRepository, RuntimeTarget } from '../src/instances.ts'
 import { UserService } from '../src/users.ts'
 
 const FAKE_DSH = `require('http').createServer((q, s) => { if (q.url === '/exit') { s.end('bye'); process.exit(0); return } s.end('ok') }).listen(Number(process.argv[1]), '127.0.0.1')`
@@ -26,6 +27,7 @@ async function setup(extraEnv: Record<string, string> = {}) {
   const db = openDb(join(root, 'g.sqlite'))
   const cfg = loadConfig({
     HGW_USERS_ROOT: join(root, 'users'),
+    HGW_PROJECT_RUNTIMES_ROOT: join(root, 'project-runtimes'),
     HGW_DSH_REPO_ROOT: root,
     HGW_READINESS_TIMEOUT_MS: '10000',
     HGW_INSTANCE_PORT_BASE: '43100',
@@ -35,7 +37,53 @@ async function setup(extraEnv: Record<string, string> = {}) {
   const users = new UserService(db, cfg)
   const alice = await users.create({ username: 'alice', password: 'pw-123456' })
   manager = new InstanceManager(db, cfg)
-  return { root, db, cfg, alice, manager }
+  return { root, db, cfg, users, alice, manager }
+}
+
+class ProjectRepository implements InstanceRepository {
+  private state = 'stopped'
+  private generation = 0
+
+  constructor(private readonly projectPath: string, private readonly port: number) {}
+
+  initialize(): Promise<void> { return Promise.resolve() }
+  portOf(_target: RuntimeTarget): Promise<number> { return Promise.resolve(this.port) }
+  stateOf(_target: RuntimeTarget): Promise<string> { return Promise.resolve(this.state) }
+  generationOf(_target: RuntimeTarget): Promise<number> { return Promise.resolve(this.generation) }
+  touch(_target: RuntimeTarget, _at: number): Promise<void> { return Promise.resolve() }
+  beginStart(_target: RuntimeTarget, _at: number, _runtimeTokenHash: Buffer): Promise<number> {
+    this.state = 'starting'
+    this.generation += 1
+    return Promise.resolve(this.generation)
+  }
+  markReady(_target: RuntimeTarget, _generation: number): Promise<void> {
+    this.state = 'ready'
+    return Promise.resolve()
+  }
+  idleTargets(_cutoff: number): Promise<RuntimeTarget[]> { return Promise.resolve([]) }
+  markStopping(_target: RuntimeTarget): Promise<void> {
+    this.state = 'stopping'
+    return Promise.resolve()
+  }
+  markStopped(_target: RuntimeTarget): Promise<void> {
+    this.state = 'stopped'
+    return Promise.resolve()
+  }
+  owner(_target: RuntimeTarget): Promise<{
+    kind: 'project'
+    id: number
+    username: string
+    homePath: string
+    name: string
+  }> {
+    return Promise.resolve({
+      kind: 'project',
+      id: 41,
+      username: 'project-41',
+      homePath: this.projectPath,
+      name: 'Compiler',
+    })
+  }
 }
 
 describe('InstanceManager', () => {
@@ -120,6 +168,32 @@ describe('InstanceManager', () => {
     expect(readFileSync(target, 'utf8')).toBe('DEEPSEEK_API_KEY=rotated\n')
   })
 
+  it('mounts shared persistence and collaboration plugins for project runtimes only', async () => {
+    const { root, cfg } = await setup({ HGW_INSTANCE_PORT_BASE: '43190' })
+    const projectPath = join(root, 'shared-project')
+    mkdirSync(projectPath, { recursive: true })
+    const dshHome = join(root, 'project-runtimes', '41', 'dsh')
+    mkdirSync(dshHome, { recursive: true })
+    writeFileSync(join(dshHome, '.credentials.yaml'), 'DEEPSEEK_API_KEY: personal\n')
+    const seed = join(root, 'company.env')
+    writeFileSync(seed, 'DEEPSEEK_API_KEY=company-key\n')
+    cfg.defaultEnvFile = seed
+    manager = new InstanceManager(new ProjectRepository(projectPath, 43190), cfg)
+
+    await manager.ensureRunning({ kind: 'project', id: 41, name: 'Compiler', path: projectPath })
+
+    const patch = readFileSync(join(dshHome, 'cordis.patch.yml'), 'utf8')
+    expect(patch).toContain('- id: session-persistence-jsonl\n  disabled: true\n')
+    for (const plugin of [
+      '@deepseek-ai/dsh-gateway-runtime',
+      '@deepseek-ai/dsh-collaboration-gateway',
+      '@deepseek-ai/dsh-collaboration-context',
+      '@deepseek-ai/dsh-session-persistence-gateway',
+    ]) expect(patch).toContain(`name: '${plugin}'`)
+    expect(existsSync(join(dshHome, '.credentials.yaml'))).toBe(false)
+    expect(readFileSync(join(dshHome, '.env'), 'utf8')).toBe('DEEPSEEK_API_KEY=company-key\n')
+  })
+
   it('refuses to start when the configured guard patch is missing (fail loud, not unguarded)', async () => {
     const { alice, manager } = await setup({ HGW_GUARD_PATCH: '/nowhere/guard.yml', HGW_INSTANCE_PORT_BASE: '43160' })
     await expect(manager.ensureRunning(alice)).rejects.toThrow(/directory-guard patch not found/)
@@ -141,5 +215,39 @@ describe('InstanceManager', () => {
     await Promise.all([manager.ensureRunning(alice), manager.stop(alice.id)])
     expect(await manager.stateOf(alice.id)).toBe('stopped')
     await expect(fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(2000) })).rejects.toThrow()
+  })
+
+  it('keeps a runtime stopped until destructive work releases its operation slot', async () => {
+    const { root, cfg } = await setup({ HGW_INSTANCE_PORT_BASE: '43210' })
+    const projectPath = join(root, 'shared-delete')
+    mkdirSync(projectPath, { recursive: true })
+    const project = { kind: 'project' as const, id: 41, name: 'Compiler', path: projectPath }
+    const target = { kind: 'project' as const, id: project.id }
+    manager = new InstanceManager(new ProjectRepository(projectPath, 43210), cfg)
+    await manager.ensureRunning(project)
+    let enter!: () => void
+    let release!: () => void
+    const entered = new Promise<void>(resolve => { enter = resolve })
+    const held = new Promise<void>(resolve => { release = resolve })
+    const destructive = manager.withStopped(target, async () => {
+      enter()
+      expect(await manager!.stateOf(target)).toBe('stopped')
+      await held
+      return 'deleted'
+    })
+    await entered
+
+    let restarted = false
+    const restart = manager.ensureRunning(project).then((result) => {
+      restarted = true
+      return result
+    })
+    await new Promise<void>(resolve => { setImmediate(resolve) })
+    expect(restarted).toBe(false)
+
+    release()
+    await expect(destructive).resolves.toBe('deleted')
+    await expect(restart).resolves.toMatchObject({ port: 43210 })
+    expect(await manager.stateOf(target)).toBe('ready')
   })
 })

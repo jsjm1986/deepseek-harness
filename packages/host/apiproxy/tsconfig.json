@@ -39,6 +39,9 @@
       "path": "../../context/userdoc-context"
     },
     {
+      "path": "../../context/collaboration"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

@@ -12,9 +12,13 @@ import type { GatewayDeps } from './server.ts'
  * @returns absolute path of the written file
  */
 export function writeGrantsFile(cfg: GatewayConfig, username: string, grants: EffectiveGrant[]): string {
-  const dir = join(cfg.usersRoot, username, 'dsh')
-  mkdirSync(dir, { recursive: true })
-  const path = join(dir, 'directory-grants.json')
+  return writeRuntimeGrantsFile(join(cfg.usersRoot, username, 'dsh'), grants)
+}
+
+/** Write one runtime's complete directory grant projection. */
+export function writeRuntimeGrantsFile(dshHome: string, grants: EffectiveGrant[]): string {
+  mkdirSync(dshHome, { recursive: true })
+  const path = join(dshHome, 'directory-grants.json')
   writeFileSync(path, JSON.stringify(grants, null, 2))
   return path
 }

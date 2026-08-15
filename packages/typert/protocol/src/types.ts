@@ -210,6 +210,22 @@ export interface InvocationDescriptor {
   readonly sourceLocation?: InvocationSourceLocation
 }
 
+/** Validated Remote request presented to Host authorization plugins. */
+export interface TypertGatewayAuthorizationRequest {
+  /** Canonical `<namespace>/<method>` endpoint. */
+  readonly endpoint: string
+  /** Cordis Service key selected by the invocation descriptor. */
+  readonly service: string
+  /** Remote namespace selected by the invocation descriptor. */
+  readonly namespace: string
+  /** Exported Remote method selected by the invocation descriptor. */
+  readonly method: string
+  /** Codec-decoded wire values before Context or lookup resolution. */
+  readonly args: Readonly<Record<string, unknown>>
+  /** Carrier or direct-caller cancellation signal. */
+  readonly signal?: AbortSignal
+}
+
 /** Generated Host contract selected explicitly by a Client assembly. */
 export interface TypertRemoteContribution {
   /** npm package that owns the Remote methods. */
@@ -487,5 +503,15 @@ export interface TypertRegistryContract {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     typert: TypertRegistryContract
+  }
+
+  interface Events {
+    /**
+     * Authorize a validated Remote request before Context or lookup resolution
+     * and before the business method runs. A listener rejects by throwing.
+     * @param payload - endpoint, selected service, decoded wire values, and cancellation.
+     * @mode serial
+     */
+    'typert-gateway/authorize'(payload: TypertGatewayAuthorizationRequest): Promise<void> | void
   }
 }

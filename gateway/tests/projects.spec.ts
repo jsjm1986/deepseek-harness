@@ -54,6 +54,20 @@ describe('ProjectService', () => {
     expect(() => projects.create({ name: 'Dsh', path: join(cfg.usersRoot, 'alice', 'dsh'), createdBy: alice.id })).toThrow(/dsh/)
   })
 
+  it('rejects project paths nested inside another project or reserved runtime data', async () => {
+    const { projects, cfg, alice, shared, root } = await setup()
+    projects.create({ name: 'Alpha', path: shared, createdBy: alice.id })
+    const nested = join(shared, 'nested')
+    mkdirSync(nested)
+    expect(() => projects.create({ name: 'Nested', path: nested, createdBy: alice.id }))
+      .toThrow(/overlaps existing project/)
+    expect(() => projects.create({ name: 'Users root', path: cfg.usersRoot, createdBy: alice.id }))
+      .toThrow(/reserved path/)
+    const parent = realpathSync(root)
+    expect(() => projects.create({ name: 'Parent', path: parent, createdBy: alice.id }))
+      .toThrow(/reserved path|user home/)
+  })
+
   it('creates a project when another user dsh directory is missing', async () => {
     const { projects, users, alice, shared, cfg } = await setup()
     await users.create({ username: 'bob', password: 'pw-123456' })

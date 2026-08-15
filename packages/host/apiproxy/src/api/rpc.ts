@@ -32,6 +32,11 @@ export function RpcId(id: string): RpcId {
 export interface RpcErrorDetailsMap {
   'bad-request': { issues: ZodIssue[] }
   'cancelled': {}
+  'collaboration-forbidden': {
+    sessionId?: SessionId
+    action: 'read' | 'write' | 'manage' | 'approve'
+    reason: 'not-member' | 'conversation-not-found' | 'forbidden' | 'visibility-locked' | 'gateway-unavailable'
+  }
   'session-not-found': { sessionId: SessionId }
   'model-unavailable': { provider: string; model: string }
   'model-forbidden': { provider: string; model: string }

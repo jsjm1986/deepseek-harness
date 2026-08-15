@@ -17,13 +17,22 @@ export function createUsageIntakeServer(
     if (req.method !== 'POST' || req.url !== '/usage') { res.writeHead(404).end(); return }
     const auth = req.headers.authorization
     const token = auth?.startsWith('Bearer ') ? auth.slice(7) : ''
-    const userId = token === '' ? null : await governance.userForIntakeToken(token)
-    if (userId === null) { res.writeHead(401).end(); return }
+    const subject = token === '' ? null : await governance.subjectForIntakeToken(token)
+    if (subject === null) { res.writeHead(401).end(); return }
     try {
       const event = JSON.parse(await body(req)) as UsageEvent
-      const result = await governance.ingest(userId, event)
+      const result = await governance.ingest(subject, event)
       if (result.inserted && event.status === 'denied') {
-        await audit?.write({ userId, action: 'model.denied', detail: JSON.stringify({ provider: event.provider, model: event.model, purpose: event.purpose }) })
+        await audit?.write({
+          ...(subject.kind === 'user' ? { userId: subject.id } : {}),
+          action: 'model.denied',
+          detail: JSON.stringify({
+            subject,
+            provider: event.provider,
+            model: event.model,
+            purpose: event.purpose,
+          }),
+        })
       }
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result))
     } catch (error) {

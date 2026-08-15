@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { CollaborationAuthority } from '@deepseek-ai/dsh-collaboration'
 import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import ModelAccessPolicy from '@deepseek-ai/dsh-model-access'
 import type {
@@ -447,6 +448,58 @@ describe('Web session model selection', () => {
     expect(stillAccepted.selected).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps a project-scoped model switch local to its shared session', async () => {
+    const { ctx, sessionId } = await harness()
+    const authority: CollaborationAuthority = {
+      participant: {
+        userId: 7,
+        username: 'alice',
+        displayName: 'Alice',
+        role: 'user',
+        scope: { kind: 'project', projectId: 41, projectName: 'Compiler', mode: 'rw' },
+      },
+      expiresAt: Date.now() + 60_000,
+      signal: new AbortController().signal,
+      authorize: id => Promise.resolve({
+        sessionId: id,
+        rootSessionId: id,
+        mode: 'rw',
+        canRead: true,
+        canWrite: true,
+        canManage: true,
+        projectId: 41,
+        visibility: 'project',
+        creatorUserId: 7,
+      }),
+      readableSessionIds: ids => Promise.resolve(new Set(ids)),
+      claimInteraction: () => Promise.resolve(true),
+    }
+    ctx.provide('collaboration', {
+      capture: () => authority,
+      currentCreation: () => undefined,
+      withSessionCreation: (_creation: unknown, operation: () => Promise<unknown>) => operation(),
+    } as never)
+    const saveDefaultModelSelection = vi.fn(() => Promise.resolve())
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      saveDefaultModelSelection,
+      cwd: '/tmp',
+    })
+
+    const selected = expectValue(await api.sessions.selectModel(request({
+      sessionId,
+      provider: 'deepseek-official',
+      model: 'deepseek-reasoner',
+    })))
+
+    expect(selected.selected).toMatchObject({
+      provider: 'deepseek-official',
+      model: 'deepseek-reasoner',
+    })
+    expect(saveDefaultModelSelection).not.toHaveBeenCalled()
     await ctx.fiber.dispose()
   })
 

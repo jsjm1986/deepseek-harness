@@ -1,5 +1,6 @@
 /** Host HTTP bridge for browser-client RPC. */
 import type { Context } from '@deepseek-ai/cordis'
+import type { IncomingHttpHeaders } from 'node:http'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment'
 // Activates the webServer Context merge used below.
@@ -26,6 +27,24 @@ export type {
 export { HostConnectionService } from './rpc-host.ts'
 
 export { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
+
+/** One accepted HTTP request or WebSocket opening entering the Connection carrier. */
+export interface ConnectionRequestBoundary {
+  kind: 'http' | 'upgrade'
+  headers: IncomingHttpHeaders
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * Wrap an accepted Connection request before any RPC dispatch or event-stream opening.
+     * Listeners must call `next()` so later authentication and request-context plugins run.
+     * @param request - request kind and immutable-at-entry HTTP headers.
+     * @mode waterfall
+     */
+    'connection/request'(request: ConnectionRequestBoundary, next: () => Promise<void>): Promise<void>
+  }
+}
 
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
@@ -171,8 +190,10 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
         res.end('forbidden')
         return
       }
-      if (await connection.dispatchHttp(req, res)) return
-      await bridge(req, res, fetchHandler, maxRequestBodyBytes)
+      await ctx.waterfall('connection/request', { kind: 'http', headers: req.headers }, async () => {
+        if (await connection.dispatchHttp(req, res)) return
+        await bridge(req, res, fetchHandler, maxRequestBodyBytes)
+      })
     },
   }
   ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
@@ -190,7 +211,9 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
             rejectWebSocketUpgrade(socket)
             return
           }
-          return handle(req, socket, head)
+          return apiCtx.waterfall('connection/request', { kind: 'upgrade', headers: req.headers }, async () => {
+            await handle(req, socket, head)
+          })
         },
       }), `client-connection: ${path} WebSocket`)
     }

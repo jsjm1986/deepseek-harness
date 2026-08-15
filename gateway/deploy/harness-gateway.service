@@ -19,6 +19,11 @@ Environment=HGW_DATABASE_URL_FILE=/srv/harness/gateway-data/database-url
 Environment=HGW_ORGANIZATION_SLUG=default
 Environment=HGW_COMPUTE_NODE_NAME=local
 Environment=HGW_USERS_ROOT=/srv/harness/users
+Environment=HGW_PROJECT_RUNTIMES_ROOT=/srv/harness/project-runtimes
+Environment=HGW_PROJECT_PATH_ROOTS=/srv/harness/projects
+Environment=HGW_PROJECT_RUNTIME_USER=harness-project
+Environment=HGW_PRINCIPAL_KEY_DIR=/srv/harness/gateway-data/principal-keys
+Environment=HGW_RUNTIME_CREDENTIAL_DIR=/srv/harness/gateway-data/runtime-credentials
 Environment=HGW_LAUNCHER=systemd
 # Pinned npm dsh (never the source tree): install with
 #   npm install -g @deepseek-ai/dsh@<pinned>

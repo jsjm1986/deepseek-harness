@@ -2,13 +2,14 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { UserRow } from '../auth.ts'
 import type {
   CredentialClass,
+  ModelUsageSubject,
   ModelRow,
   UsageEvent,
   UsageSummary,
 } from '../model-governance.ts'
 import type { Queryable } from './database.ts'
 import { transaction } from './database.ts'
-import { internalUserId, type PostgresRuntimeContext } from './runtime-context.ts'
+import { internalProjectId, internalUserId, type PostgresRuntimeContext } from './runtime-context.ts'
 
 const nonEmpty = (value: string, name: string): string => {
   const accepted = value.trim()
@@ -123,6 +124,55 @@ function monthOf(time: number, timeZone: string): string {
 
 function roleForPostgres(role: 'admin' | 'user'): 'admin' | 'member' {
   return role === 'admin' ? 'admin' : 'member'
+}
+
+interface UsageTotalsRow {
+  input: string
+  output: string
+  read: string
+  write: string
+  cost: string
+  company: string
+  calls: string
+  missing: string
+}
+
+interface UsageAlertRow {
+  metric: 'tokens' | 'company-cost'
+  threshold: 80 | 100
+  created_at: Date
+}
+
+function usageSummary(
+  month: string,
+  row: UsageTotalsRow,
+  tokenLimit: number | null,
+  companyCostMicrosLimit: number | null,
+  alerts: readonly UsageAlertRow[],
+): UsageSummary {
+  const input = safeCount(row.input, 'input tokens')
+  const output = safeCount(row.output, 'output tokens')
+  const read = safeCount(row.read, 'cache read tokens')
+  const write = safeCount(row.write, 'cache write tokens')
+  return {
+    month,
+    inputTokens: input,
+    outputTokens: output,
+    cacheReadTokens: read,
+    cacheWriteTokens: write,
+    totalTokens: input + output + read + write,
+    estimatedCostMicros: decimalToMicros(row.cost),
+    companyCostMicros: decimalToMicros(row.company),
+    calls: safeCount(row.calls, 'usage calls'),
+    missingUsageCalls: safeCount(row.missing, 'missing usage calls'),
+    tokenLimit,
+    companyCostMicrosLimit,
+    alerts: alerts.map(alert => ({
+      metric: alert.metric,
+      threshold: alert.threshold,
+      createdAt: alert.created_at.getTime(),
+    })),
+  }
 }
 
 /** PostgreSQL-backed model access, pricing, quotas, and usage accounting. */
@@ -274,26 +324,72 @@ export class PostgresModelGovernanceService {
     }
   }
 
-  async issueIntakeToken(userId: number): Promise<string> {
+  async policyForProject(projectId: number): Promise<{
+    version: number
+    defaultAllowed: false
+    models: Array<{ provider: string; model: string; allowed: boolean }>
+  }> {
+    if (await internalProjectId(this.context.pool, this.context.organizationId, projectId) === null) {
+      throw new Error(`unknown project ${String(projectId)}`)
+    }
+    const result = await this.context.pool.query<{
+      provider: string
+      model: string
+      enabled: boolean
+      allowed: boolean
+    }>(`SELECT m.provider_key provider,m.model_key model,m.enabled,
+      COALESCE(r.allowed,false) allowed
+      FROM harness.model_catalog m
+      LEFT JOIN harness.model_role_access r ON r.organization_id=m.organization_id
+        AND r.model_id=m.id AND r.role='member'
+      WHERE m.organization_id=$1 ORDER BY m.provider_key,m.model_key`, [this.context.organizationId])
+    return {
+      version: Date.now(),
+      defaultAllowed: false,
+      models: result.rows.map(row => ({
+        provider: row.provider,
+        model: row.model,
+        allowed: row.enabled && row.allowed,
+      })),
+    }
+  }
+
+  async issueIntakeToken(subject: ModelUsageSubject): Promise<string> {
     const token = randomBytes(32).toString('base64url')
-    const user = await internalUserId(this.context.pool, this.context.organizationId, userId)
-    if (user === null) throw new Error(`unknown user ${String(userId)}`)
-    await this.context.pool.query(`INSERT INTO harness.model_intake_tokens(user_id,token_hash)
-      VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,created_at=now()`,
-    [user, tokenHash(token)])
+    if (subject.kind === 'user') {
+      const user = await internalUserId(this.context.pool, this.context.organizationId, subject.id)
+      if (user === null) throw new Error(`unknown user ${String(subject.id)}`)
+      await this.context.pool.query(`INSERT INTO harness.model_intake_tokens(user_id,token_hash)
+        VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,created_at=now()`,
+      [user, tokenHash(token)])
+    } else {
+      const project = await internalProjectId(this.context.pool, this.context.organizationId, subject.id)
+      if (project === null) throw new Error(`unknown project ${String(subject.id)}`)
+      await this.context.pool.query(`INSERT INTO harness.project_model_intake_tokens(project_id,token_hash)
+        VALUES($1,$2) ON CONFLICT(project_id) DO UPDATE SET token_hash=excluded.token_hash,created_at=now()`,
+      [project, tokenHash(token)])
+    }
     return token
   }
 
-  async userForIntakeToken(token: string): Promise<number | null> {
-    const result = await this.context.pool.query<{ public_id: string }>(`SELECT u.public_id::text
-      FROM harness.model_intake_tokens t JOIN harness.users u ON u.id=t.user_id
-      WHERE u.organization_id=$1 AND t.token_hash=$2`, [this.context.organizationId, tokenHash(token)])
-    const value = result.rows[0]?.public_id
-    return value === undefined ? null : safeCount(value, 'user id')
+  async subjectForIntakeToken(token: string): Promise<ModelUsageSubject | null> {
+    const result = await this.context.pool.query<{ kind: 'user' | 'project'; public_id: string }>(`SELECT
+      'user'::text kind,u.public_id::text public_id
+      FROM harness.model_intake_tokens t
+      JOIN harness.users u ON u.id=t.user_id
+      WHERE u.organization_id=$1 AND t.token_hash=$2
+      UNION ALL
+      SELECT 'project'::text kind,p.public_id::text public_id
+      FROM harness.project_model_intake_tokens t
+      JOIN harness.projects p ON p.id=t.project_id
+      WHERE p.organization_id=$1 AND t.token_hash=$2`, [this.context.organizationId, tokenHash(token)])
+    if (result.rows.length > 1) throw new Error('model intake token resolves more than one subject')
+    const row = result.rows[0]
+    return row === undefined ? null : { kind: row.kind, id: safeCount(row.public_id, `${row.kind} id`) }
   }
 
   async setQuota(
-    subjectType: 'role' | 'user',
+    subjectType: 'role' | 'user' | 'project',
     subjectId: string,
     tokenLimit: number | null | 'inherit',
     costLimit: number | null | 'inherit',
@@ -314,7 +410,29 @@ export class PostgresModelGovernanceService {
       return
     }
     const publicId = Number(subjectId)
-    if (!Number.isSafeInteger(publicId) || publicId <= 0) throw new Error('user quota subject must be a positive user id')
+    if (!Number.isSafeInteger(publicId) || publicId <= 0) {
+      throw new Error(`${subjectType} quota subject must be a positive ${subjectType} id`)
+    }
+    if (subjectType === 'project') {
+      const project = await internalProjectId(this.context.pool, this.context.organizationId, publicId)
+      if (project === null) throw new Error(`unknown project ${subjectId}`)
+      if (tokenLimit === 'inherit' && costLimit === 'inherit') {
+        await this.context.pool.query('DELETE FROM harness.project_quotas WHERE project_id=$1', [project])
+        return
+      }
+      if (tokenLimit === 'inherit' || costLimit === 'inherit') {
+        throw new Error('project quota fields must both inherit or both be explicit')
+      }
+      await this.context.pool.query(`INSERT INTO harness.project_quotas(
+        project_id,token_limit,company_cost_limit
+      ) VALUES($1,$2,$3) ON CONFLICT(project_id) DO UPDATE SET
+        token_limit=excluded.token_limit,company_cost_limit=excluded.company_cost_limit`, [
+        project,
+        tokenLimit === null ? null : nonnegative(tokenLimit, 'tokenLimit'),
+        costLimit === null ? null : microsToDecimal(nonnegative(costLimit, 'companyCostMicrosLimit')),
+      ])
+      return
+    }
     const user = await internalUserId(this.context.pool, this.context.organizationId, publicId)
     if (user === null) throw new Error(`unknown user ${subjectId}`)
     if (tokenLimit === 'inherit' && costLimit === 'inherit') {
@@ -336,7 +454,7 @@ export class PostgresModelGovernanceService {
     ])
   }
 
-  async ingest(userId: number, event: UsageEvent): Promise<{ inserted: boolean; alerts: number }> {
+  async ingest(subject: ModelUsageSubject, event: UsageEvent): Promise<{ inserted: boolean; alerts: number }> {
     if (event === null || typeof event !== 'object') throw new Error('usage event must be an object')
     nonEmpty(event.eventId, 'eventId')
     if (!Number.isSafeInteger(event.occurredAt) || event.occurredAt < 0) {
@@ -359,8 +477,14 @@ export class PostgresModelGovernanceService {
     const provider = nonEmpty(event.provider, 'provider')
     const model = nonEmpty(event.model, 'model')
     return transaction(this.context.pool, async (client) => {
-      const user = await internalUserId(client, this.context.organizationId, userId)
-      if (user === null) throw new Error(`unknown user ${String(userId)}`)
+      const user = subject.kind === 'user'
+        ? await internalUserId(client, this.context.organizationId, subject.id)
+        : null
+      const project = subject.kind === 'project'
+        ? await internalProjectId(client, this.context.organizationId, subject.id)
+        : null
+      if (subject.kind === 'user' && user === null) throw new Error(`unknown user ${String(subject.id)}`)
+      if (subject.kind === 'project' && project === null) throw new Error(`unknown project ${String(subject.id)}`)
       const catalog = await client.query<{
         id: string
         input_price: string | null
@@ -384,14 +508,15 @@ export class PostgresModelGovernanceService {
       ) / 1_000_000)
       const companyCost = credentialClass === 'personal' ? 0 : estimated
       const inserted = await client.query<{ event_id: string }>(`INSERT INTO harness.model_usage(
-        event_id,organization_id,user_id,occurred_at,received_at,model_id,provider_key,model_key,purpose,
+        event_id,organization_id,user_id,project_id,occurred_at,received_at,model_id,provider_key,model_key,purpose,
         session_id,credential_source,credential_class,status,input_tokens,output_tokens,cache_read_tokens,
         cache_write_tokens,estimated_cost,company_cost
-      ) VALUES($1,$2,$3,to_timestamp($4/1000.0),now(),$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+      ) VALUES($1,$2,$3,$4,to_timestamp($5/1000.0),now(),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
       ON CONFLICT(organization_id,event_id) DO NOTHING RETURNING event_id`, [
         event.eventId,
         this.context.organizationId,
         user,
+        project,
         event.occurredAt,
         price?.id ?? null,
         provider,
@@ -411,41 +536,52 @@ export class PostgresModelGovernanceService {
       if (inserted.rows.length === 0) return { inserted: false, alerts: 0 }
       return {
         inserted: true,
-        alerts: await this.evaluateAlerts(client, userId, monthOf(event.occurredAt, this.timeZone)),
+        alerts: await this.evaluateAlerts(client, subject, monthOf(event.occurredAt, this.timeZone)),
       }
     })
   }
 
-  async summary(userId: number, month = monthOf(Date.now(), this.timeZone)): Promise<UsageSummary> {
-    return this.summaryWith(this.context.pool, userId, month)
+  async summary(subject: ModelUsageSubject, month = monthOf(Date.now(), this.timeZone)): Promise<UsageSummary> {
+    return this.summaryWith(this.context.pool, subject, month)
   }
 
-  private async summaryWith(queryable: Queryable, userId: number, month: string): Promise<UsageSummary> {
+  private async usageTotals(
+    queryable: Queryable,
+    subject: ModelUsageSubject,
+    internalId: string,
+    month: string,
+  ): Promise<UsageTotalsRow> {
     const { start, end } = monthBounds(month, this.timeZone)
+    const subjectColumn = subject.kind === 'user' ? 'user_id' : 'project_id'
+    const usage = await queryable.query<UsageTotalsRow>(`SELECT COALESCE(SUM(input_tokens),0)::text input,
+      COALESCE(SUM(output_tokens),0)::text output,COALESCE(SUM(cache_read_tokens),0)::text read,
+      COALESCE(SUM(cache_write_tokens),0)::text write,COALESCE(SUM(estimated_cost),0)::text cost,
+      COALESCE(SUM(company_cost),0)::text company,COUNT(*)::text calls,
+      COUNT(*) FILTER (WHERE status='missing-usage')::text missing
+      FROM harness.model_usage WHERE organization_id=$1 AND ${subjectColumn}=$2
+        AND occurred_at>=to_timestamp($3/1000.0) AND occurred_at<to_timestamp($4/1000.0)`,
+    [this.context.organizationId, internalId, start, end])
+    return usage.rows[0]!
+  }
+
+  private async summaryWith(
+    queryable: Queryable,
+    subject: ModelUsageSubject,
+    month: string,
+  ): Promise<UsageSummary> {
+    return subject.kind === 'user'
+      ? this.userSummaryWith(queryable, subject.id, month)
+      : this.projectSummaryWith(queryable, subject.id, month)
+  }
+
+  private async userSummaryWith(queryable: Queryable, userId: number, month: string): Promise<UsageSummary> {
     const user = await queryable.query<{ id: string; role: 'admin' | 'member' }>(`SELECT u.id,m.role
       FROM harness.users u JOIN harness.memberships m
         ON m.organization_id=u.organization_id AND m.user_id=u.id
       WHERE u.organization_id=$1 AND u.public_id=$2`, [this.context.organizationId, userId])
     const identity = user.rows[0]
     if (identity === undefined) throw new Error(`unknown user ${String(userId)}`)
-    const usage = await queryable.query<{
-      input: string
-      output: string
-      read: string
-      write: string
-      cost: string
-      company: string
-      calls: string
-      missing: string
-    }>(`SELECT COALESCE(SUM(input_tokens),0)::text input,
-      COALESCE(SUM(output_tokens),0)::text output,COALESCE(SUM(cache_read_tokens),0)::text read,
-      COALESCE(SUM(cache_write_tokens),0)::text write,COALESCE(SUM(estimated_cost),0)::text cost,
-      COALESCE(SUM(company_cost),0)::text company,COUNT(*)::text calls,
-      COUNT(*) FILTER (WHERE status='missing-usage')::text missing
-      FROM harness.model_usage WHERE organization_id=$1 AND user_id=$2
-        AND occurred_at>=to_timestamp($3/1000.0) AND occurred_at<to_timestamp($4/1000.0)`,
-    [this.context.organizationId, identity.id, start, end])
-    const row = usage.rows[0]!
+    const row = await this.usageTotals(queryable, { kind: 'user', id: userId }, identity.id, month)
     const userQuota = await queryable.query<{
       token_mode: 'inherit' | 'unlimited' | 'custom'
       token_limit: string | null
@@ -456,11 +592,7 @@ export class PostgresModelGovernanceService {
     const roleQuota = await queryable.query<{ token_limit: string | null; company_cost_limit: string | null }>(`SELECT
       token_limit::text,company_cost_limit::text FROM harness.role_quotas
       WHERE organization_id=$1 AND role=$2`, [this.context.organizationId, identity.role])
-    const alerts = await queryable.query<{
-      metric: 'tokens' | 'company-cost'
-      threshold: 80 | 100
-      created_at: Date
-    }>(`SELECT metric,threshold,created_at FROM harness.model_usage_alerts
+    const alerts = await queryable.query<UsageAlertRow>(`SELECT metric,threshold,created_at FROM harness.model_usage_alerts
       WHERE user_id=$1 AND period_start=$2::date ORDER BY CASE metric WHEN 'tokens' THEN 0 ELSE 1 END,threshold`,
     [identity.id, `${month}-01`])
     const userLimits = userQuota.rows[0]
@@ -481,35 +613,49 @@ export class PostgresModelGovernanceService {
       : userLimits.company_cost_mode === 'unlimited'
         ? null
         : decimalToMicros(userLimits.company_cost_limit!)
-    const input = safeCount(row.input, 'input tokens')
-    const output = safeCount(row.output, 'output tokens')
-    const read = safeCount(row.read, 'cache read tokens')
-    const write = safeCount(row.write, 'cache write tokens')
-    return {
-      month,
-      inputTokens: input,
-      outputTokens: output,
-      cacheReadTokens: read,
-      cacheWriteTokens: write,
-      totalTokens: input + output + read + write,
-      estimatedCostMicros: decimalToMicros(row.cost),
-      companyCostMicros: decimalToMicros(row.company),
-      calls: safeCount(row.calls, 'usage calls'),
-      missingUsageCalls: safeCount(row.missing, 'missing usage calls'),
-      tokenLimit,
-      companyCostMicrosLimit,
-      alerts: alerts.rows.map(alert => ({
-        metric: alert.metric,
-        threshold: alert.threshold,
-        createdAt: alert.created_at.getTime(),
-      })),
-    }
+    return usageSummary(month, row, tokenLimit, companyCostMicrosLimit, alerts.rows)
   }
 
-  private async evaluateAlerts(queryable: Queryable, userId: number, month: string): Promise<number> {
-    const summary = await this.summaryWith(queryable, userId, month)
-    const user = await internalUserId(queryable, this.context.organizationId, userId)
-    if (user === null) throw new Error(`unknown user ${String(userId)}`)
+  private async projectSummaryWith(queryable: Queryable, projectId: number, month: string): Promise<UsageSummary> {
+    const project = await queryable.query<{ id: string }>(`SELECT id FROM harness.projects
+      WHERE organization_id=$1 AND public_id=$2 AND status='active'`, [this.context.organizationId, projectId])
+    const identity = project.rows[0]
+    if (identity === undefined) throw new Error(`unknown project ${String(projectId)}`)
+    const row = await this.usageTotals(queryable, { kind: 'project', id: projectId }, identity.id, month)
+    const quota = await queryable.query<{ token_limit: string | null; company_cost_limit: string | null }>(`SELECT
+      token_limit::text,company_cost_limit::text FROM harness.project_quotas WHERE project_id=$1`, [identity.id])
+    const projectLimits = quota.rows[0]
+    const inherited = projectLimits === undefined
+      ? await queryable.query<{ token_limit: string | null; company_cost_limit: string | null }>(`SELECT
+        token_limit::text,company_cost_limit::text FROM harness.role_quotas
+        WHERE organization_id=$1 AND role='member'`, [this.context.organizationId])
+      : undefined
+    const alerts = await queryable.query<UsageAlertRow>(`SELECT metric,threshold,created_at
+      FROM harness.project_usage_alerts
+      WHERE project_id=$1 AND period_start=$2::date
+      ORDER BY CASE metric WHEN 'tokens' THEN 0 ELSE 1 END,threshold`, [identity.id, `${month}-01`])
+    const limits = projectLimits ?? inherited?.rows[0]
+    return usageSummary(
+      month,
+      row,
+      limits?.token_limit === null || limits?.token_limit === undefined
+        ? null
+        : safeCount(limits.token_limit, 'project token limit'),
+      limits?.company_cost_limit === null || limits?.company_cost_limit === undefined
+        ? null
+        : decimalToMicros(limits.company_cost_limit),
+      alerts.rows,
+    )
+  }
+
+  private async evaluateAlerts(queryable: Queryable, subject: ModelUsageSubject, month: string): Promise<number> {
+    const summary = await this.summaryWith(queryable, subject, month)
+    const internalId = subject.kind === 'user'
+      ? await internalUserId(queryable, this.context.organizationId, subject.id)
+      : await internalProjectId(queryable, this.context.organizationId, subject.id)
+    if (internalId === null) throw new Error(`unknown ${subject.kind} ${String(subject.id)}`)
+    const table = subject.kind === 'user' ? 'model_usage_alerts' : 'project_usage_alerts'
+    const column = subject.kind === 'user' ? 'user_id' : 'project_id'
     let inserted = 0
     for (const [metric, value, limit] of [
       ['tokens', summary.totalTokens, summary.tokenLimit],
@@ -518,9 +664,10 @@ export class PostgresModelGovernanceService {
       if (limit === null || limit <= 0) continue
       for (const threshold of [80, 100] as const) {
         if (value * 100 < limit * threshold) continue
-        const result = await queryable.query(`INSERT INTO harness.model_usage_alerts(
-          user_id,period_start,metric,threshold
-        ) VALUES($1,$2::date,$3,$4) ON CONFLICT DO NOTHING`, [user, `${month}-01`, metric, threshold])
+        const result = await queryable.query(`INSERT INTO harness.${table}(
+          ${column},period_start,metric,threshold
+        ) VALUES($1,$2::date,$3,$4) ON CONFLICT DO NOTHING`,
+        [internalId, `${month}-01`, metric, threshold])
         inserted += result.rowCount ?? 0
       }
     }

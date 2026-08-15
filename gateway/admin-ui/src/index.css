@@ -1138,6 +1138,143 @@ a {
   width: max-content;
 }
 
+.projectUsageToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.projectUsageSection > .errorBanner {
+  margin: 16px 16px 0;
+}
+
+.projectUsageMetrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.projectUsageDetails {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+}
+
+.projectUsagePanel {
+  min-width: 0;
+  padding: 18px;
+}
+
+.projectUsagePanel + .projectUsagePanel {
+  border-left: 1px solid var(--border);
+}
+
+.projectUsagePanel h3,
+.projectUsagePanelHeading h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.projectUsagePanelHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.projectUsagePanelHeading span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.projectUsageDefinitions {
+  margin: 14px 0 0;
+}
+
+.projectQuotaPanel .quotaBlock {
+  min-width: 0;
+}
+
+.quotaEffectiveNote {
+  margin: 12px 0 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.projectQuotaSource {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.projectQuotaSource legend {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.quotaSourceOptions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quotaSourceOption {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.quotaSourceOption:hover {
+  border-color: var(--text-tertiary);
+}
+
+.quotaSourceOption[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.quotaSourceOption input {
+  flex: none;
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+
+.quotaSourceOption span {
+  min-width: 0;
+}
+
+.quotaSourceOption strong,
+.quotaSourceOption small {
+  display: block;
+}
+
+.quotaSourceOption strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.quotaSourceOption small {
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.projectQuotaEditors,
+.projectQuotaModeNote {
+  margin-top: 18px;
+}
+
 .inlineNotice {
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
@@ -1534,6 +1671,10 @@ a {
     margin-top: 16px;
   }
 
+  .projectUsageMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .metric:nth-child(2) {
     border-right: none;
   }
@@ -1548,6 +1689,15 @@ a {
 
   .modelUserPicker > span {
     display: none;
+  }
+
+  .projectUsageDetails {
+    grid-template-columns: 1fr;
+  }
+
+  .projectUsagePanel + .projectUsagePanel {
+    border-top: 1px solid var(--border);
+    border-left: none;
   }
 }
 
@@ -1589,11 +1739,33 @@ a {
     width: 132px;
   }
 
+  .projectUsageSection .sectionHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .projectUsageSection .sectionActions,
+  .projectUsageToolbar {
+    width: 100%;
+  }
+
+  .projectUsageToolbar .monthPicker {
+    flex: 1;
+  }
+
+  .projectUsageToolbar .monthPicker .input {
+    width: 100%;
+  }
+
   .formGrid,
   .formGridThree,
   .filterGrid,
   .definitionGrid,
   .quotaEditorGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .quotaSourceOptions {
     grid-template-columns: 1fr;
   }
 
