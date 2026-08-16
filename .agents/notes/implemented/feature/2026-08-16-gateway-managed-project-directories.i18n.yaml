@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-16-gateway-managed-project-directories.md
+2026-08-16-gateway-managed-project-directories.md: 81e0abaa2576c1dfb6fd0b3b4785efc7d2dc39aa
+2026-08-16-gateway-managed-project-directories.zh.md: afd2894c93b4f1645f7807b8dd5b116ae1402ddd

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getProjectUsage, listAudit, listUsers, patchUser, setMember, setQuota } from './api.ts'
+import { deleteUser, getProjectUsage, listAudit, listUsers, patchUser, setMember, setQuota } from './api.ts'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -35,6 +35,17 @@ describe('admin api URLs', () => {
       headers: { 'content-type': 'application/json' },
     })
     expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty('headers', expect.objectContaining({ origin: expect.anything() }))
+  })
+
+  it('DELETEs /admin/api/users/:id with same-origin credentials', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonOk(undefined, 204))
+    vi.stubGlobal('fetch', fetchMock)
+    await deleteUser(7)
+    expect(fetchMock).toHaveBeenCalledWith('/admin/api/users/7', {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+    })
   })
 
   it('PUTs member mode and GETs audit with actionPrefix', async () => {

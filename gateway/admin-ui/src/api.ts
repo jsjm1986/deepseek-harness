@@ -77,6 +77,10 @@ export function patchUser(id: number, body: {
   return request(`/admin/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
 }
 
+export function deleteUser(id: number): Promise<void> {
+  return request(`/admin/api/users/${id}`, { method: 'DELETE' })
+}
+
 export function resetPassword(id: number, password: string): Promise<void> {
   return request(`/admin/api/users/${id}/password`, { method: 'POST', body: JSON.stringify({ password }) })
 }
@@ -89,7 +93,7 @@ export function listProjects(origin?: 'admin' | 'user'): Promise<Project[]> {
   return request(`/admin/api/projects${origin === undefined ? '' : `?origin=${origin}`}`)
 }
 
-export function createProject(body: { name: string; path: string }): Promise<Project> {
+export function createProject(body: { name: string; path?: string }): Promise<Project> {
   return request('/admin/api/projects', { method: 'POST', body: JSON.stringify(body) })
 }
 

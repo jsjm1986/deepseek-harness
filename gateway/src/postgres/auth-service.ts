@@ -19,6 +19,7 @@ interface PostgresAuthUser {
   home_path: string
   must_change_password: boolean
   password_hash: string
+  deleted_at: Date | null
 }
 
 function tokenHash(token: string): Buffer {
@@ -61,7 +62,7 @@ export class PostgresAuthService {
     if (Number(failures.rows[0]?.n ?? 0) >= LOCK_THRESHOLD) return 'locked'
 
     const result = await this.context.pool.query<PostgresAuthUser>(`SELECT u.public_id::text,u.username::text,
-      u.display_name,u.status,u.home_path,m.role,m.status membership_status,
+      u.display_name,u.status,u.deleted_at,u.home_path,m.role,m.status membership_status,
       c.must_change_password,c.password_hash
       FROM harness.users u
       JOIN harness.memberships m ON m.organization_id=u.organization_id AND m.user_id=u.id
@@ -69,6 +70,7 @@ export class PostgresAuthService {
       WHERE u.organization_id=$1 AND u.username=$2`, [this.context.organizationId, username])
     const row = result.rows[0]
     const accepted = row !== undefined && row.status === 'active' && row.membership_status === 'active'
+      && row.deleted_at === null
       && await verifyPassword(row.password_hash, password)
     if (!accepted || row === undefined) {
       await this.context.pool.query(`INSERT INTO harness.login_attempts(
@@ -79,22 +81,24 @@ export class PostgresAuthService {
     }
 
     const token = randomBytes(32).toString('base64url')
-    await transaction(this.context.pool, async (client) => {
+    const sessionCreated = await transaction(this.context.pool, async (client) => {
       await client.query(`DELETE FROM harness.login_attempts
         WHERE organization_id=$1 AND username=$2 AND source_ip IS NOT DISTINCT FROM $3::inet AND succeeded=false`,
       [this.context.organizationId, username, address])
       const user = await client.query<{ id: string }>(
-        'SELECT id FROM harness.users WHERE organization_id=$1 AND public_id=$2',
+        'SELECT id FROM harness.users WHERE organization_id=$1 AND public_id=$2 AND deleted_at IS NULL FOR SHARE',
         [this.context.organizationId, row.public_id],
       )
       const userId = user.rows[0]?.id
-      if (userId === undefined) throw new Error(`user disappeared during login: ${username}`)
+      if (userId === undefined) return false
       await client.query(`INSERT INTO harness.auth_sessions(
         organization_id,user_id,token_hash,created_at,expires_at,absolute_expires_at,last_seen_at,source_ip,user_agent
       ) VALUES($1,$2,$3,to_timestamp($4/1000.0),to_timestamp($5/1000.0),to_timestamp($6/1000.0),
         to_timestamp($4/1000.0),$7,$8)`, [this.context.organizationId, userId, tokenHash(token), now,
         now + this.cfg.sessionTtlMs, now + this.cfg.sessionAbsoluteTtlMs, address, userAgent])
+      return true
     })
+    if (!sessionCreated) return 'invalid'
     return { token, user: userRow(row) }
   }
 
@@ -104,7 +108,7 @@ export class PostgresAuthService {
         session_id: string
         absolute_expires_at: Date
       }>(`SELECT s.id session_id,s.absolute_expires_at,u.public_id::text,u.username::text,
-        u.display_name,u.status,u.home_path,m.role,m.status membership_status,
+        u.display_name,u.status,u.deleted_at,u.home_path,m.role,m.status membership_status,
         c.must_change_password,c.password_hash
         FROM harness.auth_sessions s
         JOIN harness.users u ON u.id=s.user_id AND u.organization_id=s.organization_id
@@ -114,7 +118,7 @@ export class PostgresAuthService {
           AND s.expires_at >= now() AND s.absolute_expires_at >= now()
         FOR UPDATE OF s`, [this.context.organizationId, tokenHash(token)])
       const row = result.rows[0]
-      if (row === undefined || row.status !== 'active' || row.membership_status !== 'active') return null
+      if (row === undefined || row.status !== 'active' || row.membership_status !== 'active' || row.deleted_at !== null) return null
       const now = Date.now()
       const expiresAt = Math.min(now + this.cfg.sessionTtlMs, row.absolute_expires_at.getTime())
       await client.query(`UPDATE harness.auth_sessions

@@ -13,6 +13,7 @@ describe('loadConfig', () => {
     expect(cfg.runtimeApiBodyLimitBytes).toBe(DEFAULT_RUNTIME_API_BODY_LIMIT_BYTES)
     expect(cfg.projectPathRoots).toEqual([])
     expect(cfg.userProjectsRoot).toMatch(/user-projects$/)
+    expect(cfg.projectsRoot).toMatch(/harness-projects$/)
     // The default CLI entry must be an ABSOLUTE path (resolved against
     // dshRepoRoot), because instances spawn with cwd = user home.
     const bin = cfg.dshCommand.find(arg => arg.endsWith('apps/cli/src/bin.ts'))
@@ -48,6 +49,7 @@ describe('loadConfig', () => {
       HGW_PUBLIC_ORIGINS: 'https://harness.maycran.com,http://127.0.0.1:9001',
       HGW_USERS_ROOT: '/srv/harness/users',
       HGW_USER_PROJECTS_ROOT: '/srv/harness/projects/user-projects',
+      HGW_PROJECTS_ROOT: '/srv/harness/projects/admin',
       HGW_IDLE_TIMEOUT_MS: '60000',
       HGW_RUNTIME_API_BODY_LIMIT_BYTES: '8388608',
     })
@@ -57,6 +59,7 @@ describe('loadConfig', () => {
     expect(cfg.publicOrigins).toEqual(['https://harness.maycran.com', 'http://127.0.0.1:9001'])
     expect(cfg.usersRoot).toBe('/srv/harness/users')
     expect(cfg.userProjectsRoot).toBe('/srv/harness/projects/user-projects')
+    expect(cfg.projectsRoot).toBe('/srv/harness/projects/admin')
     expect(cfg.idleTimeoutMs).toBe(60000)
     expect(cfg.runtimeApiBodyLimitBytes).toBe(8 * 1024 * 1024)
     expect(cfg.secureCookies).toBe(true)
@@ -94,6 +97,24 @@ describe('loadConfig', () => {
     })).toThrow(/strict descendant/)
     expect(() => loadConfig({
       HGW_USER_PROJECTS_ROOT: '/tmp', HGW_USERS_ROOT: '/tmp/users',
+    })).toThrow(/reserved Gateway directory/)
+  })
+
+  it('keeps the managed admin project root isolated and away from reserved paths', () => {
+    expect(loadConfig({
+      HGW_LAUNCHER: 'systemd', HGW_PROJECT_PATH_ROOTS: '/srv/projects',
+      HGW_PROJECTS_ROOT: '/srv/projects/admin/',
+    }).projectsRoot).toBe('/srv/projects/admin')
+    expect(() => loadConfig({ HGW_PROJECTS_ROOT: 'relative/projects' }))
+      .toThrow(/HGW_PROJECTS_ROOT/)
+    expect(() => loadConfig({
+      HGW_LAUNCHER: 'systemd', HGW_PROJECT_PATH_ROOTS: '/srv/projects', HGW_PROJECTS_ROOT: '/srv/projects',
+    })).toThrow(/strict descendant/)
+    expect(() => loadConfig({
+      HGW_PROJECTS_ROOT: '/tmp', HGW_USERS_ROOT: '/tmp/users',
+    })).toThrow(/reserved Gateway directory/)
+    expect(() => loadConfig({
+      HGW_PROJECTS_ROOT: '/srv/projects', HGW_USER_PROJECTS_ROOT: '/srv/projects/managed',
     })).toThrow(/reserved Gateway directory/)
   })
 

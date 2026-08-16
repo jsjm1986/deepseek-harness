@@ -20,6 +20,8 @@ export interface GatewayConfig {
   projectPathRoots: string[]
   /** Root under which user-created project directories are allocated. */
   userProjectsRoot: string
+  /** Root under which name-only admin project creation makes managed directories. */
+  projectsRoot: string
   /** Linux account used by project-scoped systemd units. */
   projectRuntimeUser: string
   /** Private directory containing the Gateway's Ed25519 assertion keypair. */
@@ -130,11 +132,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
   if (launcher === 'systemd' && !configuredProjectPathRoots.some(root => strictlyNestedPath(root, userProjectsRoot))) {
     throw new Error('HGW_USER_PROJECTS_ROOT must be a strict descendant of HGW_PROJECT_PATH_ROOTS when HGW_LAUNCHER=systemd')
   }
+  const projectsRoot = normalizedAbsolutePath(env.HGW_PROJECTS_ROOT
+    ?? join(configuredProjectPathRoots[0] ?? homedir(), 'harness-projects'))
+  if (!posix.isAbsolute(projectsRoot) || projectsRoot === '/') {
+    throw new Error('HGW_PROJECTS_ROOT must be an absolute path')
+  }
+  if (launcher === 'systemd' && !configuredProjectPathRoots.some(root => strictlyNestedPath(root, projectsRoot))) {
+    throw new Error('HGW_PROJECTS_ROOT must be a strict descendant of HGW_PROJECT_PATH_ROOTS when HGW_LAUNCHER=systemd')
+  }
   const projectRuntimesRoot = env.HGW_PROJECT_RUNTIMES_ROOT ?? join(homedir(), 'harness-project-runtimes')
   const gatewayDir = env.HGW_GATEWAY_DIR ?? gatewayRoot
   if (pathsOverlap(userProjectsRoot, usersRoot) || pathsOverlap(userProjectsRoot, projectRuntimesRoot)
     || pathsOverlap(userProjectsRoot, gatewayDir)) {
     throw new Error('HGW_USER_PROJECTS_ROOT overlaps a reserved Gateway directory')
+  }
+  if (pathsOverlap(projectsRoot, usersRoot) || pathsOverlap(projectsRoot, projectRuntimesRoot)
+    || pathsOverlap(projectsRoot, gatewayDir) || pathsOverlap(projectsRoot, userProjectsRoot)) {
+    throw new Error('HGW_PROJECTS_ROOT overlaps a reserved Gateway directory')
   }
   // The default source-run entry is resolved to ABSOLUTE paths against
   // dshRepoRoot: instances spawn with cwd = user home (outside the repo), so
@@ -181,6 +195,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     projectRuntimesRoot,
     projectPathRoots: configuredProjectPathRoots,
     userProjectsRoot,
+    projectsRoot,
     projectRuntimeUser,
     principalKeyDir: env.HGW_PRINCIPAL_KEY_DIR ?? join(stateRoot, 'principal-keys'),
     principalAssertionTtlMs: Number(env.HGW_PRINCIPAL_ASSERTION_TTL_MS ?? 30_000),

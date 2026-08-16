@@ -74,11 +74,11 @@ project_members (
 
 删除表：`groups`、`group_members`、`dir_grants`。迁移：每个不同的 `dir_grants.path` 建一个项目（`name` 默认目录名，重名加 `-2`、`-3`…）；`subject_type=user` 的行与曾挂该路径的组成员都成为成员；同一人同时有 `ro` 与 `rw` 时取 `rw`。迁完删除旧表。
 
-`users`、`instances`、`auth_sessions`、`audit_log` 不变。审计动作使用 `admin.projects.*`、`admin.members.*`，并保留现有 `admin.users.*` / `admin.instances.*`。
+`users`、`instances`、`auth_sessions`、`audit_log` 保留为历史数据；用户删除通过 `users.deleted_at` 记录逻辑删除。审计动作使用 `admin.projects.*`、`admin.members.*`，并保留现有 `admin.users.*` / `admin.instances.*`。
 
 ## 4. 管理端页面与 API
 
-三个一级页：用户、项目、审计。错误回显为 JSON `{ error: string }`；危险操作（禁用、重置密码、删项目、移除成员）由前端确认。
+三个一级页：用户、项目、审计。错误回显为 JSON `{ error: string }`；危险操作（禁用、重置密码、删用户、删项目、移除成员）由前端确认。
 
 ### 用户
 
@@ -89,10 +89,11 @@ project_members (
 | GET | `/admin/api/users` | 列表 |
 | POST | `/admin/api/users` | 创建（建 home 与 `$DSH_HOME`、分配端口、`must_change_password=1`） |
 | PATCH | `/admin/api/users/:id` | `displayName` / `role` / `status` |
+| DELETE | `/admin/api/users/:id` | 逻辑删除用户、停止实例并撤销活跃授权 |
 | POST | `/admin/api/users/:id/password` | 重置密码并吊销该用户全部会话 |
 | POST | `/admin/api/users/:id/instance/{start,stop,restart}` | 实例控制 |
 
-不能禁用或把角色降为 `user`，若目标是最后一个 `status=active` 且 `role=admin` 的用户。禁用时吊销会话并停止实例。不提供删除用户。
+不能禁用、降权或删除最后一个 `status=active` 且 `role=admin` 的用户，也不能删除当前登录管理员。删除使用逻辑删除：先停止个人实例、吊销会话和运行时凭据、移除项目成员及用户模型授权/额度，再写入 `users.deleted_at`；审计、用量、会话、内容文件和 home 保留，用户列表与登录隐藏，用户名不可复用。
 
 ### 项目
 

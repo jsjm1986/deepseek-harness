@@ -23,7 +23,6 @@ export function ProjectListPage() {
   const [pending, setPending] = useState(false)
   const [createError, setCreateError] = useState('')
   const [name, setName] = useState('')
-  const [path, setPath] = useState('')
 
   const reload = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
@@ -55,9 +54,8 @@ export function ProjectListPage() {
     setPending(true)
     setCreateError('')
     try {
-      await createProject({ name: name.trim(), path: path.trim() })
+      await createProject({ name: name.trim() })
       setName('')
-      setPath('')
       setCreateOpen(false)
       await reload()
     } catch (cause) {
@@ -150,7 +148,7 @@ export function ProjectListPage() {
       <Dialog
         open={createOpen}
         title="新建项目"
-        description="管理员发起的项目需要填写 Gateway 宿主机上已经存在的绝对目录。"
+        description="输入名称即可，Gateway 会自动创建项目目录。"
         onClose={closeCreate}
         footer={(
           <>
@@ -161,11 +159,8 @@ export function ProjectListPage() {
       >
         <form id="create-project-form" className="formGrid" onSubmit={event => void onCreate(event)}>
           <div className="formSpanFull"><ErrorBanner message={createError} /></div>
-          <Field label="项目名称" className="formSpanFull">
+          <Field label="项目名称" hint="Gateway 会在项目根目录自动创建同名目录。" className="formSpanFull">
             <input className="input" required autoFocus value={name} onChange={event => { setName(event.target.value); setCreateError('') }} placeholder="例如：产品文档" />
-          </Field>
-          <Field label="绝对路径" hint="该目录不会由管理端自动创建；用户自建项目使用受控项目根目录。" className="formSpanFull">
-            <input className="input codeText" required value={path} onChange={event => { setPath(event.target.value); setCreateError('') }} placeholder="/srv/harness/projects/docs" />
           </Field>
         </form>
       </Dialog>
@@ -179,6 +174,15 @@ function messageFrom(cause: unknown): string {
 
 function projectMessageFrom(cause: unknown): string {
   const message = messageFrom(cause)
+  if (message === 'project-name-invalid') {
+    return '项目名称不能为空，也不能包含路径分隔符。'
+  }
+  if (message === 'project-root-not-directory') {
+    return '项目根路径不是目录，请检查 Gateway 配置。'
+  }
+  if (message === 'project-path-outside-root') {
+    return '项目目录必须位于 Gateway 配置的项目根目录内。'
+  }
   if (message === 'project-path-not-found') {
     return '目录不存在。请先在 Gateway 主机上创建该目录，再登记为项目。'
   }

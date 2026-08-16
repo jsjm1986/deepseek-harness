@@ -40,6 +40,36 @@ describe('UserService', () => {
     expect(users.list().find(user => user.id === current.id)?.port).toBe(47000)
   })
 
+  it('logically deletes a user and removes active access without erasing history', async () => {
+    const { db, users } = setup()
+    const admin = await users.create({ username: 'admin', password: 'pw-123456', role: 'admin' })
+    const member = await users.create({ username: 'member', password: 'pw-123456' })
+    db.prepare(`INSERT INTO projects(id, name, path, created_by, created_at, updated_at)
+      VALUES(1, 'Project', '/tmp/project', ?, 1, 1)`).run(member.id)
+    db.prepare(`INSERT INTO project_members(project_id, user_id, mode) VALUES(1, ?, 'rw')`).run(member.id)
+    db.prepare(`INSERT INTO audit_log(ts, user_id, action) VALUES(1, ?, 'login')`).run(member.id)
+
+    expect(users.remove(member.id)).toBe(true)
+    expect(users.getById(member.id)).toBeNull()
+    expect(users.count()).toBe(1)
+    expect((db.prepare(`SELECT deleted_at, status FROM users WHERE id = ?`).get(member.id) as {
+      deleted_at: number | null
+      status: string
+    })).toMatchObject({ status: 'disabled' })
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM project_members WHERE user_id = ?`).get(member.id) as { n: number }).n).toBe(0)
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE user_id = ?`).get(member.id) as { n: number }).n).toBe(1)
+    expect(db.prepare(`SELECT state, pid FROM instances WHERE user_id = ?`).get(member.id)).toEqual({ state: 'stopped', pid: null })
+    expect(users.getById(admin.id)).not.toBeNull()
+    await expect(users.create({ username: 'member', password: 'pw-123456' })).rejects.toThrow()
+  })
+
+  it('refuses to delete the last active admin', async () => {
+    const { users } = setup()
+    const admin = await users.create({ username: 'only-admin', password: 'pw-123456', role: 'admin' })
+    expect(() => users.remove(admin.id)).toThrow(/cannot-remove-last-admin/)
+    expect(users.getById(admin.id)).not.toBeNull()
+  })
+
   it('manages status, role and password lifecycle', async () => {
     const { users } = setup()
     const u = await users.create({ username: 'carol', password: 'pw-123456', role: 'admin' })

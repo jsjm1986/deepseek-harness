@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../api.ts'
@@ -7,6 +7,7 @@ import { UsersPage } from './UsersPage.tsx'
 vi.mock('../api.ts', () => ({
   listUsers: vi.fn(),
   createUser: vi.fn(),
+  deleteUser: vi.fn(),
   patchUser: vi.fn(),
   resetPassword: vi.fn(),
   controlInstance: vi.fn(),
@@ -33,6 +34,7 @@ describe('UsersPage', () => {
   beforeEach(() => {
     vi.mocked(api.listUsers).mockResolvedValue([alice])
     vi.mocked(api.patchUser).mockResolvedValue(undefined)
+    vi.mocked(api.deleteUser).mockResolvedValue(undefined)
     vi.mocked(api.createUser).mockResolvedValue(alice)
   })
 
@@ -63,5 +65,19 @@ describe('UsersPage', () => {
       displayName: 'Bob',
       role: 'admin',
     })
+  })
+
+  it('confirms user deletion and removes the account from the list', async () => {
+    vi.mocked(api.deleteUser).mockImplementation(async () => {
+      vi.mocked(api.listUsers).mockResolvedValue([])
+    })
+    render(<UsersPage />)
+    expect(await screen.findAllByText('@alice · ID 1')).toHaveLength(2)
+    await userEvent.click(screen.getByRole('button', { name: '删除用户' }))
+    expect(screen.getByRole('heading', { name: '删除用户' })).toBeTruthy()
+    expect(api.deleteUser).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    expect(api.deleteUser).toHaveBeenCalledWith(1)
+    await waitFor(() => expect(screen.queryAllByText('@alice · ID 1')).toHaveLength(0))
   })
 })

@@ -20,8 +20,9 @@ Environment=HGW_ORGANIZATION_SLUG=default
 Environment=HGW_COMPUTE_NODE_NAME=local
 Environment=HGW_USERS_ROOT=/srv/harness/users
 Environment=HGW_PROJECT_RUNTIMES_ROOT=/srv/harness/project-runtimes
+Environment=HGW_PROJECT_PATH_ROOTS=/srv/harness
+Environment=HGW_PROJECTS_ROOT=/srv/harness/projects/admin
 Environment=HGW_USER_PROJECTS_ROOT=/srv/harness/projects/user-projects
-Environment=HGW_PROJECT_PATH_ROOTS=/srv/harness/projects
 Environment=HGW_PROJECT_RUNTIME_USER=harness-project
 Environment=HGW_PRINCIPAL_KEY_DIR=/srv/harness/gateway-data/principal-keys
 Environment=HGW_RUNTIME_CREDENTIAL_DIR=/srv/harness/gateway-data/runtime-credentials

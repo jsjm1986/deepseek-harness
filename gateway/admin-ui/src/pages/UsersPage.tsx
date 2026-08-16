@@ -6,6 +6,7 @@ import {
   Power,
   RefreshCw,
   Square,
+  Trash2,
   UserRound,
   Users,
 } from 'lucide-react'
@@ -13,6 +14,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import {
   controlInstance,
   createUser,
+  deleteUser,
   listUsers,
   patchUser,
   resetPassword,
@@ -61,6 +63,7 @@ export function UsersPage() {
   const [passwordTarget, setPasswordTarget] = useState<AdminUser | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [disableTarget, setDisableTarget] = useState<AdminUser | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
 
   const reload = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
@@ -136,6 +139,12 @@ export function UsersPage() {
     if (saved) setDisableTarget(null)
   }
 
+  async function onDelete() {
+    if (deleteTarget === null) return
+    const saved = await run(`delete:${deleteTarget.id}`, () => deleteUser(deleteTarget.id))
+    if (saved) setDeleteTarget(null)
+  }
+
   return (
     <div className="page">
       <PageHeader
@@ -182,6 +191,7 @@ export function UsersPage() {
                           onEdit={() => openEdit(user)}
                           onPassword={() => { setPasswordTarget(user); setNewPassword('') }}
                           onDisable={() => setDisableTarget(user)}
+                          onDelete={() => setDeleteTarget(user)}
                           onEnable={() => { void run(`status:${user.id}`, () => patchUser(user.id, { status: 'active' })) }}
                         />
                       </td>
@@ -213,6 +223,7 @@ export function UsersPage() {
                       onEdit={() => openEdit(user)}
                       onPassword={() => { setPasswordTarget(user); setNewPassword('') }}
                       onDisable={() => setDisableTarget(user)}
+                      onDelete={() => setDeleteTarget(user)}
                       onEnable={() => { void run(`status:${user.id}`, () => patchUser(user.id, { status: 'active' })) }}
                     />
                   </div>
@@ -307,6 +318,16 @@ export function UsersPage() {
         onClose={() => { if (!pending.startsWith('status:')) setDisableTarget(null) }}
         onConfirm={() => void onDisable()}
       />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除用户"
+        description={`删除 ${deleteTarget?.username ?? ''} 后会立即撤销登录、停止实例并移除项目成员关系。审计、用量、协作会话和本地历史会保留，用户名不可复用；此操作不可恢复。`}
+        confirmLabel="确认删除"
+        pending={pending.startsWith('delete:')}
+        onClose={() => { if (!pending.startsWith('delete:')) setDeleteTarget(null) }}
+        onConfirm={() => void onDelete()}
+      />
     </div>
   )
 }
@@ -388,16 +409,18 @@ function InstanceControls({ user, pending, run }: UserOperationProps) {
   )
 }
 
-function UserActions({ user, pending, onEdit, onPassword, onDisable, onEnable, mobile = false }: {
+function UserActions({ user, pending, onEdit, onPassword, onDisable, onDelete, onEnable, mobile = false }: {
   user: AdminUser
   pending: string
   onEdit: () => void
   onPassword: () => void
   onDisable: () => void
+  onDelete: () => void
   onEnable: () => void
   mobile?: boolean
 }) {
   const statusPending = pending === `status:${user.id}`
+  const deletePending = pending === `delete:${user.id}`
   if (mobile) {
     return (
       <div className="mobileActions">
@@ -411,6 +434,7 @@ function UserActions({ user, pending, onEdit, onPassword, onDisable, onEnable, m
         >
           {user.status === 'active' ? '禁用' : '启用'}
         </Button>
+        <Button variant="danger" icon={Trash2} loading={deletePending} onClick={onDelete}>删除</Button>
       </div>
     )
   }
@@ -424,6 +448,13 @@ function UserActions({ user, pending, onEdit, onPassword, onDisable, onEnable, m
         variant={user.status === 'active' ? 'danger' : 'ghost'}
         loading={statusPending}
         onClick={user.status === 'active' ? onDisable : onEnable}
+      />
+      <IconButton
+        label="删除用户"
+        icon={Trash2}
+        variant="danger"
+        loading={deletePending}
+        onClick={onDelete}
       />
     </div>
   )

@@ -33,7 +33,7 @@ npm run pg:check
 
 ## Schema 与会话数据
 
-`migrations/001_initial.sql` 创建单一 `harness` schema，包含身份、项目、实例、模型治理、用量、审计与会话表。`002_gateway_public_ids.sql` 保留导入的 SQLite 用户/项目数字，并在 UUID 继续只供内部使用时分配数字公共 ID。`003_project_collaboration.sql` 加入共享项目运行时归属、根继承对话可见性、参与者投影、审批/问题原子抢占，以及项目用量/额度主体。`004_conversation_event_json.sql` 把完整事件列改为 PostgreSQL `json`，从而保留包括转义 NUL 在内的所有合法 JSON 字符串，并移除 payload 表达式索引。`005_user_owned_projects.sql` 增加项目来源/所有者元数据和事务化邀请，使账户创建的工作空间与管理员登记的目录使用同一套控制面模型。复合外键禁止企业范围内的记录引用其他企业。会话 envelope 把可查询字段（`session_id`、`seq`、事件类型和时间）放在普通列中；完整的结构化 Harness 事件存入 `conversation_events.event`，可搜索文本则使用专用投影表。连续 chunk 继续由现有 Harness 持久化路径打包，不会把每个 token 写成一行 SQL。
+`migrations/001_initial.sql` 创建单一 `harness` schema，包含身份、项目、实例、模型治理、用量、审计与会话表。`002_gateway_public_ids.sql` 保留导入的 SQLite 用户/项目数字，并在 UUID 继续只供内部使用时分配数字公共 ID。`003_project_collaboration.sql` 加入共享项目运行时归属、根继承对话可见性、参与者投影、审批/问题原子抢占，以及项目用量/额度主体。`004_conversation_event_json.sql` 把完整事件列改为 PostgreSQL `json`，从而保留包括转义 NUL 在内的所有合法 JSON 字符串，并移除 payload 表达式索引。`005_user_owned_projects.sql` 增加项目来源/所有者元数据和事务化邀请，使账户创建的工作空间与管理员登记的目录使用同一套控制面模型。`006_user_deletion.sql` 加入 `users.deleted_at` 时间戳和活跃账号部分索引，用于用户逻辑删除。复合外键禁止企业范围内的记录引用其他企业。会话 envelope 把可查询字段（`session_id`、`seq`、事件类型和时间）放在普通列中；完整的结构化 Harness 事件存入 `conversation_events.event`，可搜索文本则使用专用投影表。连续 chunk 继续由现有 Harness 持久化路径打包，不会把每个 token 写成一行 SQL。
 
 图片、归档、生成文件和超大工具输出继续留在本机文件系统。`content_files` 记录用户或项目归属、本机路径、SHA-256、字节数和媒体类型。SQLite 导入器只迁移 Gateway 控制面，绝不导入既有 JSONL 会话日志。个人运行时保留其配置的本地持久化；新的共享项目运行时使用经过认证的 Gateway `SessionPersistence` 提供方，并把完整 Session header/事件存入这些 PostgreSQL 对话表。
 
@@ -83,4 +83,4 @@ HGW_TEST_SQLITE_FILE=/tmp/gateway-before-postgres.sqlite \
   npm run test:postgres
 ```
 
-测试会删除所提供测试数据库中的 `harness` schema，绝不能指向生产库。覆盖内容包括直到版本 5 的不可变 migration、未知 migration ledger 拒绝、企业隔离、任意字符串 Session ID、包含 NUL 字符串的完整 JSON 往返、连续序号约束、并发批次幂等、嵌套工具结果搜索、包含项目邀请的可重复 SQLite 导入、根继承协作 ACL、贡献投影、交互竞态、从空节点配置端口基准分配共享项目运行时、项目凭据/额度/用量，以及在线认证、用户、项目、节点实例、审计和模型治理服务。
+测试会删除所提供测试数据库中的 `harness` schema，绝不能指向生产库。覆盖内容包括直到版本 6 的不可变 migration、未知 migration ledger 拒绝、企业隔离、任意字符串 Session ID、包含 NUL 字符串的完整 JSON 往返、连续序号约束、并发批次幂等、嵌套工具结果搜索、包含项目邀请的可重复 SQLite 导入、根继承协作 ACL、贡献投影、交互竞态、从空节点配置端口基准分配共享项目运行时、项目凭据/额度/用量，以及在线认证、用户、项目、节点实例、审计和模型治理服务。

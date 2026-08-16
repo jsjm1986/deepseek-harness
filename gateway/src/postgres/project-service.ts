@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { CollaborationDeniedError } from '../collaboration.ts'
 import type { GatewayConfig } from '../config.ts'
 import {
+  ensureManagedProjectDirectory,
   isProjectPathIsolated,
   normalizeProjectName,
   projectPathsOverlap,
@@ -53,11 +54,15 @@ export class PostgresProjectService {
     private readonly cfg: GatewayConfig,
   ) {}
 
-  async create(input: { name: string; path: string; createdBy: number }): Promise<ProjectRow> {
-    const canonical = resolveProjectDirectory(input.path)
+  async create(input: { name: string; path?: string; createdBy: number }): Promise<ProjectRow> {
+    const requestedPath = input.path?.trim()
+    const managed = requestedPath === undefined || requestedPath === ''
+      ? ensureManagedProjectDirectory(this.cfg, input.name)
+      : undefined
+    const canonical = managed !== undefined ? managed.path : resolveProjectDirectory(requestedPath!)
     await this.assertNotReserved(canonical)
     return this.insert({
-      name: normalizeProjectName(input.name),
+      name: managed?.name ?? normalizeProjectName(input.name),
       canonical,
       createdBy: input.createdBy,
       origin: 'admin',

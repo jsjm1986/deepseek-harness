@@ -23,6 +23,7 @@ DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用
 | `HGW_PUBLIC_ORIGINS` | `http://127.0.0.1:8899` | 逗号分隔的公网 Origin 白名单（CSRF 校验；https 时 Cookie 标记 Secure） |
 | `HGW_USERS_ROOT` | `~/harness-users` | 用户目录根（生产 `/srv/harness/users`） |
 | `HGW_PROJECT_RUNTIMES_ROOT` | `~/harness-project-runtimes` | 共享项目运行时由宿主拥有的 `$DSH_HOME` 根目录 |
+| `HGW_PROJECTS_ROOT` | `~/harness-projects` | 管理员仅凭名称创建项目的受控根（`<root>/<name>`，mode `0770`；生产为 `/srv/harness/projects/admin`） |
 | `HGW_USER_PROJECTS_ROOT` | `<第一个项目根>/user-projects` | 用户创建项目的受控目录根；生产为 `/srv/harness/projects/user-projects` |
 | `HGW_PROJECT_PATH_ROOTS` | （`systemd` 必填） | 包含项目目录的逗号分隔、互不重叠 Linux 绝对根路径；禁止使用 `/` |
 | `HGW_PROJECT_RUNTIME_USER` | `harness-project` | 项目 scope systemd 单元使用的专用 Linux 账户 |
@@ -47,7 +48,7 @@ DeepSeek Harness 公网化门户网关：PostgreSQL 支撑的登录/会话、用
 
 ## 管理端与项目授权
 
-`/admin` 托管从 `gateway/admin-ui` 构建到 `gateway/public/admin` 的 Vite SPA；`/admin/api/*` 是网关 JSON API（非 `admin` 角色 403）。授权按项目：管理员发起的项目登记一个已存在的绝对目录，用户发起的项目则在 `HGW_USER_PROJECTS_ROOT` 下分配一个目录；两者使用同一套工作空间、共享运行时、成员和对话模型。用户创建的项目把创建者设为 `rw` 所有者，并提供邀请生命周期操作；管理员可以在同一列表中查看两种来源并按来源筛选。成员为 `ro` 或 `rw`，普通用户的有效列表（私有 home 加成员身份，每条带 `label`）写入 `$DSH_HOME/directory-grants.json`。管理员在个人和项目 scope 都得到文件系统根目录的 `rw` 授权和 Full access 预设。该预设只改变 dsh 的应用内 sandbox 与审批旋钮；项目运行时仍受内核项目路径约束。角色变化会重写这份投影，并重启正在运行的个人实例。管理员发起项目不会创建宿主机目录；路径不存在、不是目录或 Gateway 无权访问时，创建弹窗会保留输入并显示修正提示。用户发起项目会创建空的受控目录。项目路径不能与另一项目、用户 home、用户根或项目运行时根重叠；systemd 启动器还要求每个项目严格位于某个 `HGW_PROJECT_PATH_ROOTS` 条目之下，并避开 Gateway 目录。
+`/admin` 托管从 `gateway/admin-ui` 构建到 `gateway/public/admin` 的 Vite SPA；`/admin/api/*` 是网关 JSON API（非 `admin` 角色 403）。授权按项目：管理员发起的项目只凭名称创建，Gateway 会创建或复用 `<HGW_PROJECTS_ROOT>/<name>`（mode `0770`；JSON API 保留可选绝对 `path` 用于导入现有目录），用户发起的项目则在 `HGW_USER_PROJECTS_ROOT` 下分配一个目录；两者使用同一套工作空间、共享运行时、成员和对话模型。用户创建的项目把创建者设为 `rw` 所有者，并提供邀请生命周期操作；管理员可以在同一列表中查看两种来源并按来源筛选。成员为 `ro` 或 `rw`，普通用户的有效列表（私有 home 加成员身份，每条带 `label`）写入 `$DSH_HOME/directory-grants.json`。管理员在个人和项目 scope 都得到文件系统根目录的 `rw` 授权和 Full access 预设。该预设只改变 dsh 的应用内 sandbox 与审批旋钮；项目运行时仍受内核项目路径约束。角色变化会重写这份投影，并重启正在运行的个人实例。受控名称会被修剪且必须恰好构成一个目录段，因此 `.`/`..`、分隔符、控制字符和经符号链接解析的逃逸都会被拒绝；显式路径不存在、不是目录或 Gateway 无权访问时，创建弹窗会保留输入并显示修正提示。用户删除是逻辑删除：停止个人实例、吊销会话、移除项目与模型访问、在登录和管理列表中隐藏账号，并保留审计、用量、对话和 home 历史；用户名保持占用。项目路径不能与另一项目、用户 home、用户根或项目运行时根重叠；systemd 启动器还要求每个项目严格位于某个 `HGW_PROJECT_PATH_ROOTS` 条目之下，并避开 Gateway 目录。
 
 管理端的用户、项目、模型、用量和审计页面共用一套视觉系统：克制的表面色、统一的页面与分区标题、状态徽标、明确的加载/空状态/错误状态、键盘焦点环，以及用于变更操作的弹窗表单。项目详情包含成员、实例状态、自然月 token/成本/缺失用量汇总，并要求明确选择额度模式：继承普通成员额度，或同时提交项目 token 与公司成本额度。视口宽度大于 `840px` 时使用固定侧栏和便于横向比较的数据表；宽度不超过 `840px` 时，侧栏变为吸顶品牌栏加五项固定底部导航，表格行切换为易读的卡片。宽度不超过 `560px` 时，表单网格改为单列、操作按钮填满可用宽度，弹窗接近全屏并让正文独立滚动。粗指针控件预留 `44px` 触控目标，同时遵循深色配色和减少动画偏好。修改界面后运行 `npm run build --prefix gateway/admin-ui` 重新生成静态资源；运行中的网关直接提供生成后的 `gateway/public/admin` 文件，不需要数据库迁移。
 
