@@ -34,8 +34,24 @@ export const rpcIdSchema = z.string() as unknown as z.ZodType<RpcId>
 export const rpcErrorSchema: z.ZodType<RpcError> = z.discriminatedUnion('code', [
   z.object({ code: z.literal('bad-request'), message: z.string(), details: z.object({ issues: z.array(z.custom<ZodIssue>()) }) }),
   z.object({ code: z.literal('cancelled'), message: z.string(), details: z.object({}) }),
+  z.object({
+    code: z.literal('collaboration-forbidden'),
+    message: z.string(),
+    details: z.object({
+      sessionId: z.string().optional(),
+      action: z.union([z.literal('read'), z.literal('write'), z.literal('manage'), z.literal('approve')]),
+      reason: z.union([
+        z.literal('not-member'),
+        z.literal('conversation-not-found'),
+        z.literal('forbidden'),
+        z.literal('visibility-locked'),
+        z.literal('gateway-unavailable'),
+      ]),
+    }),
+  }),
   z.object({ code: z.literal('session-not-found'), message: z.string(), details: z.object({ sessionId: z.string() }) }),
   z.object({ code: z.literal('model-unavailable'), message: z.string(), details: z.object({ provider: z.string(), model: z.string() }) }),
+  z.object({ code: z.literal('model-forbidden'), message: z.string(), details: z.object({ provider: z.string(), model: z.string() }) }),
   z.object({ code: z.literal('session-conflict'), message: z.string(), details: z.object({ sessionId: z.string(), requestedCwd: z.string(), existingCwd: z.string().optional() }) }),
   z.object({ code: z.literal('invalid-time-zone'), message: z.string(), details: z.object({ value: z.string() }) }),
   z.object({ code: z.literal('workspace-attach-failed'), message: z.string(), details: z.object({ sessionId: z.string(), workspaceId: z.string() }) }),

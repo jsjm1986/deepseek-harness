@@ -12,6 +12,7 @@ import { SessionRuntime } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
 import { WorkspaceRuntime } from './workspaces/service.ts'
 import type { ConversationSnapshot } from './sessions/conversation.ts'
+import type { SessionBlankReuseRequest, SessionCreateOptions } from './contract/session-create.ts'
 import type { UseProjection } from './sessions/projection-store.ts'
 import { ConversationEventRegistry } from './conversation/event-registry.ts'
 import { ConversationViewRegistry } from './conversation/view-registry.ts'
@@ -56,6 +57,7 @@ export type { Session } from './sessions/session.ts'
 export type { ISession, ProjectionsFace, SessionFace } from './contract/session.ts'
 export type { AgentContext, ISessions } from './contract/sessions.ts'
 export type { IWorkspaces } from './contract/workspaces.ts'
+export type { SessionBlankReuseRequest, SessionCreateOptions } from './contract/session-create.ts'
 export type {
   SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,
 } from './sessions/service.ts'
@@ -152,6 +154,29 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
+    /**
+     * Transform a root-session create request before it reaches the Host.
+     * Listeners must call `next()` so independent request contributors compose;
+     * the returned options are authoritative for the wire request.
+     * @param options - caller-selected workspace, directory, and optional id.
+     * @mode waterfall
+     */
+    'sessions/prepare-create'(
+      options: SessionCreateOptions,
+      next: () => Promise<SessionCreateOptions>,
+    ): Promise<SessionCreateOptions>
+    /**
+     * Confirm that one blank root session satisfies every plugin-owned field
+     * in the prepared create request. Listeners must call `next()` and may
+     * veto reuse by returning false; the Host create path runs when every
+     * candidate is rejected.
+     * @param request - blank candidate and authoritative prepared options.
+     * @mode waterfall
+     */
+    'sessions/confirm-blank-reuse'(
+      request: SessionBlankReuseRequest,
+      next: () => Promise<boolean>,
+    ): Promise<boolean>
     /**
      * A slot's definition or registration set changed.
      * @mode emit

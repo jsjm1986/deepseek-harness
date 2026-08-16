@@ -68,6 +68,16 @@
     },
     {
       "doc": "docs/subsystems/llm-streaming.md",
+      "symbol": "ModelAccessTarget",
+      "source": "packages/llm/model-access/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/llm-streaming.md",
+      "symbol": "ModelAccessDecision",
+      "source": "packages/llm/model-access/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmModelContext",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -165,6 +175,81 @@
       "doc": "docs/subsystems/scope.md",
       "symbol": "ScopeLayer",
       "source": "packages/core/scope/src/store.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "GatewayRuntimeIdentity",
+      "source": "packages/context/gateway-runtime/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "GatewayPrincipalScope",
+      "source": "packages/context/gateway-runtime/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "GatewayPrincipalClaims",
+      "source": "packages/context/gateway-runtime/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "GatewayRuntimeCredential",
+      "source": "packages/context/gateway-runtime/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "GatewayRequestPrincipal",
+      "source": "packages/context/gateway-runtime/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "GatewayRuntimeRequestInit",
+      "source": "packages/context/gateway-runtime/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "ConnectionRequestBoundary",
+      "source": "packages/client/connection/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "CollaborationAction",
+      "source": "packages/context/collaboration/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "CollaborationInteractionKind",
+      "source": "packages/context/collaboration/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "CollaborationVisibility",
+      "source": "packages/context/collaboration/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "CollaborationParticipant",
+      "source": "packages/context/collaboration/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "CollaborationAccess",
+      "source": "packages/context/collaboration/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "CollaborationSessionCreation",
+      "source": "packages/context/collaboration/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "CollaborationAuthority",
+      "source": "packages/context/collaboration/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/collaboration.md",
+      "symbol": "CollaborationErrorCode",
+      "source": "packages/context/collaboration/src/index.ts"
     },
     {
       "doc": "docs/subsystems/goal.md",

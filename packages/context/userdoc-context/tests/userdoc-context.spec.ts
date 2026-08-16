@@ -50,6 +50,11 @@ function attachment(id: string, representation: UserDocPromptAttachment['represe
 }
 
 describe('user-document prompt context', () => {
+  it('renders a path reference when a document is not inlined', () => {
+    expect(userDocContext.renderUserDocAttachment(attachment('report', { kind: 'path' })))
+      .toBe('Uploaded document "report.txt" is available at "/uploads/report". Use the filesystem tools to read it.')
+  })
+
   it('inlines strict UTF-8 documents at the configured threshold and keeps binary documents as paths', async () => {
     const text = new TextEncoder().encode('hello')
     const binary = new Uint8Array([0xff, 0xfe, 0xfd])
@@ -67,16 +72,70 @@ describe('user-document prompt context', () => {
     ])
   })
 
+  it('keeps a document above the inline threshold as a path without reading it', async () => {
+    let reads = 0
+    const base = store([{ ref: ref('large', LIMITS.maxInlineTextBytes + 1), data: new Uint8Array(9) }])
+    const guarded = Object.assign({}, base, {
+      read: async (...args: Parameters<UserDocStore['read']>) => { reads += 1; return base.read(...args) },
+    })
+
+    await expect(userDocContext.prepareUserDocAttachments(guarded, [UserDocId('large')]))
+      .resolves.toEqual([expect.objectContaining({ representation: { kind: 'path' } })])
+    expect(reads).toBe(0)
+  })
+
+  it('rejects more document ids than the store admits per message', async () => {
+    await expect(userDocContext.prepareUserDocAttachments(store([]), [
+      UserDocId('one'), UserDocId('two'), UserDocId('three'),
+    ])).rejects.toMatchObject({ code: 'TOO_MANY_DOCUMENTS' })
+  })
+
   it('rejects a whole batch before reading any document when the aggregate limit is exceeded', async () => {
     let reads = 0
     const base = store([{ ref: ref('one', 60), data: new Uint8Array(60) }, { ref: ref('two', 60), data: new Uint8Array(60) }])
-    const guarded = { ...base, read: async (...args: Parameters<UserDocStore['read']>) => { reads += 1; return base.read(...args) } } as UserDocStore
+    const guarded = Object.assign({}, base, {
+      read: async (...args: Parameters<UserDocStore['read']>) => { reads += 1; return base.read(...args) },
+    })
 
     await expect(userDocContext.prepareUserDocAttachments(
       guarded,
       [UserDocId('one'), UserDocId('two')],
     )).rejects.toMatchObject({ code: 'DOCUMENTS_TOO_LARGE' })
     expect(reads).toBe(0)
+  })
+
+  it('rejects a batch whose stored snapshots grow beyond the aggregate limit during admission', async () => {
+    const before = ref('changed', 1)
+    const after = ref('changed', LIMITS.maxMessageBytes + 1)
+    const changed = {
+      limits: LIMITS,
+      stat: async () => before,
+      read: async () => ({ ref: after, data: new Uint8Array(LIMITS.maxInlineTextBytes + 1) }),
+    } as unknown as UserDocStore
+
+    await expect(userDocContext.prepareUserDocAttachments(changed, [before.docId]))
+      .rejects.toMatchObject({ code: 'DOCUMENTS_TOO_LARGE' })
+  })
+
+  it('ignores entered user messages that carry no admitted document batch', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(userDocContext)
+    const session = Session.create(SessionId('userdoc-empty-event'))
+    const entered = session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'ordinary prompt' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+
+    await agentEvents(ctx, agentFor(session)).serial('agent/message-entered', {
+      event: entered,
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    })
+
+    expect(session.events.map(event => event.type)).toEqual(['user/message'])
   })
 
   it('records an attached event after the exact user message and replays the frozen model text', async () => {

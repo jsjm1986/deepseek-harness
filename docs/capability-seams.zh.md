@@ -23,6 +23,9 @@ flowchart LR
   pkg_llm_replay["llm-replay"]
   pkg_agent_loop["agent-loop"]
   pkg_compaction_basic["compaction-basic"]
+  pkg_model_access["model-access"]
+  svc_modelAccess["ctx.modelAccess<br/>Model-route authorization policy"]
+  pkg_apiproxy["apiproxy"]
   pkg_token_meter["token-meter"]
   svc_tokenMeter["ctx.tokenMeter<br/>Replay token measurement"]
   pkg_compaction_tool_result_pruner["compaction-tool-result-pruner"]
@@ -46,13 +49,18 @@ flowchart LR
   svc_sessionPersistence["ctx.sessionPersistence<br/>Durable session persistence seam"]
   pkg_session_persistence_jsonl["session-persistence-jsonl"]
   pkg_session_persistence_sqlite["session-persistence-sqlite"]
+  pkg_session_persistence_gateway["session-persistence-gateway"]
   pkg_tool_bash["tool-bash"]
   pkg_hooks_claude_code["hooks-claude-code"]
   pkg_hooks_codex["hooks-codex"]
+  pkg_collaboration["collaboration"]
+  svc_collaboration["ctx.collaboration<br/>Project collaboration authorization seam"]
+  pkg_collaboration_gateway["collaboration-gateway"]
+  pkg_gateway_runtime["gateway-runtime"]
+  svc_gatewayRuntime["ctx.gatewayRuntime<br/>Authenticated Gateway runtime context"]
   pkg_settings["settings"]
   svc_settings["ctx.settings<br/>User-settings seam"]
   pkg_settings_file["settings-file"]
-  pkg_apiproxy["apiproxy"]
   pkg_credentials["credentials"]
   svc_credentials["ctx.credentials<br/>Credential seam"]
   pkg_credentials_local["credentials-local"]
@@ -212,6 +220,8 @@ flowchart LR
   pkg_bash_sandbox --> svc_shell
   pkg_code_runtime --> svc_codeRuntime
   pkg_code_runtime_worker --> svc_codeRuntime
+  pkg_collaboration --> svc_collaboration
+  pkg_collaboration_gateway --> svc_collaboration
   pkg_commands --> svc_commands
   pkg_compaction --> svc_compaction
   pkg_compaction_basic --> svc_compaction
@@ -228,6 +238,7 @@ flowchart LR
   pkg_fs_e2b --> svc_fs
   pkg_fs_local --> svc_fs
   pkg_fs_sandbox --> svc_fs
+  pkg_gateway_runtime --> svc_gatewayRuntime
   pkg_goal --> svc_goals
   pkg_invariants --> svc_invariants
   pkg_jobs --> svc_jobs
@@ -239,6 +250,7 @@ flowchart LR
   pkg_lsp --> svc_lsp
   pkg_lsp_local --> svc_lsp
   pkg_message_feedback --> svc_messageFeedback
+  pkg_model_access --> svc_modelAccess
   pkg_modules --> svc_clientModules
   pkg_permission_presets --> svc_permissionPresets
   pkg_plan_mode --> svc_planMode
@@ -248,6 +260,7 @@ flowchart LR
   pkg_sandbox_policy --> svc_sandboxPolicy
   pkg_session --> svc_sessions
   pkg_session_persistence --> svc_sessionPersistence
+  pkg_session_persistence_gateway --> svc_sessionPersistence
   pkg_session_persistence_jsonl --> svc_sessionPersistence
   pkg_session_persistence_sqlite --> svc_sessionPersistence
   pkg_session_projection --> svc_sessionProjections
@@ -314,6 +327,8 @@ flowchart LR
   svc_attachments --> pkg_llm_pi_ai
   svc_clientModules --> pkg_hmr
   svc_codeRuntime --> pkg_tools
+  svc_collaboration --> pkg_apiproxy
+  svc_collaboration --> pkg_session_persistence_gateway
   svc_compaction --> pkg_compaction_basic
   svc_cordisInspect --> pkg_tool_cordis
   svc_credentials --> pkg_apiproxy
@@ -324,6 +339,8 @@ flowchart LR
   svc_e2b --> pkg_fs_e2b
   svc_e2b --> pkg_subprocess_e2b
   svc_fs --> pkg_tool_fs
+  svc_gatewayRuntime --> pkg_collaboration_gateway
+  svc_gatewayRuntime --> pkg_session_persistence_gateway
   svc_invariants --> pkg_agent
   svc_invariants --> pkg_agent_loop
   svc_invariants --> pkg_scope
@@ -335,6 +352,7 @@ flowchart LR
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
+  svc_modelAccess --> pkg_apiproxy
   svc_sandbox --> pkg_bash_sandbox
   svc_sandbox --> pkg_terminal_bash
   svc_sandboxPolicy --> pkg_bash_sandbox
@@ -421,13 +439,16 @@ flowchart LR
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | `host-runtime`, [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | 宿主会在会话事件之前提交已接受的图片；提供方适配器将已授权的持久引用解析为提供方原生内容。 |
 | `ctx.userDocs` | `seam` | [`userdoc`](../packages/attachment/userdoc) | [`userdoc-local`](../packages/attachment/userdoc-local) | - | - | 上传落成真实的命名文件，且位于工具授权策略已经放行的目录内，因此 agent 用其常规文件工具读取它们，而无需专门的检索通道。 |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/test-support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compaction-basic`](../packages/compaction/compaction-basic) | - | 适配器注册提供方实现；agent loop（智能体循环）与压缩功能调用提供方无关的流服务。 |
+| `ctx.modelAccess` | `seam` | [`model-access`](../packages/llm/model-access) | - | `apiproxy` | - | 可选的部署侧策略决定精确的提供方／模型路由；网关实例提供实现，而 apiproxy 使用该决策检查目录和模型选择。 |
 | `ctx.tokenMeter` | `core` | [`token-meter`](../packages/llm/token-meter) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | 拥有按会话隔离的回放折叠区；压力消费方共享不可变且带修订版本的测量结果。 |
 | `ctx.toolResultPruner` | `core` | [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | 在摘要压缩前，通过可回放的单节点表层替换来改写过大的当前工具结果。 |
 | `ctx.sessions` | `core` | [`session`](../packages/core/session) | - | [`agent-loop`](../packages/core/agent-loop), [`agent`](../packages/core/agent), [`session-persistence`](../packages/session/session-persistence), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), `subagent-inprocess`, [`invariants`](../packages/runtime-diagnostics/invariants), [`message-feedback`](../packages/feedback/message-feedback) | - | 拥有仅追加的 Session 实例，并发出持久的会话事件流。 |
 | `ctx.invariants` | `core` | [`invariants`](../packages/runtime-diagnostics/invariants) | - | [`session`](../packages/core/session), [`agent`](../packages/core/agent), [`scope`](../packages/core/scope), [`agent-loop`](../packages/core/agent-loop) | - | 配套子路径注册所属包本地的检查；该服务负责选择、唯一性、子 fiber，以及标明所属包的失败。 |
 | `ctx.typert` | `core` | [`typert-registry`](../packages/typert/registry) | - | [`typert-loader`](../packages/typert/loader), [`api-gateway`](../packages/api/gateway) | - | 插件直接或通过 dsh-typert-loader 注册实时 zod 贡献；API 网关消费调用描述符和提供方，其他运行时消费方则在各自边界查询 schema 与反射元数据。 |
 | `ctx.typertGateway` | `core` | [`api-gateway`](../packages/api/gateway) | - | - | - | 将生成的 Remote 描述符与实时 Cordis 服务关联，解析已注册的身份，并通过共享的 Connection RPC 载体提供一元调用。 |
-| `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session/session-persistence) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/shell/tool-bash), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`message-feedback`](../packages/feedback/message-feedback) | - | 各后端持久化同一套 SessionEvent 词汇；应用在组合时选择后端。 |
+| `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session/session-persistence) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session/session-persistence-sqlite), [`session-persistence-gateway`](../packages/session/session-persistence-gateway) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/shell/tool-bash), [`hooks-claude-code`](../packages/hooks/hooks-claude-code), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`message-feedback`](../packages/feedback/message-feedback) | - | 各后端持久化同一套 SessionEvent 词汇；应用在组合时选择后端。 |
+| `ctx.collaboration` | `seam` | [`collaboration`](../packages/context/collaboration) | [`collaboration-gateway`](../packages/context/collaboration-gateway) | `apiproxy`, [`session-persistence-gateway`](../packages/session/session-persistence-gateway) | - | 消费方捕获一份请求绑定的 authority，用于执行根继承 ACL 检查和原子交互抢占；持久化提供方还会在创建期间读取仅对当前操作生效的根对话可见性。 |
+| `ctx.gatewayRuntime` | `core` | [`gateway-runtime`](../packages/context/gateway-runtime) | - | [`collaboration-gateway`](../packages/context/collaboration-gateway), [`session-persistence-gateway`](../packages/session/session-persistence-gateway) | - | 将 Gateway 签名的浏览器 principal 验证到请求局部状态中，并负责 Gateway 后端提供方使用的凭据认证 loopback 调用。 |
 | `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-file`](../packages/settings/settings-file) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | 插件注册命名空间 schema 并解析分层值；提供方存储原始文档。LLM（大语言模型）适配器在用户分区下将其入口配置注册为组合基础；Web 网关提供经过脱敏的分层描述符，并写入用户层。 |
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | 配置携带对机密信息的引用；提供方拥有实际值。消费方按操作解析，因此轮换后的凭据会在紧接着的下一次请求中生效；Web 网关提供不含实际值的视图和只写存储。 |
 | `ctx.sessionTelemetry` | `seam` | [`session-telemetry`](../packages/session/session-telemetry) | [`session-telemetry-otel`](../packages/session/session-telemetry-otel) | - | - | 该 seam 捕获会话记录、进行脱敏并交给一个后端；没有其他组件消费该服务，其输出会离开当前进程。 |

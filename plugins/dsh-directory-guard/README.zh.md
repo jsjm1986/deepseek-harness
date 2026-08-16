@@ -7,12 +7,12 @@
 ## 功能
 
 - 注册一个 `tools/pre-execute` 监听器（文档钦定的"权限门"扩展点——不改 agent loop），**拒绝**解析到授权目录之外的文件系统工具调用。
-- 重述 `permission` 预设表并**移除 `danger-full-access`**（`cordis.patch.yml`），关闭会让会话关掉 dsh 自带沙箱的应用内逃逸口。
+- 通过 `cordis.patch.yml` 重述普通用户的 `permission` 预设表并**移除 `danger-full-access`**。网关管理的管理员会在其后追加 `cordis.admin.patch.yml`，恢复随产品交付的 Full access 预设。
 - 停用 `directory-picker-auto` 并挂上 browse 的 Host/客户端组合，使公网域名上的浏览器得到应用内「选择工作区目录」对话框，而不是宿主桌面上的系统选文件夹框。
 
 ## 强制规则
 
-授权是 `{ path, mode: 'ro' | 'rw' }` 条目，也可以带 `label`（browse 根列表的显示名）。强制只读 `path` 与 `mode`，忽略其余字段。用户主目录恒为 `rw`。对每个带已知路径参数的工具调用：
+授权是 `{ path, mode: 'ro' | 'rw' }` 条目，也可以带 `label`（browse 根列表的显示名）。强制只读 `path` 与 `mode`，忽略其余字段。普通用户的主目录恒为 `rw`；网关管理的管理员得到一条文件系统根目录的 `rw` 授权。对每个带已知路径参数的工具调用：
 
 | 工具 | 路径参数 | 操作 |
 |---|---|---|
@@ -31,11 +31,11 @@
 - dsh 的 `ctx.sandbox` 层，以及
 - **Linux 生产环境每实例的 systemd 挂载命名空间**约束（权威的读+写边界）。
 
-macOS 开发环境（无 systemd）下本插件是唯一的目录强制层，因此它是一等交付物而非可有可无的便利。
+macOS 开发环境（无 systemd）下，本插件是普通用户的主要目录强制层。管理员的根目录授权与 Full access 选择会有意开放 Gateway 进程账户能够访问的所有路径。
 
 ## 授权交接
 
-网关在每次启动前把用户的有效授权写入实例的 `$DSH_HOME/directory-grants.json`。插件在加载时读取一次 `$DSH_DIRECTORY_GRANTS`（或 `$DSH_HOME/directory-grants.json`）；任何授权变更都会由网关重启实例，因此存活进程始终反映当前授权。
+网关在每次启动前把按角色解析的用户授权写入实例的 `$DSH_HOME/directory-grants.json`。插件在加载时读取一次 `$DSH_DIRECTORY_GRANTS`（或 `$DSH_HOME/directory-grants.json`）；任何授权或角色变更都会由网关重启实例，因此存活进程始终反映当前授权。
 
 ## 上游耦合（同步策略）
 
@@ -46,7 +46,7 @@ macOS 开发环境（无 systemd）下本插件是唯一的目录强制层，因
 - **开发（源码工作区）：** 使包可解析（链接进 profile / 工作区 `node_modules`），然后带补丁启动：`pnpm dsh web --patch plugins/dsh-directory-guard/cordis.patch.yml`。
 - **生产（钉死版本的 npm dsh）：** `dsh plugin --profile <name> add <本包>`，安装进 profile 并激活其 `dsh.bundle` 补丁。
 
-不启动即可检查组合树：`dsh --profile web --dump-config` 应显示 `directory-guard` 行，以及不含 `danger-full-access` 的 `permission` 预设表。
+不启动即可检查组合树：普通用户的 `cordis.patch.yml` 应显示 `directory-guard` 行及不含 `danger-full-access` 的 `permission` 表；继续追加 `cordis.admin.patch.yml` 后，该预设应恢复，同时保留 guard 与 browse 行。
 
 ## 测试
 

@@ -31,15 +31,17 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await new Promise<void>(resolve => server.close(() => resolve()))
+  await new Promise<void>(resolve => server.close(() => { resolve() }))
   await context.fiber.dispose()
   await rm(root, { recursive: true, force: true })
 })
 
 async function upload(name: string, body: BodyInit, headers: HeadersInit = {}): Promise<Response> {
+  const requestHeaders = new Headers(headers)
+  requestHeaders.set(USERDOC_UPLOAD_HEADER, '1')
   return fetch(`${origin}${USERDOC_HTTP_PATH}?name=${encodeURIComponent(name)}`, {
     method: 'POST',
-    headers: { [USERDOC_UPLOAD_HEADER]: '1', ...headers },
+    headers: requestHeaders,
     body,
   })
 }

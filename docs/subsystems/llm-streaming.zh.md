@@ -172,7 +172,12 @@ type StreamChunk =
   | { type: 'reasoning-delta'; index: number; text: string }
   | { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
   | { type: 'block-end'; index: number; block: ContentBlock }
-  | { type: 'usage'; usage: TokenUsage }
+  | {
+    type: 'usage'
+    usage: TokenUsage
+    /** Non-secret credential-resolution source used for cost attribution. */
+    credentialSource?: string
+  }
   | {
     type: 'finish'
     reason: FinishReason
@@ -322,6 +327,23 @@ declare class BlockAssembler {
 源码：[`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
 提供方与模型发现使用小型、提供方无关的描述符。模型目录仅供参考：路由仍以已注册提供方为键，适配器也可以接受未列出的模型 id。
+
+部署策略可以授权精确的 `(provider, model)` 路由。消费方在展示目录、选择模型和执行调用时使用同一个决策；如果没有挂载策略服务，部署就没有模型授权过滤器。
+
+```ts type-equiv
+/** Exact provider/model route presented to the policy. */
+interface ModelAccessTarget {
+  provider: string
+  model: string
+}
+```
+
+```ts type-equiv
+/** Authorization decision for one exact model route. */
+type ModelAccessDecision =
+  | { allowed: true }
+  | { allowed: false; reason: string }
+```
 
 注册适配器会返回一个句柄：既是释放器，也带有原子的路由替换——路由集合由用户配置决定的插件正需要它。
 
@@ -842,6 +864,23 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
 Source: [`packages/llm/llm/src/index.ts:284`](../../packages/llm/llm/src/index.ts)
+
+<a id="ctxmodelaccess--modelaccessservice"></a>
+
+### `ctx.modelAccess` — `ModelAccessService`
+
+Runtime face published as `ctx.modelAccess`. Implementations may be plain objects.
+
+```ts cordis-catalog
+/**
+ * Decide whether one exact route is authorized.
+ * @param target - provider and provider-owned model id.
+ * @returns the authorization decision and a display-safe denial reason.
+ */
+decide(target: ModelAccessTarget): ModelAccessDecision
+```
+
+Source: [`packages/llm/model-access/src/index.ts:22`](../../packages/llm/model-access/src/index.ts)
 
 <a id="llm-events"></a>
 

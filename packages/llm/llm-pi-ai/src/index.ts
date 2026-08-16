@@ -175,7 +175,7 @@ export function apply(ctx: Context, config: Config): void {
   const resolveApiKey = async (
     provider: string,
     profile: ResolvedPiAiProviderProfile,
-  ): Promise<string | undefined> => {
+  ): Promise<{ value: string; source: string } | undefined> => {
     const ref = profile.apiKeyEnv
     // Only a profile that names no credential at all defers to pi-ai's
     // provider-native discovery. Once one is named, a miss must fail loud:
@@ -184,11 +184,14 @@ export function apply(ctx: Context, config: Config): void {
     // deployment meant to authenticate differently.
     if (ref === undefined) return undefined
     const credentials = ctx.get('credentials')
-    const hit = credentials !== undefined
-      ? (await credentials.resolve(ref))?.value
+    const resolved = credentials !== undefined
+      ? await credentials.resolve(ref)
       // Without the seam the environment is the whole credential plane.
-      : launchEnvironmentOf(ctx).get(ref)?.value
-    if (hit !== undefined && hit.length > 0) return assertUsableApiKey(hit, 'llm-pi-ai', ref)
+      : launchEnvironmentOf(ctx).get(ref)
+    if (resolved !== undefined && resolved.value.length > 0) return {
+      value: assertUsableApiKey(resolved.value, 'llm-pi-ai', ref),
+      source: resolved.source,
+    }
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`
       + ` set — store ${ref} through the credentials service (the web Models page writes it) or export it,`
@@ -235,7 +238,8 @@ export function apply(ctx: Context, config: Config): void {
     if (provider === undefined) return undefined
     const profile = profiles().get(provider)
     if (profile === undefined) return undefined
-    return resolveApiKey(provider, profile)
+    const resolved = await resolveApiKey(provider, profile)
+    return typeof resolved === 'object' ? resolved.value : resolved
   }
   // Interrogating an endpoint is a configuration-time action over a draft, so
   // it is offered for the whole namespace rather than per route: the provider

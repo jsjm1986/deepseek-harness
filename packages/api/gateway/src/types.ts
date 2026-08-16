@@ -3,6 +3,8 @@
  * @module @deepseek-ai/dsh-api-gateway/types
  */
 
+export type { TypertGatewayAuthorizationRequest } from '@deepseek-ai/dsh-typert-protocol'
+
 /** One Remote method request after a carrier has decoded its envelope. */
 export interface InvokeRemoteRequest {
   /** Remote namespace selected by the generated descriptor. */

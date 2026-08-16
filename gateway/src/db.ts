@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { basename, dirname } from 'node:path'
 import Database from 'better-sqlite3'
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -69,6 +69,83 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
+CREATE TABLE IF NOT EXISTS model_catalog (
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (provider, model)
+);
+CREATE TABLE IF NOT EXISTS model_role_access (
+  role TEXT NOT NULL CHECK (role IN ('admin','user')),
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  allowed INTEGER NOT NULL CHECK (allowed IN (0,1)),
+  PRIMARY KEY (role, provider, model),
+  FOREIGN KEY (provider, model) REFERENCES model_catalog(provider, model) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS model_user_access (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  allowed INTEGER NOT NULL CHECK (allowed IN (0,1)),
+  PRIMARY KEY (user_id, provider, model),
+  FOREIGN KEY (provider, model) REFERENCES model_catalog(provider, model) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS model_prices (
+  id INTEGER PRIMARY KEY,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  effective_at INTEGER NOT NULL,
+  input_micros_per_million INTEGER NOT NULL,
+  output_micros_per_million INTEGER NOT NULL,
+  cache_read_micros_per_million INTEGER NOT NULL,
+  cache_write_micros_per_million INTEGER NOT NULL,
+  UNIQUE(provider, model, effective_at),
+  FOREIGN KEY (provider, model) REFERENCES model_catalog(provider, model) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS model_quotas (
+  subject_type TEXT NOT NULL CHECK (subject_type IN ('role','user')),
+  subject_id TEXT NOT NULL,
+  token_limit INTEGER,
+  company_cost_micros_limit INTEGER,
+  PRIMARY KEY (subject_type, subject_id)
+);
+CREATE TABLE IF NOT EXISTS model_intake_tokens (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS model_usage (
+  event_id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  occurred_at INTEGER NOT NULL,
+  received_at INTEGER NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  session_id TEXT,
+  credential_source TEXT NOT NULL,
+  credential_class TEXT NOT NULL CHECK (credential_class IN ('company','personal','unknown')),
+  status TEXT NOT NULL CHECK (status IN ('succeeded','failed','cancelled','missing-usage','denied')),
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  estimated_cost_micros INTEGER NOT NULL DEFAULT 0,
+  company_cost_micros INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_model_usage_user_time ON model_usage(user_id, occurred_at);
+CREATE TABLE IF NOT EXISTS model_usage_alerts (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  month TEXT NOT NULL,
+  metric TEXT NOT NULL CHECK (metric IN ('tokens','company-cost')),
+  threshold INTEGER NOT NULL CHECK (threshold IN (80,100)),
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, month, metric, threshold)
+);
 `
 
 type ProjectMode = 'ro' | 'rw'

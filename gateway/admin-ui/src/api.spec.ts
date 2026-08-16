@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { listAudit, listUsers, patchUser, setMember } from './api.ts'
+import { getProjectUsage, listAudit, listUsers, patchUser, setMember, setQuota } from './api.ts'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -46,6 +46,35 @@ describe('admin api URLs', () => {
     await listAudit({ userId: 9, actionPrefix: 'admin.', limit: 50, offset: 0 })
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/admin/api/projects/3/members/9')
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/admin/api/audit?userId=9&actionPrefix=admin.&limit=50&offset=0')
+  })
+
+  it('GETs project usage and PUTs an explicit project quota source', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonOk({ month: '2026-08' }))
+      .mockResolvedValueOnce(jsonOk(undefined, 204))
+    vi.stubGlobal('fetch', fetchMock)
+    await getProjectUsage(3, '2026-08')
+    await setQuota({
+      subjectType: 'project',
+      subjectId: '3',
+      tokenLimit: 'inherit',
+      companyCostMicrosLimit: 'inherit',
+    })
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/admin/api/usage?projectId=3&month=2026-08')
+    expect(fetchMock.mock.calls[1]).toEqual([
+      '/admin/api/quotas',
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          subjectType: 'project',
+          subjectId: '3',
+          tokenLimit: 'inherit',
+          companyCostMicrosLimit: 'inherit',
+        }),
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+      },
+    ])
   })
 
   it('throws Error from JSON error on !res.ok', async () => {

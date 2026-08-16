@@ -39,7 +39,13 @@
       "path": "../../context/userdoc-context"
     },
     {
+      "path": "../../context/collaboration"
+    },
+    {
       "path": "../../llm/llm"
+    },
+    {
+      "path": "../../llm/model-access"
     },
     {
       "path": "../../core/agent"

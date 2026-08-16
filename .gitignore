@@ -38,3 +38,7 @@ apps/web/dist/
 worktrees/
 .agents/worktrees/
 .typert-*/
+!plugins/dsh-model-governance/lib/
+!plugins/dsh-model-governance/lib/index.js
+!plugins/dsh-model-governance/lib/outbox.js
+!plugins/dsh-model-governance/lib/policy.js

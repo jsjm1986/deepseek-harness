@@ -69,6 +69,7 @@ function validateAttached(history: readonly SessionEvent[], event: SessionEvent<
   const message = history.find((candidate): candidate is SessionEvent<'user/message'> =>
     candidate.type === 'user/message' && candidate.data.id === data.messageId)
   if (message === undefined) fail('userdoc/attached must cite an earlier user/message')
+  /* v8 ignore next -- Session accepts only contiguous seq values, so an earlier event cannot have a later seq. */
   if (message.seq >= event.seq) fail('userdoc/attached must follow its cited user/message')
   if (!hasDocumentSource(message.data)) {
     fail('userdoc/attached message source must carry admitted documents')
@@ -105,16 +106,34 @@ function validateSession(session: Session, fail: InvariantFailure): void {
   }
 }
 
-const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
-  for (const session of ctx.sessions.list()) validateSession(session, fail)
+function validateExistingSessions(sessions: readonly Session[], fail: InvariantFailure): void {
+  for (const session of sessions) validateSession(session, fail)
+}
+
+function installCreatedSessionCheck(ctx: Context, fail: InvariantFailure): void {
   ctx.on('session/created', (session) => { validateSession(session, fail) }, { global: true })
+}
+
+function installAttachedEventCheck(ctx: Context, fail: InvariantFailure): void {
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
     if (event.type === 'userdoc/attached') validateAttached(session.events, event, fail)
   }, { global: true })
-}, { inject: ['sessions'] })
+}
 
-/** Register the package-owned durable relation checks. */
+function installUserDocInvariant(ctx: Context, fail: InvariantFailure): void {
+  validateExistingSessions(ctx.sessions.list(), fail)
+  installCreatedSessionCheck(ctx, fail)
+  installAttachedEventCheck(ctx, fail)
+}
+
+const install: InvariantInstaller = Object.assign(installUserDocInvariant, { inject: ['sessions'] })
+
+/**
+ * Register the package-owned durable relation checks.
+ * @param ctx - Cordis context carrying the invariant registry.
+ * @returns the registration disposer after setup succeeds.
+ */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))

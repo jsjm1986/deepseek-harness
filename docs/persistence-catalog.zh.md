@@ -932,6 +932,19 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
 
+### `userdoc/*`
+
+<a id="userdocattached--log-only"></a>
+
+#### `userdoc/attached` — log-only
+
+```ts persistence-catalog
+/** Exact document representation admitted into one entered user message. */
+'userdoc/attached': UserDocAttachedEventData
+```
+
+来源：[`packages/context/userdoc-context/src/index.ts:25`](../packages/context/userdoc-context/src/index.ts)
+
 ### `web/*`
 
 <a id="webdeepseek-search-llm-request--log-only"></a>

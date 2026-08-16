@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { applyGrantsToUser } from './apply-grants.ts'
+import { applyModelGovernanceToProject, applyModelGovernanceToUser } from './apply-model-governance.ts'
 import type { UserRow } from './auth.ts'
+import { CollaborationDeniedError } from './collaboration.ts'
 import type { GrantMode } from './projects.ts'
 import type { GatewayDeps, GatewayHandlers } from './server.ts'
 
@@ -37,6 +39,9 @@ function isCodedError(error: unknown): error is Error & { code: string } {
 function mapError(error: unknown): { status: number; error: string } {
   if (error instanceof Error && error.message === 'cannot-remove-last-admin') {
     return { status: 409, error: 'cannot-remove-last-admin' }
+  }
+  if (error instanceof CollaborationDeniedError && error.code === 'visibility-locked') {
+    return { status: 409, error: error.code }
   }
   if (error instanceof Error && error.message === 'invalid json') {
     return { status: 400, error: 'invalid json' }
@@ -80,22 +85,22 @@ async function dispatch(
 ): Promise<boolean> {
   const method = req.method ?? 'GET'
   const ip = req.socket.remoteAddress ?? ''
-  const write = (action: string, detail: Record<string, unknown>) =>
+  const write = async (action: string, detail: Record<string, unknown>): Promise<void> =>
     deps.audit.write({ userId: admin.id, action, detail: JSON.stringify(detail), ip })
 
   const apply = async (userId: number): Promise<void> => {
-    const prior = deps.audit.query({ action: 'admin.instances.restart-failed', userId: admin.id })
+    const prior = await deps.audit.query({ action: 'admin.instances.restart-failed', userId: admin.id })
     try {
       await applyGrantsToUser(deps, userId, admin.id)
     } catch (error) {
-      const next = deps.audit.query({ action: 'admin.instances.restart-failed', userId: admin.id })
+      const next = await deps.audit.query({ action: 'admin.instances.restart-failed', userId: admin.id })
       if (next.length > prior.length) return
       throw error
     }
   }
 
   if (pathname === '/admin/api/users') {
-    if (method === 'GET') { sendJson(res, 200, deps.users.list()); return true }
+    if (method === 'GET') { sendJson(res, 200, await deps.users.list()); return true }
     if (method === 'POST') {
       const input = parseObject(body)
       const username = str(input, 'username')
@@ -104,7 +109,7 @@ async function dispatch(
       const role = str(input, 'role') === 'admin' ? 'admin' as const : 'user' as const
       const displayName = str(input, 'displayName')
       const user = await deps.users.create({ username, password, role, displayName })
-      write('admin.users', { username, role })
+      await write('admin.users', { username, role })
       sendJson(res, 200, user)
       return true
     }
@@ -116,7 +121,7 @@ async function dispatch(
     if (method !== 'POST') return false
     const userId = Number(userInstance[1])
     const op = userInstance[2] as 'start' | 'stop' | 'restart'
-    const target = deps.users.getById(userId)
+    const target = await deps.users.getById(userId)
     if (target === null) { sendError(res, 404, 'user not found'); return true }
     if (op === 'stop') await deps.instances.stop(userId)
     else if (op === 'start') await deps.instances.ensureRunning(target)
@@ -124,7 +129,7 @@ async function dispatch(
       await deps.instances.stop(userId)
       await deps.instances.ensureRunning(target)
     }
-    write(`admin.instances.${op}`, { id: userId })
+    await write(`admin.instances.${op}`, { id: userId })
     sendNoContent(res)
     return true
   }
@@ -133,11 +138,11 @@ async function dispatch(
   if (userPassword !== null) {
     if (method !== 'POST') return false
     const userId = Number(userPassword[1])
-    if (deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
+    if (await deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
     const password = str(parseObject(body), 'password')
     if (password === undefined) { sendError(res, 400, 'password required'); return true }
     await deps.users.resetPassword(userId, password)
-    write('admin.users.reset-password', { id: userId })
+    await write('admin.users.reset-password', { id: userId })
     sendNoContent(res)
     return true
   }
@@ -146,7 +151,7 @@ async function dispatch(
   if (userIdPath !== null) {
     if (method !== 'PATCH') return false
     const userId = Number(userIdPath[1])
-    if (deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
+    if (await deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
     const input = parseObject(body)
     const displayName = str(input, 'displayName')
     const role = str(input, 'role')
@@ -154,31 +159,138 @@ async function dispatch(
     if (role !== undefined && role !== 'admin' && role !== 'user') { sendError(res, 400, 'invalid role'); return true }
     if (status !== undefined && status !== 'active' && status !== 'disabled') { sendError(res, 400, 'invalid status'); return true }
     if (role !== undefined) {
-      deps.users.setRole(userId, role)
-      write('admin.users.role', { id: userId, role })
+      await deps.users.setRole(userId, role)
+      await applyGrantsToUser(deps, userId, admin.id)
+      if (deps.governance !== undefined) await applyModelGovernanceToUser(deps, userId)
+      await write('admin.users.role', { id: userId, role })
     }
     if (status !== undefined) {
-      deps.users.setStatus(userId, status)
+      await deps.users.setStatus(userId, status)
       if (status === 'disabled') await deps.instances.stop(userId)
-      write('admin.users.status', { id: userId, status })
+      await write('admin.users.status', { id: userId, status })
     }
     if (displayName !== undefined) {
-      deps.users.setDisplayName(userId, displayName)
-      write('admin.users.display-name', { id: userId })
+      await deps.users.setDisplayName(userId, displayName)
+      await write('admin.users.display-name', { id: userId })
     }
     sendNoContent(res)
     return true
   }
 
+  if (pathname === '/admin/api/models') {
+    if (deps.governance === undefined) { sendError(res, 503, 'model governance unavailable'); return true }
+    if (method === 'GET') { sendJson(res, 200, await deps.governance.listModels()); return true }
+    if (method === 'PUT') {
+      const input = parseObject(body)
+      const provider = str(input, 'provider'); const model = str(input, 'model'); const displayName = str(input, 'displayName')
+      if (provider === undefined || model === undefined || displayName === undefined) { sendError(res, 400, 'provider, model and displayName required'); return true }
+      const bool = (key: string, fallback: boolean): boolean => {
+        const value = input[key]
+        if (value === undefined) return fallback
+        if (typeof value !== 'boolean') throw new Error(`${key} must be boolean`)
+        return value
+      }
+      const integer = (key: string): number => {
+        const value = input[key]
+        if (value === undefined) return 0
+        if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+          throw new Error(`${key} must be a non-negative safe integer`)
+        }
+        return value
+      }
+      await deps.governance.upsertModel({
+        provider, model, displayName, enabled: bool('enabled', true), adminAllowed: bool('adminAllowed', true),
+        userAllowed: bool('userAllowed', false), inputMicrosPerMillion: integer('inputMicrosPerMillion'),
+        outputMicrosPerMillion: integer('outputMicrosPerMillion'), cacheReadMicrosPerMillion: integer('cacheReadMicrosPerMillion'),
+        cacheWriteMicrosPerMillion: integer('cacheWriteMicrosPerMillion'),
+      })
+      await write('admin.models.upsert', { provider, model })
+      for (const target of await deps.users.list()) await applyModelGovernanceToUser(deps, target.id)
+      for (const project of await deps.projects.list()) await applyModelGovernanceToProject(deps, project.id)
+      sendNoContent(res); return true
+    }
+    return false
+  }
+
+  if (pathname === '/admin/api/model-access') {
+    if (deps.governance === undefined) { sendError(res, 503, 'model governance unavailable'); return true }
+    const query = new URL(req.url ?? '/', 'http://x').searchParams
+    if (method === 'GET') {
+      const userId = Number(query.get('userId'))
+      const target = await deps.users.getById(userId)
+      if (target === null) { sendError(res, 404, 'user not found'); return true }
+      sendJson(res, 200, {
+        effective: await deps.governance.policyFor(target),
+        overrides: await deps.governance.userOverrides(userId),
+      }); return true
+    }
+    if (method === 'PUT') {
+      const input = parseObject(body); const userId = Number(input.userId); const provider = str(input, 'provider'); const model = str(input, 'model')
+      const allowed = input.allowed
+      if (!Number.isSafeInteger(userId) || provider === undefined || model === undefined || (allowed !== null && typeof allowed !== 'boolean')) {
+        sendError(res, 400, 'userId, provider, model and boolean|null allowed required'); return true
+      }
+      if (await deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
+      await deps.governance.setUserAccess(userId, provider, model, allowed as boolean | null)
+      await applyModelGovernanceToUser(deps, userId)
+      await write('admin.models.user-access', { userId, provider, model, allowed }); sendNoContent(res); return true
+    }
+    return false
+  }
+
+  if (pathname === '/admin/api/quotas') {
+    if (deps.governance === undefined || method !== 'PUT') return false
+    const input = parseObject(body); const subjectType = str(input, 'subjectType'); const subjectId = str(input, 'subjectId')
+    if ((subjectType !== 'role' && subjectType !== 'user' && subjectType !== 'project') || subjectId === undefined) {
+      sendError(res, 400, 'invalid quota subject'); return true
+    }
+    const nullable = (key: string): number | null | 'inherit' => {
+      if (!Object.hasOwn(input, key)) throw new Error(`${key} required`)
+      const value = input[key]
+      if (value === 'inherit') return 'inherit'
+      if (value === null) return null
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+        throw new Error(`${key} must be a non-negative safe integer, null, or inherit`)
+      }
+      return value
+    }
+    await deps.governance.setQuota(subjectType, subjectId, nullable('tokenLimit'), nullable('companyCostMicrosLimit'))
+    await write('admin.models.quota', { subjectType, subjectId }); sendNoContent(res); return true
+  }
+
+  if (pathname === '/admin/api/usage') {
+    if (deps.governance === undefined || method !== 'GET') return false
+    const query = new URL(req.url ?? '/', 'http://x').searchParams
+    const month = query.get('month') ?? undefined
+    const requestedProject = query.get('projectId')
+    if (requestedProject !== null) {
+      const projectId = Number(requestedProject)
+      if (await deps.projects.getById(projectId) === null) { sendError(res, 404, 'project not found'); return true }
+      sendJson(res, 200, await deps.governance.summary({ kind: 'project', id: projectId }, month)); return true
+    }
+    const requested = query.get('userId')
+    if (requested !== null) {
+      const userId = Number(requested); if (await deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
+      sendJson(res, 200, await deps.governance.summary({ kind: 'user', id: userId }, month)); return true
+    }
+    const summaries = await Promise.all((await deps.users.list()).map(async user => ({
+      userId: user.id,
+      username: user.username,
+      ...await deps.governance!.summary({ kind: 'user', id: user.id }, month),
+    })))
+    sendJson(res, 200, summaries)
+    return true
+  }
+
   if (pathname === '/admin/api/projects') {
-    if (method === 'GET') { sendJson(res, 200, deps.projects.list()); return true }
+    if (method === 'GET') { sendJson(res, 200, await deps.projects.list()); return true }
     if (method === 'POST') {
       const input = parseObject(body)
       const name = str(input, 'name')
       const path = str(input, 'path')
       if (name === undefined || path === undefined) { sendError(res, 400, 'name and path required'); return true }
-      const project = deps.projects.create({ name, path, createdBy: admin.id })
-      write('admin.projects.create', { id: project.id, name, path: project.path })
+      const project = await deps.projects.create({ name, path, createdBy: admin.id })
+      await write('admin.projects.create', { id: project.id, name, path: project.path })
       sendJson(res, 200, project)
       return true
     }
@@ -189,20 +301,20 @@ async function dispatch(
   if (member !== null) {
     const projectId = Number(member[1])
     const userId = Number(member[2])
-    if (deps.projects.getById(projectId) === null) { sendError(res, 404, 'project not found'); return true }
-    if (deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
+    if (await deps.projects.getById(projectId) === null) { sendError(res, 404, 'project not found'); return true }
+    if (await deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
     if (method === 'PUT') {
       const mode = str(parseObject(body), 'mode')
       if (mode !== 'ro' && mode !== 'rw') { sendError(res, 400, 'invalid mode'); return true }
-      deps.projects.setMember(projectId, userId, mode as GrantMode)
-      write('admin.members.set', { projectId, userId, mode })
+      await deps.projects.setMember(projectId, userId, mode as GrantMode)
+      await write('admin.members.set', { projectId, userId, mode })
       await apply(userId)
       sendNoContent(res)
       return true
     }
     if (method === 'DELETE') {
-      deps.projects.removeMember(projectId, userId)
-      write('admin.members.remove', { projectId, userId })
+      await deps.projects.removeMember(projectId, userId)
+      await write('admin.members.remove', { projectId, userId })
       await apply(userId)
       sendNoContent(res)
       return true
@@ -213,20 +325,23 @@ async function dispatch(
   const projectIdPath = /^\/admin\/api\/projects\/(\d+)$/.exec(pathname)
   if (projectIdPath !== null) {
     const projectId = Number(projectIdPath[1])
-    const project = deps.projects.getById(projectId)
+    const project = await deps.projects.getById(projectId)
     if (project === null) { sendError(res, 404, 'project not found'); return true }
     if (method === 'GET') { sendJson(res, 200, project); return true }
     if (method === 'PATCH') {
       const name = str(parseObject(body), 'name')
       if (name === undefined) { sendError(res, 400, 'name required'); return true }
-      deps.projects.rename(projectId, name)
-      write('admin.projects.rename', { id: projectId, name })
+      await deps.projects.rename(projectId, name)
+      await write('admin.projects.rename', { id: projectId, name })
       sendNoContent(res)
       return true
     }
     if (method === 'DELETE') {
-      const userIds = deps.projects.remove(projectId)
-      write('admin.projects.delete', { id: projectId })
+      const userIds = await deps.instances.withStopped(
+        { kind: 'project', id: projectId },
+        async () => deps.projects.remove(projectId),
+      )
+      await write('admin.projects.delete', { id: projectId })
       for (const userId of userIds) await apply(userId)
       sendNoContent(res)
       return true
@@ -245,7 +360,7 @@ async function dispatch(
     }
     const action = q.get('action')
     const actionPrefix = q.get('actionPrefix')
-    const rows = deps.audit.query({
+    const rows = (await deps.audit.query({
       userId: num('userId'),
       action: action !== null && action !== '' ? action : undefined,
       actionPrefix: actionPrefix !== null && actionPrefix !== '' ? actionPrefix : undefined,
@@ -253,7 +368,7 @@ async function dispatch(
       toMs: num('to') ?? num('toMs'),
       limit: num('limit'),
       offset: num('offset'),
-    }).map(r => ({
+    })).map(r => ({
       id: r.id, ts: r.ts, userId: r.userId, action: r.action, methodPath: r.methodPath, status: r.status, ip: r.ip,
     }))
     sendJson(res, 200, rows)

@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { applyGrantsToUser } from '../src/apply-grants.ts'
 import { AuditService } from '../src/audit.ts'
@@ -51,12 +51,12 @@ describe('applyGrantsToUser', () => {
     const { deps, alice, admin, root } = await setup()
     await deps.instances.ensureRunning(alice)
     expect(await applyGrantsToUser(deps, alice.id, admin.id)).toBe('restarted')
-    expect(deps.instances.isLive(alice.id)).toBe(true)
+    expect(await deps.instances.isLive(alice.id)).toBe(true)
     const body = JSON.parse(readFileSync(join(root, 'users', 'alice', 'dsh', 'directory-grants.json'), 'utf8'))
     expect(body[0]).toMatchObject({ label: '主目录', mode: 'rw' })
     await deps.instances.stop(alice.id)
     expect(await applyGrantsToUser(deps, alice.id, admin.id)).toBe('written')
-    await expect(fetch(`http://127.0.0.1:${deps.instances.portOf(alice.id)}/`)).rejects.toThrow()
+    await expect(fetch(`http://127.0.0.1:${await deps.instances.portOf(alice.id)}/`)).rejects.toThrow()
   })
 
   it('audits and throws when a live restart fails', async () => {
@@ -68,5 +68,15 @@ describe('applyGrantsToUser', () => {
     const audited = deps.audit.query({ action: 'admin.instances.restart-failed' })
     expect(audited[0]?.userId).toBe(admin.id)
     expect(audited[0]?.detail).toContain(String(alice.id))
+  })
+
+  it('writes a filesystem-root rw grant for administrators', async () => {
+    const { deps, admin, root } = await setup()
+    expect(await applyGrantsToUser(deps, admin.id, admin.id)).toBe('written')
+    const body = JSON.parse(
+      readFileSync(join(root, 'users', 'admin', 'dsh', 'directory-grants.json'), 'utf8'),
+    )
+    const filesystemRoot = parse(admin.homePath).root
+    expect(body).toEqual([{ path: filesystemRoot, mode: 'rw', label: filesystemRoot }])
   })
 })

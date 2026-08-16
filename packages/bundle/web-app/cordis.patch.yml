@@ -192,6 +192,9 @@
     - id: ui-layout
       name: '@deepseek-ai/dsh-client-ui-layout'
 
+    - id: ui-usage-alert
+      name: '@deepseek-ai/dsh-client-ui-usage-alert'
+
     - id: ui-sidebar
       name: '@deepseek-ai/dsh-client-ui-sidebar'
 
@@ -209,6 +212,10 @@
 
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
+
+    # Gateway project scope, shared-conversation visibility, and read-only role UI.
+    - id: ui-collaboration
+      name: '@deepseek-ai/dsh-client-ui-collaboration'
 
     # Tool call tree, generic fallback, and keyed business Tool views.
     - id: ui-tool

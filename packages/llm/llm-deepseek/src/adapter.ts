@@ -80,7 +80,7 @@ export interface DeepSeekAdapterOptions {
    * from the same resolution as the endpoint it is sent to. Throws `LlmError`
    * `MISSING_CREDENTIAL` when no key is available anywhere.
    */
-  resolveApiKey: (connection: DeepSeekConnectionOptions) => Promise<string>
+  resolveApiKey: (connection: DeepSeekConnectionOptions) => Promise<string | { value: string; source: string }>
   /** Resolve the harness-home anonymous id shared with telemetry and feedback. */
   resolveUserId: () => AnonymousUserId
 }
@@ -218,7 +218,9 @@ export class DeepSeekAdapter extends LlmAdapter {
     // The key resolves *from this snapshot*, so an endpoint and the secret
     // sent to it can never come from different configuration generations.
     const connection = this.config.options()
-    const apiKey = await this.config.resolveApiKey(connection)
+    const resolvedApiKey = await this.config.resolveApiKey(connection)
+    const apiKey = typeof resolvedApiKey === 'string' ? resolvedApiKey : resolvedApiKey.value
+    const credentialSource = typeof resolvedApiKey === 'string' ? 'unknown' : resolvedApiKey.source
     const userId = this.config.resolveUserId()
     const consumer = new AbortController()
     const upstream = options.signal === undefined
@@ -241,7 +243,9 @@ export class DeepSeekAdapter extends LlmAdapter {
           exhausted = true
           return
         }
-        yield result.value
+        yield result.value.type === 'usage'
+          ? { ...result.value, credentialSource }
+          : result.value
       }
     } catch (error: unknown) {
       if (timeoutOf(watchdog.signal, STREAM_IDLE_TIMEOUT_CODE) !== undefined) {

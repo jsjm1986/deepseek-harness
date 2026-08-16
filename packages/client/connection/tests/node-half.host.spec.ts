@@ -10,7 +10,15 @@ import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
-import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
+import {
+  API_PATH,
+  apply,
+  HostConnectionService,
+  HOST_EVENTS_PATH,
+  inject,
+  MUX_EVENTS_PATH,
+  type HostConnectionHandle,
+} from '../src/index.ts'
 
 /** Structural webServer fake recording both route registries. */
 function fakeHttpServer(
@@ -258,6 +266,32 @@ describe('connection node half', () => {
     const accepted = fakeResponse()
     await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }, '/api/documents'), accepted.response)
     expect(accepted.state.status).toBe(204)
+    await fiber.dispose()
+  })
+
+  it('validates streaming prefixes and dispatches the longest matching prefix', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const connection = ctx.get('connection') as HostConnectionService
+    const calls: string[] = []
+    connection.http.handlePrefix('/api/documents', () => { calls.push('documents') }, { authority: 'trusted-host' })
+    connection.http.handlePrefix('/api/documents/content', () => { calls.push('content') }, { authority: 'trusted-host' })
+    expect(() => connection.http.handlePrefix('/documents', () => {}, { authority: 'trusted-host' }))
+      .toThrow(/invalid streaming HTTP prefix/)
+
+    const matched = await connection.dispatchHttp(
+      fakeRequest({ host: '127.0.0.1' }, '/api/documents/content/file'),
+      fakeResponse().response,
+    )
+    const missingUrl = fakeRequest({ host: '127.0.0.1' })
+    delete missingUrl.url
+
+    expect(matched).toBe(true)
+    expect(calls).toEqual(['content'])
+    await expect(connection.dispatchHttp(missingUrl, fakeResponse().response)).resolves.toBe(false)
     await fiber.dispose()
   })
 

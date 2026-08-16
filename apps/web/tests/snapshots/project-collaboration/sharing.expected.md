@@ -1,0 +1,17 @@
+- menu:
+  - text: Conversation sharing
+  - menuitem "Shared with project Project members can view and participate":
+    - img
+    - text: Shared with project Project members can view and participate
+    - img
+  - menuitem "Only me Only the creator can view it":
+    - img
+    - text: Only me Only the creator can view it
+  - separator
+  - text: Created by Lin Participants (2)
+  - menuitem "Lin 3 contributions" [disabled]:
+    - img
+    - text: Lin 3 contributions
+  - menuitem "Zhou 1 contributions" [disabled]:
+    - img
+    - text: Zhou 1 contributions

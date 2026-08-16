@@ -1,0 +1,112 @@
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dsw-space-1);
+  box-sizing: border-box;
+  max-width: 220px;
+  min-height: 28px;
+  padding: 0 var(--dsw-space-2);
+  border: 0;
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.trigger:hover:not(:disabled),
+.trigger[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.trigger:disabled {
+  cursor: default;
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+.triggerLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: none;
+  min-width: 18px;
+  padding: 0 var(--dsw-space-1);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.chevron {
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+}
+
+.spin {
+  animation: collaboration-spin 0.8s linear infinite;
+}
+
+@keyframes collaboration-spin {
+  to { transform: rotate(360deg); }
+}
+
+.menuText,
+.participantText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 300px;
+}
+
+.menuTitle,
+.participantName {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menuDescription,
+.participantMeta {
+  color: var(--dsw-alias-label-caption);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: normal;
+}
+
+.message {
+  display: block;
+  max-width: 280px;
+  color: var(--dsw-alias-state-warn-primary);
+  white-space: normal;
+}
+
+:global([data-viewport='compact']) .triggerLabel {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .trigger {
+    min-height: var(--dsw-touch-target);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}

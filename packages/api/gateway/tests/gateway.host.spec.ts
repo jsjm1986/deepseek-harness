@@ -395,6 +395,67 @@ describe('TypertGatewayService', () => {
     expect(service.lastSignal?.aborted).toBe(false)
   })
 
+  it('authorizes codec-decoded wire values before lookup resolution', async () => {
+    const { ctx, service } = await setup()
+    const agent = { id: 'agent-1' }
+    const abort = new AbortController()
+    let authorized = false
+    ctx.on('typert-gateway/authorize', (payload) => {
+      expect(payload).toMatchObject({
+        endpoint: 'goals/create',
+        service: 'goals',
+        namespace: 'goals',
+        method: 'create',
+        args: { agentId: 'agent-1', request: { title: 'ship' } },
+        signal: abort.signal,
+      })
+      authorized = true
+    })
+    ctx.typert.lookups.register('gatewayFixture', {
+      ...agentLookup(agent),
+      resolve: (id) => {
+        expect(authorized).toBe(true)
+        return id === agent.id ? agent : undefined
+      },
+    })
+    registerStrict(ctx, [createDescriptor()])
+
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'create',
+      args: { agentId: 'agent-1', request: { title: '  ship  ' } },
+      signal: abort.signal,
+    })).resolves.toEqual({ agentId: 'agent-1', title: 'ship', scope: 'root' })
+    expect(service.calls).toEqual(['create'])
+  })
+
+  it('stops before lookup resolution when an authorization listener rejects', async () => {
+    const { ctx, service } = await setup()
+    const rejection = new TypertLookupFailure({
+      code: 'collaboration-forbidden',
+      message: 'denied',
+      details: { action: 'write', reason: 'forbidden' },
+    })
+    let lookupCalls = 0
+    ctx.on('typert-gateway/authorize', () => { throw rejection })
+    ctx.typert.lookups.register('gatewayFixture', {
+      ...agentLookup({ id: 'agent-1' }),
+      resolve: () => {
+        lookupCalls += 1
+        return { id: 'agent-1' }
+      },
+    })
+    registerStrict(ctx, [createDescriptor()])
+
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'create',
+      args: { agentId: 'agent-1', request: { title: 'ship' } },
+    })).rejects.toBe(rejection)
+    expect(lookupCalls).toBe(0)
+    expect(service.calls).toEqual([])
+  })
+
   it('resolves strict Remote Scope identity without adding a business argument', async () => {
     const { ctx, service } = await setup()
     const scoped = ctx.extend({ fixtureScope: 'agent-scope' })

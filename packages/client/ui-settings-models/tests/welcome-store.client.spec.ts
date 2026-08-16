@@ -65,6 +65,25 @@ describe('WelcomeNoticeStore', () => {
     }
   })
 
+  it('acknowledges read-only Host settings in process memory across connection refreshes', async () => {
+    const describe = vi.fn(() => Promise.resolve(ok({
+      writable: false, hasDocument: false, namespaces: [namespace()],
+    })))
+    const mutate = vi.fn()
+    const controller = new WelcomeNoticeStore({ settings: { describe, mutate } } as never)
+
+    await controller.load()
+    expect(controller.store.getSnapshot()).toEqual({ status: 'ready', acknowledged: false, error: null })
+    await expect(controller.acknowledge()).resolves.toBe(true)
+    expect(controller.store.getSnapshot()).toEqual({ status: 'ready', acknowledged: true, error: null })
+    expect(mutate).not.toHaveBeenCalled()
+
+    refreshWelcomeIfLoaded(controller)
+    await vi.waitFor(() => { expect(controller.store.getSnapshot().status).toBe('ready') })
+    expect(controller.store.getSnapshot().acknowledged).toBe(true)
+    expect(describe).toHaveBeenCalledOnce()
+  })
+
   it('persists the owner version through one idempotent path mutation', async () => {
     const mutate = vi.fn(() => Promise.resolve(ok(namespace(WELCOME_NOTICE_VERSION))))
     const controller = new WelcomeNoticeStore({ settings: { mutate } } as never)
@@ -90,8 +109,12 @@ describe('WelcomeNoticeStore', () => {
     expect(save.store.getSnapshot()).toEqual({ status: 'error', acknowledged: false, error: 'disk full' })
 
     const nonError = new WelcomeNoticeStore({
-      // Durable/wire failures are unknown; exercise containment of a non-Error rejection.
-      settings: { describe: () => Promise.reject(new Error('offline string')) },
+      settings: {
+        describe: () => {
+          // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- wire failures are unknown.
+          return Promise.reject('offline string')
+        },
+      },
     } as never)
     await nonError.load()
     expect(nonError.store.getSnapshot().error).toBe('offline string')

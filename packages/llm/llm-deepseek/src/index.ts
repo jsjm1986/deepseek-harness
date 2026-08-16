@@ -222,20 +222,26 @@ export function apply(ctx: Context, config: Config): void {
   }
   options()
 
-  const resolveApiKey = async (connection: ResolvedDeepSeekOptions): Promise<string> => {
+  const resolveApiKey = async (connection: ResolvedDeepSeekOptions): Promise<{ value: string; source: string }> => {
     // Every credential fact comes from the caller's snapshot, so a rejected
     // settings generation cannot leak its key onto the previous endpoint.
     const ref = connection.apiKeyEnv
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
       const hit = await credentials.resolve(ref)
-      if (hit !== undefined) return assertUsableApiKey(hit.value, 'llm-deepseek', ref)
+      if (hit !== undefined) return {
+        value: assertUsableApiKey(hit.value, 'llm-deepseek', ref),
+        source: hit.source,
+      }
     } else {
       // Without the seam there is no managed store to rank against, so the
       // environment is the whole credential plane.
       const ambient = launchEnvironmentOf(ctx).get(ref)
       if (ambient !== undefined && ambient.value.length > 0) {
-        return assertUsableApiKey(ambient.value, 'llm-deepseek', ref)
+        return {
+          value: assertUsableApiKey(ambient.value, 'llm-deepseek', ref),
+          source: ambient.source,
+        }
       }
     }
     throw new LlmError(

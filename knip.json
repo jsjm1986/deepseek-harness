@@ -231,6 +231,12 @@
         "tests/**/*.tsx"
       ]
     },
+    "packages/client/ui-usage-alert": {
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx"
+      ]
+    },
     "website": {
       "project": [
         "**/*.ts"
@@ -310,6 +316,11 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ]
+    },
+    "packages/context/collaboration": {
+      "project": [
+        "src/**/*.ts"
       ]
     },
     "packages/context/tmux-context": {
@@ -479,6 +490,11 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ]
+    },
+    "packages/llm/model-access": {
+      "project": [
+        "src/**/*.ts"
       ]
     },
     "packages/session/session-title-first-prompt-llm": {

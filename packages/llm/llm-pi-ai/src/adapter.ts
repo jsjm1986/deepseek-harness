@@ -73,7 +73,9 @@ export interface PiAiAdapterOptions {
    * credential at all, because a named reference that misses throws `LlmError`
    * `MISSING_CREDENTIAL` rather than falling back.
    */
-  resolveApiKey: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<string | undefined>
+  resolveApiKey: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<
+    string | { value: string; source: string } | undefined
+  >
   /** Resolve the optional durable attachment service at request time. */
   resolveAttachments?: () => AttachmentStore | undefined
 }
@@ -289,7 +291,9 @@ export class PiAiAdapter extends LlmAdapter {
       model,
       options.reasoningEffort ?? profile.reasoning,
     )
-    const apiKey = await this.config.resolveApiKey(options.provider, profile)
+    const resolvedApiKey = await this.config.resolveApiKey(options.provider, profile)
+    const apiKey = typeof resolvedApiKey === 'object' ? resolvedApiKey.value : resolvedApiKey
+    const credentialSource = typeof resolvedApiKey === 'object' ? resolvedApiKey.source : 'unknown'
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined
@@ -331,7 +335,9 @@ export class PiAiAdapter extends LlmAdapter {
             exhausted = true
             return
           }
-          yield result.value
+          yield result.value.type === 'usage'
+            ? { ...result.value, credentialSource }
+            : result.value
         }
       } finally {
         if (!exhausted) {

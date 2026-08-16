@@ -98,7 +98,8 @@ export function apply(ctx: Context): void {
   ctx.on('agent/message-entered', ({ agent, event }) => {
     const source = event.data.source
     if (source.kind !== 'user' || !('documents' in source) || !Array.isArray(source.documents)) return
-    source.documents.forEach((attachment, index) => {
+    const documents = source.documents as readonly UserDocPromptAttachment[]
+    documents.forEach((attachment, index) => {
       agent.session.append('userdoc/attached', {
         version: 1,
         messageId: event.data.id,

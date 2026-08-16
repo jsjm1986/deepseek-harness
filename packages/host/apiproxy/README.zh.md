@@ -22,6 +22,8 @@ Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中�
 
 分层与协议决策记录在 [GUI 分层与 RPC 协议 RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) 中；浏览器侧消费架构记录在 [Web 客户端架构 RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) 中。
 
+组合 `ctx.collaboration` 后，项目 scope 下的 Session 操作会在观察或修改对话前授权被寻址的根对话，而列表、搜索结果、stream 发布、workspace 引用和已附加 Session 数量会过滤不可读 Session id。只依赖 scope 的写操作要求已捕获的 `rw` 模式，且项目路径会保持在已配置项目根内。Typert Remote 分发使用明确的项目 allowlist：`goals/*` 需要 Session `write`，`messageFeedback/list` 需要 `read`，`messageFeedback/put` 与 `messageFeedback/delete` 需要 `write`，所有未分类或进程级 Remote 都会被拒绝。个人 principal 与未组合协作能力的组合保留普通 API 行为。
+
 首个回答认领待处理请求之前，系统会对照该请求校验问题响应。多选题的回答项可以同时携带 `selected` 中的请求选项标签与非空 `custom` 文本；单选题的回答项必须二选一。标签重复、标签未知、id 不匹配、批次不完整以及自定义文本为空都会以 `bad-response` 拒绝。
 
 `session.history` 会读取已附加 Session 的内存状态，或通过持久化检查冷日志，而不会恢复或发布 agent，然后按追加来源的消息边界分页：`maxMessages` 统计以追加方式进入 surface 的 `user/message` 和 `assistant/message` 事件，因此仅供模型使用的替换副本不占用配额。每一页仍是一段连续的原始事件区间，从而让压缩（compaction）的仅日志 `compaction/summary` 记录与引用它的替换留在同一页。

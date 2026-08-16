@@ -1,10 +1,10 @@
 # dsh-directory-guard bundle patch.
 #
 # 1. Mount the guard plugin so its tools/pre-execute listener is active.
-# 2. Re-state the permission-presets table WITHOUT danger-full-access, closing
-#    the in-app escape that would otherwise let a session turn off the dsh
-#    sandbox. (This mirrors the base `permission` row's config; a patch replaces
-#    the whole config, so every retained preset is restated.)
+# 2. Re-state the regular-user permission-presets table WITHOUT
+#    danger-full-access. Gateway administrators append cordis.admin.patch.yml
+#    after this file. (A patch replaces the whole config, so every retained
+#    preset is restated.)
 - insert:
     - id: directory-guard
       name: '@deepseek-ai/dsh-directory-guard'

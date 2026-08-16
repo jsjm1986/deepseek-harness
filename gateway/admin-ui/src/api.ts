@@ -124,3 +124,80 @@ export function listAudit(filter: AuditFilter = {}): Promise<AuditEntry[]> {
   const qs = q.toString()
   return request(`/admin/api/audit${qs === '' ? '' : `?${qs}`}`)
 }
+
+export type ModelGovernanceRow = {
+  provider: string
+  model: string
+  displayName: string
+  enabled: boolean
+  adminAllowed: boolean
+  userAllowed: boolean
+  inputMicrosPerMillion: number
+  outputMicrosPerMillion: number
+  cacheReadMicrosPerMillion: number
+  cacheWriteMicrosPerMillion: number
+}
+
+export type ModelAccessView = {
+  effective: {
+    version: number
+    defaultAllowed: boolean
+    models: Array<{ provider: string; model: string; allowed: boolean }>
+  }
+  overrides: Array<{ provider: string; model: string; allowed: boolean }>
+}
+
+export type UsageSummary = {
+  month: string
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  totalTokens: number
+  estimatedCostMicros: number
+  companyCostMicros: number
+  calls: number
+  missingUsageCalls: number
+  tokenLimit: number | null
+  companyCostMicrosLimit: number | null
+  alerts: Array<{ metric: 'tokens' | 'company-cost'; threshold: 80 | 100; createdAt: number }>
+}
+
+export type AdminUsageSummary = UsageSummary & { userId: number; username: string }
+
+export function listModels(): Promise<ModelGovernanceRow[]> {
+  return request('/admin/api/models')
+}
+
+export function saveModel(model: ModelGovernanceRow): Promise<void> {
+  return request('/admin/api/models', { method: 'PUT', body: JSON.stringify(model) })
+}
+
+export function getModelAccess(userId: number): Promise<ModelAccessView> {
+  return request(`/admin/api/model-access?userId=${userId}`)
+}
+
+export function setModelAccess(userId: number, provider: string, model: string, allowed: boolean | null): Promise<void> {
+  return request('/admin/api/model-access', {
+    method: 'PUT', body: JSON.stringify({ userId, provider, model, allowed }),
+  })
+}
+
+export function setQuota(body: {
+  subjectType: 'role' | 'user' | 'project'
+  subjectId: string
+  tokenLimit: number | null | 'inherit'
+  companyCostMicrosLimit: number | null | 'inherit'
+}): Promise<void> {
+  return request('/admin/api/quotas', { method: 'PUT', body: JSON.stringify(body) })
+}
+
+export function listUsage(month?: string): Promise<AdminUsageSummary[]> {
+  return request(`/admin/api/usage${month === undefined || month === '' ? '' : `?month=${encodeURIComponent(month)}`}`)
+}
+
+export function getProjectUsage(projectId: number, month?: string): Promise<UsageSummary> {
+  const query = new URLSearchParams({ projectId: String(projectId) })
+  if (month !== undefined && month !== '') query.set('month', month)
+  return request(`/admin/api/usage?${query.toString()}`)
+}

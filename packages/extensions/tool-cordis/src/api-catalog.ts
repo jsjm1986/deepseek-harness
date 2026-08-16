@@ -439,6 +439,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'collaboration',
+    summary: 'Project collaboration Service Definition consumed by host APIs and persistence providers.',
+    description: 'Project collaboration Service Definition consumed by host APIs and persistence providers.',
+    methods: [
+      {
+        signature: 'abstract capture(): CollaborationAuthority',
+        description: 'Capture the authenticated principal for one request or event stream.',
+        parameters: [],
+        returns: 'an authority with participant identity and collaboration operations.',
+      },
+      {
+        signature: 'abstract currentCreation(): CollaborationSessionCreation | undefined',
+        description: 'Return new-session metadata visible during the wrapped creation operation.',
+        parameters: [],
+        returns: 'the active creation metadata, or undefined outside a wrapped operation.',
+      },
+      {
+        signature: 'abstract withSessionCreation<T>( creation: CollaborationSessionCreation, operation: () => Promise<T>, ): Promise<T>',
+        description: 'Run session creation under an authenticated visibility choice.',
+        parameters: [{ name: 'creation', description: 'requested root-conversation visibility.' }, { name: 'operation', description: 'creation work that synchronously reaches persistence registration.' }],
+        returns: 'the operation result.',
+      },
+    ],
+  },
+  {
     key: 'commands',
     summary: 'Human-command registry.',
     description: 'Human-command registry. Plain-context definitions are global; definitions registered through a command-injected child of an agent context shadow globals for that agent.',
@@ -638,6 +663,53 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Atomically edit literal text. When supplied, the version guard is checked before matching so stale content reports `FS_STALE_VERSION`; omission edits the current content without a freshness precondition.',
         parameters: [{ name: 'target', description: 'the resolved target to edit.' }, { name: 'edit', description: 'the literal search/replace request.' }, { name: 'expected', description: 'the version guard; omit for an unconditional edit.' }, { name: 'signal', description: 'aborts before atomic publication takes effect.' }, { name: 'sandboxPolicy', description: 'the per-call mode and workspace root this edit runs under; a sandboxing backend fences the edit by it, the bare backend ignores it. Omit to leave the backend its own default.' }],
         returns: 'the outcome, including the version the edit produced.',
+      },
+    ],
+  },
+  {
+    key: 'gatewayRuntime',
+    summary: 'Authenticated Gateway context for one launched Harness runtime.',
+    description: 'Authenticated Gateway context for one launched Harness runtime.',
+    methods: [
+      {
+        signature: 'readonly identity: GatewayRuntimeIdentity',
+        description: 'Non-sensitive runtime identity bound to every accepted principal.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly organization: string',
+        description: 'Gateway organization bound to this runtime.',
+        parameters: [],
+      },
+      {
+        signature: 'current(): GatewayRequestPrincipal | undefined',
+        description: 'Return the principal bound to the current HTTP or WebSocket operation.',
+        parameters: [],
+        returns: 'the verified principal, or undefined outside an authenticated operation.',
+      },
+      {
+        signature: 'requireCurrent(): GatewayRequestPrincipal',
+        description: 'Return the current principal or reject an operation outside an authenticated request.',
+        parameters: [],
+        returns: 'the verified principal bound to the current operation.',
+      },
+      {
+        signature: 'registerSessionCreation( sessionId: SessionId, authorization: Promise<GatewaySessionCreationAuthorization>, ): () => void',
+        description: 'Publish one pending lazy-creation capability for other Gateway Consumers.',
+        parameters: [{ name: 'sessionId', description: 'project root whose first append will materialize it.' }, { name: 'authorization', description: 'in-flight or resolved Gateway capability.' }],
+        returns: 'an exact-registration disposer.',
+      },
+      {
+        signature: 'sessionCreation(sessionId: SessionId): Promise<GatewaySessionCreationAuthorization> | undefined',
+        description: 'Read the pending lazy-creation capability for one project root.',
+        parameters: [{ name: 'sessionId', description: 'candidate project root.' }],
+        returns: 'the capability promise, or undefined after materialization or rollback.',
+      },
+      {
+        signature: 'request(path: string, options: GatewayRuntimeRequestInit = {}): Promise<Response>',
+        description: 'Call the authenticated loopback API without exposing its bearer token to other plugins.',
+        parameters: [{ name: 'path', description: 'absolute internal runtime API path.' }, { name: 'options', description: 'fetch options and optional current-principal forwarding.' }],
+        returns: 'the Gateway HTTP response.',
       },
     ],
   },
@@ -903,6 +975,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Delete one feedback item. Absence is successful regardless of the supplied version; an existing item requires an exact version match.',
         parameters: [{ name: 'request', description: 'Session, message, and observed item version.' }],
         returns: 'the stable absent postcondition, or an explicit failure.',
+      },
+    ],
+  },
+  {
+    key: 'modelAccess',
+    summary: 'Runtime face published as `ctx.modelAccess`.',
+    description: 'Runtime face published as `ctx.modelAccess`. Implementations may be plain objects.',
+    methods: [
+      {
+        signature: 'decide(target: ModelAccessTarget): ModelAccessDecision',
+        description: 'Decide whether one exact route is authorized.',
+        parameters: [{ name: 'target', description: 'provider and provider-owned model id.' }],
+        returns: 'the authorization decision and a display-safe denial reason.',
       },
     ],
   },
@@ -2626,6 +2711,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'exec', description: 'the execution object that traversed the pipeline.' }, { name: 'result', description: 'a deep-frozen snapshot of the final returned result.' }],
   },
   {
+    name: 'typert-gateway/authorize',
+    mode: 'serial',
+    signature: '\'typert-gateway/authorize\'(payload: TypertGatewayAuthorizationRequest): Promise<void> | void',
+    summary: 'Authorize a validated Remote request before Context or lookup resolution and before the business method runs.',
+    description: 'Authorize a validated Remote request before Context or lookup resolution and before the business method runs. A listener rejects by throwing.',
+    parameters: [{ name: 'payload', description: 'endpoint, selected service, decoded wire values, and cancellation.' }],
+  },
+  {
     name: 'workflow/agent-end',
     mode: 'emit',
     signature: '\'workflow/agent-end\'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void',
@@ -2840,6 +2933,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CodeRunResult',
     declaration: 'export interface CodeRunResult {\n    value?: CodeJsonValue;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
+  },
+  {
+    name: 'CollaborationAccess',
+    declaration: 'export interface CollaborationAccess {\n    readonly sessionId: SessionId;\n    readonly rootSessionId: SessionId;\n    readonly mode: \'ro\' | \'rw\';\n    readonly canRead: true;\n    readonly canWrite: boolean;\n    readonly canManage: boolean;\n    readonly projectId?: number;\n    readonly visibility?: CollaborationVisibility;\n    readonly creatorUserId?: number;\n}',
+  },
+  {
+    name: 'CollaborationAction',
+    declaration: 'export type CollaborationAction = \'read\' | \'write\' | \'manage\' | \'approve\';',
+  },
+  {
+    name: 'CollaborationAuthority',
+    declaration: 'export interface CollaborationAuthority {\n    readonly participant: CollaborationParticipant;\n    readonly expiresAt: number;\n    readonly signal: AbortSignal;\n    authorize(sessionId: SessionId, action: CollaborationAction): Promise<CollaborationAccess>;\n    readableSessionIds(sessionIds: readonly SessionId[]): Promise<ReadonlySet<SessionId>>;\n    claimInteraction(sessionId: SessionId, kind: CollaborationInteractionKind, interactionId: string, outcome: unknown): Promise<boolean>;\n}',
+  },
+  {
+    name: 'CollaborationInteractionKind',
+    declaration: 'export type CollaborationInteractionKind = \'approval\' | \'question\';',
+  },
+  {
+    name: 'CollaborationParticipant',
+    declaration: 'export interface CollaborationParticipant {\n    readonly userId: number;\n    readonly username: string;\n    readonly displayName: string;\n    readonly role: \'admin\' | \'user\';\n    readonly scope: {\n        readonly kind: \'personal\';\n    } | {\n        readonly kind: \'project\';\n        readonly projectId: number;\n        readonly projectName: string;\n        readonly mode: \'ro\' | \'rw\';\n    };\n}',
+  },
+  {
+    name: 'CollaborationSessionCreation',
+    declaration: 'export interface CollaborationSessionCreation {\n    readonly visibility: CollaborationVisibility;\n}',
   },
   {
     name: 'CollectedOutput',
@@ -3156,6 +3273,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'FsWriteOutcome',
     declaration: 'export interface FsWriteOutcome {\n    operation: \'create\' | \'update\';\n    version: FsVersion;\n    before: string | null;\n    after: string;\n}',
+  },
+  {
+    name: 'GatewayPrincipalClaims',
+    declaration: 'export interface GatewayPrincipalClaims {\n    version: 1;\n    issuer: \'harness-gateway\';\n    audience: \'dsh-runtime\';\n    organization: string;\n    user: {\n        id: number;\n        username: string;\n        displayName: string;\n        role: \'admin\' | \'user\';\n    };\n    scope: GatewayPrincipalScope;\n    runtime: GatewayRuntimeIdentity;\n    issuedAt: number;\n    expiresAt: number;\n    nonce: string;\n}',
+  },
+  {
+    name: 'GatewayPrincipalScope',
+    declaration: 'export type GatewayPrincipalScope = {\n    kind: \'personal\';\n} | {\n    kind: \'project\';\n    projectId: number;\n    projectName: string;\n    mode: \'ro\' | \'rw\';\n};',
+  },
+  {
+    name: 'GatewayRequestPrincipal',
+    declaration: 'export interface GatewayRequestPrincipal {\n    assertion: string;\n    claims: GatewayPrincipalClaims;\n}',
+  },
+  {
+    name: 'GatewayRuntimeIdentity',
+    declaration: 'export interface GatewayRuntimeIdentity {\n    readonly kind: \'user\' | \'project\';\n    readonly id: number;\n    readonly generation: number;\n}',
+  },
+  {
+    name: 'GatewayRuntimeRequestInit',
+    declaration: 'export interface GatewayRuntimeRequestInit extends RequestInit {\n    principal?: boolean | GatewayRequestPrincipal;\n}',
+  },
+  {
+    name: 'GatewaySessionCreationAuthorization',
+    declaration: 'export type GatewaySessionCreationAuthorization = Branded<\'GatewaySessionCreationAuthorization\'>;',
   },
   {
     name: 'GenerateOptions',
@@ -3522,6 +3663,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    } & ContextFormed;\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n}',
   },
   {
+    name: 'ModelAccessDecision',
+    declaration: 'export type ModelAccessDecision = {\n    allowed: true;\n} | {\n    allowed: false;\n    reason: string;\n};',
+  },
+  {
+    name: 'ModelAccessTarget',
+    declaration: 'export interface ModelAccessTarget {\n    provider: string;\n    model: string;\n}',
+  },
+  {
     name: 'ModelMessageSource',
     declaration: 'export interface ModelMessageSource extends AssistantProvenance {\n    kind: \'model\';\n}',
   },
@@ -3707,7 +3856,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RpcErrorDetailsMap',
-    declaration: 'export interface RpcErrorDetailsMap {\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-locked\': {\n        sessionId: SessionId;\n        agentPreset: string;\n    };\n    \'agent-preset-conflict\': {\n        sessionId: SessionId;\n        requestedPreset: string;\n        existingPreset?: string;\n    };\n    \'agent-preset-not-found\': {\n        agentPreset: string;\n      /* …truncated — full shape in source */',
+    declaration: 'export interface RpcErrorDetailsMap {\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'collaboration-forbidden\': {\n        sessionId?: SessionId;\n        action: \'read\' | \'write\' | \'manage\' | \'approve\';\n        reason: \'not-member\' | \'conversation-not-found\' | \'forbidden\' | \'visibility-locked\' | \'gateway-unavailable\';\n    };\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'model-forbidden\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n /* …truncated — full shape in source */',
   },
   {
     name: 'RpcId',
@@ -4167,7 +4316,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'StreamChunk',
-    declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
+    declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n    credentialSource?: string;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
   {
     name: 'SubagentCapabilities',
@@ -4560,6 +4709,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertEventModel',
     declaration: 'export interface TypertEventModel extends TypertDocumentation {\n    readonly name: string;\n    readonly mode?: string;\n    readonly signature: string;\n}',
+  },
+  {
+    name: 'TypertGatewayAuthorizationRequest',
+    declaration: 'export interface TypertGatewayAuthorizationRequest {\n    readonly endpoint: string;\n    readonly service: string;\n    readonly namespace: string;\n    readonly method: string;\n    readonly args: Readonly<Record<string, unknown>>;\n    readonly signal?: AbortSignal;\n}',
   },
   {
     name: 'TypertMemberModel',

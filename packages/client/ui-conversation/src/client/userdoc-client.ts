@@ -95,6 +95,12 @@ function requestInit(method: string, signal: AbortSignal | undefined): RequestIn
   return signal === undefined ? { method } : { method, signal }
 }
 
+function abortError(signal: AbortSignal | undefined): Error {
+  return signal?.reason instanceof Error
+    ? signal.reason
+    : new DOMException('The operation was aborted.', 'AbortError')
+}
+
 function xhrUpload(file: File, signal?: AbortSignal, onProgress?: UserDocUploadProgress): Promise<UserDocRef> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -107,7 +113,7 @@ function xhrUpload(file: File, signal?: AbortSignal, onProgress?: UserDocUploadP
     }
     const abort = (): void => {
       xhr.abort()
-      finish(() => reject(signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError')))
+      finish(() => { reject(abortError(signal)) })
     }
     signal?.addEventListener('abort', abort, { once: true })
     xhr.open('POST', `${ROOT}?name=${encodeURIComponent(file.name)}`)
@@ -116,21 +122,21 @@ function xhrUpload(file: File, signal?: AbortSignal, onProgress?: UserDocUploadP
       if (event.lengthComputable) onProgress?.(event.loaded, event.total)
       else onProgress?.(event.loaded, file.size)
     }
-    xhr.onerror = () => finish(() => reject(new Error('Document upload failed.')))
-    xhr.onabort = () => finish(() => reject(signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError')))
+    xhr.onerror = () => { finish(() => { reject(new Error('Document upload failed.')) }) }
+    xhr.onabort = () => { finish(() => { reject(abortError(signal)) }) }
     xhr.onload = () => {
       let body: unknown
       try { body = xhr.responseText === '' ? undefined : JSON.parse(xhr.responseText) as unknown } catch { body = undefined }
       if (xhr.status < 200 || xhr.status >= 300) {
-        finish(() => reject(errorFrom(xhr.status, body)))
+        finish(() => { reject(errorFrom(xhr.status, body)) })
         return
       }
-      finish(() => resolve(body as UserDocRef))
+      finish(() => { resolve(body as UserDocRef) })
     }
     try {
       xhr.send(file)
     } catch (error) {
-      finish(() => reject(error instanceof Error ? error : new Error(String(error))))
+      finish(() => { reject(error instanceof Error ? error : new Error(String(error))) })
     }
   })
 }

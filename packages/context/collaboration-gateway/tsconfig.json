@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../collaboration" },
+    { "path": "../gateway-runtime" },
+    { "path": "../../core/session" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

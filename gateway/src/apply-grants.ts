@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { GatewayConfig } from './config.ts'
 import type { EffectiveGrant } from './projects.ts'
+import { runtimeDirectoryGrants } from './runtime-directory-grants.ts'
 import type { GatewayDeps } from './server.ts'
 
 /**
@@ -12,9 +13,13 @@ import type { GatewayDeps } from './server.ts'
  * @returns absolute path of the written file
  */
 export function writeGrantsFile(cfg: GatewayConfig, username: string, grants: EffectiveGrant[]): string {
-  const dir = join(cfg.usersRoot, username, 'dsh')
-  mkdirSync(dir, { recursive: true })
-  const path = join(dir, 'directory-grants.json')
+  return writeRuntimeGrantsFile(join(cfg.usersRoot, username, 'dsh'), grants)
+}
+
+/** Write one runtime's complete directory grant projection. */
+export function writeRuntimeGrantsFile(dshHome: string, grants: EffectiveGrant[]): string {
+  mkdirSync(dshHome, { recursive: true })
+  const path = join(dshHome, 'directory-grants.json')
   writeFileSync(path, JSON.stringify(grants, null, 2))
   return path
 }
@@ -32,17 +37,17 @@ export async function applyGrantsToUser(
   userId: number,
   actorId: number,
 ): Promise<'restarted' | 'written'> {
-  const user = deps.users.getById(userId)
+  const user = await deps.users.getById(userId)
   if (user === null) throw new Error(`no user ${userId}`)
-  writeGrantsFile(deps.cfg, user.username, deps.projects.effectiveGrants(userId))
-  const state = deps.instances.stateOf(userId)
+  writeGrantsFile(deps.cfg, user.username, await runtimeDirectoryGrants(user, deps.projects))
+  const state = await deps.instances.stateOf(userId)
   if (state !== 'ready' && state !== 'starting') return 'written'
   try {
     await deps.instances.stop(userId)
     await deps.instances.ensureRunning(user)
     return 'restarted'
   } catch (error) {
-    deps.audit.write({
+    await deps.audit.write({
       userId: actorId,
       action: 'admin.instances.restart-failed',
       detail: JSON.stringify({ userId, error: String(error) }),

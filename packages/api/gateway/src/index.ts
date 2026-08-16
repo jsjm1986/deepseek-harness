@@ -17,12 +17,14 @@ import {
 import type {
   InvokeRemoteRequest,
   TypertGateway,
+  TypertGatewayAuthorizationRequest,
   TypertGatewayErrorCode,
 } from './types.ts'
 
 export type {
   InvokeRemoteRequest,
   TypertGateway,
+  TypertGatewayAuthorizationRequest,
   TypertGatewayErrorCode,
 } from './types.ts'
 
@@ -146,7 +148,17 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const endpoint = endpointOf(request.namespace, request.method)
     const descriptor = this.resolveDescriptor(request.namespace, request.method, endpoint)
     assertExactArguments(request.args, descriptor, endpoint)
-    const receiverContext = await this.resolveReceiverContext(descriptor, request.args, endpoint)
+    const args = decodeArguments(descriptor, request.args, endpoint)
+    const authorization: TypertGatewayAuthorizationRequest = {
+      endpoint,
+      service: descriptor.service,
+      namespace: descriptor.namespace,
+      method: descriptor.method,
+      args,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+    }
+    await this.ctx.serial('typert-gateway/authorize', authorization)
+    const receiverContext = await this.resolveReceiverContext(descriptor, args, endpoint)
     const receiver = receiverContext.get(descriptor.service) as unknown
     if (!isObject(receiver)) {
       throw new TypertGatewayError(
@@ -156,9 +168,9 @@ export class TypertGatewayService extends Service implements TypertGateway {
       )
     }
     validateBinding(receiver, descriptor.service, descriptor.namespace, endpoint)
-    const args = await Promise.all(descriptor.parameters.map(parameter =>
-      this.resolveParameter(parameter, request.args, endpoint)))
-    if (descriptor.cancellation !== undefined) args.push(request.signal ?? NEVER_ABORTED_SIGNAL)
+    const parameters = await Promise.all(descriptor.parameters.map(parameter =>
+      this.resolveParameter(parameter, args, endpoint)))
+    if (descriptor.cancellation !== undefined) parameters.push(request.signal ?? NEVER_ABORTED_SIGNAL)
     const implementation = descriptor.implementation ?? descriptor.method
     const method = Reflect.get(receiver, implementation) as unknown
     if (typeof method !== 'function') {
@@ -171,7 +183,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
 
     let result: unknown
     try {
-      result = await Reflect.apply(method, receiver, args) as unknown
+      result = await Reflect.apply(method, receiver, parameters) as unknown
     } catch (error) {
       if (request.signal?.aborted === true) throw new RemoteInvocationCancelled(endpoint, error)
       throw error
@@ -380,7 +392,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
         { field: invocation.wire },
       )
     }
-    const identity = decode(invocation.codec, args[invocation.wire], 'input-invalid', endpoint, invocation.wire)
+    const identity = args[invocation.wire]
     let context: Context | undefined
     try {
       context = await provider.resolve(identity)
@@ -414,7 +426,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     // still fails decode. Lookup ids are never omissible, so absence here only
     // ever belongs to a json parameter.
     if (!Object.hasOwn(args, parameter.wire)) return undefined
-    const value = decode(parameter.codec, args[parameter.wire], 'input-invalid', endpoint, parameter.wire)
+    const value = args[parameter.wire]
     if (parameter.source === 'json') return value
     const key = parameter.lookup
     /* v8 ignore next -- registry validation rejects strict descriptors without a key, and SRC derivation always supplies one. */
@@ -581,6 +593,36 @@ function invalidSignature(endpoint: string, method: string): never {
     endpoint,
     `SRC method ${JSON.stringify(method)} must use unique identifier parameters without destructuring, defaults, or rest`,
   )
+}
+
+/** Decode every present wire field once before authorization or identity resolution. */
+function decodeArguments(
+  descriptor: InvocationDescriptor,
+  args: Readonly<Record<string, unknown>>,
+  endpoint: string,
+): Readonly<Record<string, unknown>> {
+  const decoded: Record<string, unknown> = {}
+  if (descriptor.invocation.kind === 'context') {
+    const invocation = descriptor.invocation
+    decoded[invocation.wire] = decode(
+      invocation.codec,
+      args[invocation.wire],
+      'input-invalid',
+      endpoint,
+      invocation.wire,
+    )
+  }
+  for (const parameter of descriptor.parameters) {
+    if (!Object.hasOwn(args, parameter.wire)) continue
+    decoded[parameter.wire] = decode(
+      parameter.codec,
+      args[parameter.wire],
+      'input-invalid',
+      endpoint,
+      parameter.wire,
+    )
+  }
+  return Object.freeze(decoded)
 }
 
 function assertExactArguments(

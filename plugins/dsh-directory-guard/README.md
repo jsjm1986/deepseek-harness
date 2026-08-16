@@ -7,12 +7,12 @@ An out-of-tree dsh plugin bundle that enforces per-user directory permissions **
 ## What it does
 
 - Registers a `tools/pre-execute` listener (the documented "permission gate" extension point — no change to the agent loop) that **denies** filesystem tool calls resolving outside the caller's granted directories.
-- Re-states the `permission` preset table **without `danger-full-access`** (`cordis.patch.yml`), closing the in-app escape that would otherwise let a session turn off the dsh sandbox.
+- Re-states the regular-user `permission` preset table **without `danger-full-access`** (`cordis.patch.yml`). Gateway-managed administrators append `cordis.admin.patch.yml`, which restores the shipped Full access preset after the restricted table.
 - Disables `directory-picker-auto` and mounts the browse host/client pair, so a public-domain browser gets the in-app Select Workspace Directory dialog instead of an OS chooser on the host display.
 
 ## Enforcement rule
 
-Grants are `{ path, mode: 'ro' | 'rw' }` entries and may also carry a `label` (display name for the browse root list). Enforcement reads only `path` and `mode`; extra fields are ignored. The user's home is always `rw`. For each tool call with a known path argument:
+Grants are `{ path, mode: 'ro' | 'rw' }` entries and may also carry a `label` (display name for the browse root list). Enforcement reads only `path` and `mode`; extra fields are ignored. A regular user's home is always `rw`; a gateway-managed administrator receives one `rw` grant for the filesystem root. For each tool call with a known path argument:
 
 | Tool | Path arg | Operation |
 |---|---|---|
@@ -31,11 +31,11 @@ This gate covers the **structured-path fs tools** above. It intentionally does *
 - the dsh `ctx.sandbox` layer, and
 - **on Linux production, the systemd mount-namespace** confinement per instance (the authoritative read+write boundary).
 
-On macOS dev (no systemd) this plugin is the primary directory enforcement, which is why it is a first-class deliverable rather than a mere convenience.
+On macOS dev (no systemd) this plugin is the primary directory enforcement for regular users. An administrator's root grant and Full access selection intentionally expose every path available to the Gateway process account.
 
 ## Grants handoff
 
-The gateway writes the user's effective grants to the instance's `$DSH_HOME/directory-grants.json` before every start. The plugin reads `$DSH_DIRECTORY_GRANTS` (or `$DSH_HOME/directory-grants.json`) once at load; the gateway restarts the instance on any grant change, so a live process always reflects current grants.
+The gateway writes the user's role-aware grants to the instance's `$DSH_HOME/directory-grants.json` before every start. The plugin reads `$DSH_DIRECTORY_GRANTS` (or `$DSH_HOME/directory-grants.json`) once at load; the gateway restarts the instance on any grant or role change, so a live process always reflects current grants.
 
 ## Upstream coupling (sync strategy)
 
@@ -46,7 +46,7 @@ All dsh-internal type imports (`Context`, `ToolExecution`, `PreToolDecision`) li
 - **Dev (source workspace):** make the package resolvable (link it into the profile / workspace `node_modules`), then boot with the patch: `pnpm dsh web --patch plugins/dsh-directory-guard/cordis.patch.yml`.
 - **Production (pinned npm dsh):** `dsh plugin --profile <name> add <this package>`, which installs it into the profile and activates its `dsh.bundle` patch.
 
-Inspect the composed tree without booting: `dsh --profile web --dump-config` should show a `directory-guard` row and a `permission` preset table without `danger-full-access`.
+Inspect the composed tree without booting: the regular `cordis.patch.yml` should show a `directory-guard` row and a `permission` table without `danger-full-access`; appending `cordis.admin.patch.yml` should restore that preset while retaining the guard and browse rows.
 
 ## Tests
 

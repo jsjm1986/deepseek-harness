@@ -78,7 +78,7 @@ it('renders the history image pair through the authorized attachment route and o
   })
 })
 
-it('accepts pasted images into the composer rail in order and removes them', async () => {
+it('accepts pasted images in order and routes pasted documents through their rail', async () => {
   mountAssembledApp()
 
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
@@ -134,19 +134,25 @@ it('accepts pasted images into the composer rail in order and removes them', asy
     expect(document.querySelector('[role="group"][aria-label="Pending images"]')).toBeNull()
   })
 
-  // An unsupported file announces a transient toast (the inline strip is
-  // gone) and the banner dismisses itself after its hold-and-fade lifetime.
+  // Non-image files use the document intake path. This assembled fixture has
+  // no document HTTP route, so the draft settles as a removable failed upload.
   fireEvent.paste(textarea, {
     clipboardData: {
       items: [{ kind: 'file', type: 'text/plain', getAsFile: () => new File(['x'], 'notes.txt', { type: 'text/plain' }) }],
       getData: () => '',
     },
   })
-  const toast = await screen.findByRole('alert')
-  expect(toast.textContent).toContain('Only PNG, JPG, WebP, and GIF images are supported')
+  const documentRail = await screen.findByRole('list', { name: 'Pending documents' })
+  const documentItem = within(documentRail).getByRole('listitem')
   await waitFor(() => {
-    expect(screen.queryByRole('alert')).toBeNull()
-  }, { timeout: 6_000 })
+    expect(documentItem.getAttribute('data-document-status')).toBe('failed')
+  }, { timeout: 5_000 })
+  expect(documentItem.textContent).toContain('notes.txt')
+  expect(within(documentRail).getByRole('button', { name: 'Retry upload notes.txt' })).toBeTruthy()
+  fireEvent.click(within(documentRail).getByRole('button', { name: 'Remove document notes.txt' }))
+  await waitFor(() => {
+    expect(screen.queryByRole('list', { name: 'Pending documents' })).toBeNull()
+  })
 })
 
 it('accepts a whole-page drop under the limits-labeled overlay and refuses an over-limit batch at intake', async () => {

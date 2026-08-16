@@ -1,0 +1,3 @@
+- insert:
+    - id: model-governance
+      name: '@deepseek-ai/dsh-model-governance'

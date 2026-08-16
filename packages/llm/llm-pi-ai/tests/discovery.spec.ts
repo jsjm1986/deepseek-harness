@@ -178,6 +178,25 @@ describe('draft-provider model discovery', () => {
       .toEqual(['Bearer stored-key', 'Bearer typed', undefined])
   })
 
+  it('leaves a configured provider-native route unauthenticated', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'm' }] }) })
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          api: 'openai-completions',
+          baseURL: server.url,
+          models: [{ id: 'acme-large' }],
+        },
+      },
+    })
+
+    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway', baseURL: server.url })
+
+    expect(server.headers[0]?.authorization).toBeUndefined()
+  })
+
   it('leaves a catalog route\'s credential unresolved, having never reached the network', async () => {
     // The catalog answers before any endpoint is asked, so a route whose
     // profile names a credential that is not set must still answer rather than

@@ -52,6 +52,7 @@ export type {
   TypertContextWire,
   TypertDisposer,
   TypertForwardableEvent,
+  TypertGatewayAuthorizationRequest,
   TypertHostContextProvider,
   TypertHostContextResolver,
   TypertLocalRegistry,

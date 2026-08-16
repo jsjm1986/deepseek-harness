@@ -7,17 +7,25 @@
     "dev": "tsx src/index.ts",
     "build:admin": "npm run build --prefix admin-ui",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pg:migrate": "tsx scripts/pg-migrate.ts",
+    "pg:check": "tsx scripts/pg-check.ts",
+    "pg:import-sqlite": "tsx scripts/import-sqlite-to-postgres.ts",
+    "test:postgres": "vitest run tests/postgres.spec.ts",
+    "pg:backup": "bash deploy/postgres/backup-postgres.sh",
+    "pg:restore-check": "bash deploy/postgres/restore-check.sh"
   },
   "dependencies": {
     "argon2": "^0.44.0",
     "better-sqlite3": "^12.4.1",
-    "http-proxy": "^1.18.1"
+    "http-proxy": "^1.18.1",
+    "pg": "8.16.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/http-proxy": "^1.17.16",
     "@types/node": "^22.20.0",
+    "@types/pg": "8.15.5",
     "@types/ws": "^8.18.1",
     "tsx": "^4.22.4",
     "typescript": "^5.9.2",

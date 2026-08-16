@@ -465,6 +465,18 @@ describe('catalog-addressed navigation', () => {
 })
 
 describe('create', () => {
+  it('composes plugin-owned create options before sending the RPC', async () => {
+    const b = bench()
+    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('shared') }))
+    b.ctx.on('sessions/prepare-create', async (_options, next) => ({
+      ...await next(),
+      visibility: 'private',
+    }))
+
+    await expect(b.svc.create({ workspaceId: 'ws' as never })).resolves.toBe('shared')
+    expect(b.api.callsOf('session.create')).toEqual([{ workspaceId: 'ws', visibility: 'private' }])
+  })
+
   it('passes a preallocated id and preserves it on ordinary failure', async () => {
     const b = bench()
     b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('fresh') }))

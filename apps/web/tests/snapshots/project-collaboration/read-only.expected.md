@@ -1,0 +1,3 @@
+- status:
+  - strong: Read-only project
+  - text: Your project role does not allow changes to this conversation.

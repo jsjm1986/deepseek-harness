@@ -53,9 +53,9 @@ export interface InputTarget {
   insertReference(ref: ReferenceInsert, span: TokenSpan): boolean
 }
 
-/** Per-session input facade owned by the conversation wiring layer. */
-export interface SessionInput extends InputTarget {
-  /** Single write path for draft text (all mutation rides machine events). */
+/** Draft and browser-owned attachment mutations shared by the internal and slot-facing action sets. */
+interface InputContentActions {
+  /** Single public draft write path (full next draft; occurrence math via diff scan). */
   setDraft(text: string): void
   /** Append ordered browser-owned image ids; busy admission phases refuse. */
   addImages(ids: readonly DraftAttachmentId[]): boolean
@@ -69,6 +69,10 @@ export interface SessionInput extends InputTarget {
   removeDocument(id: DraftDocumentId): void
   /** Drop document ids whose browser-owned objects no longer exist. */
   pruneDocuments(ids: readonly DraftDocumentId[]): void
+}
+
+/** Per-session input facade owned by the conversation wiring layer. */
+export interface SessionInput extends InputTarget, InputContentActions {
   /**
    * THE complexity sink: enter adjudication, submit transaction, and the default sink live inside.
    * @param mode - delivery intent retained through asynchronous adjudication and serialization.
@@ -100,21 +104,7 @@ export interface SessionInputResolver {
  * useStore+actions convention. Command-style handles (track/arbitrate/space/
  * undo/paste/…) stay InputBar-private and never ride this face.
  */
-export interface InputActions {
-  /** Single public draft write path (full next draft; occurrence math via diff scan). */
-  setDraft(text: string): void
-  /** Append ordered browser-owned image ids; busy admission phases refuse. */
-  addImages(ids: readonly DraftAttachmentId[]): boolean
-  /** Remove one browser-owned image id. */
-  removeImage(id: DraftAttachmentId): void
-  /** Drop ids whose browser-owned objects no longer exist. */
-  pruneImages(ids: readonly DraftAttachmentId[]): void
-  /** Append ordered browser-owned document ids; busy admission phases refuse. */
-  addDocuments(ids: readonly DraftDocumentId[]): boolean
-  /** Remove one browser-owned document id. */
-  removeDocument(id: DraftDocumentId): void
-  /** Drop document ids whose browser-owned objects no longer exist. */
-  pruneDocuments(ids: readonly DraftDocumentId[]): void
+export interface InputActions extends InputContentActions {
   /** Enter submission (adjudication / claim transaction / default sink inside). */
   submit(): void
 }
