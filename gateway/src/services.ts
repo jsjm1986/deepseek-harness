@@ -18,6 +18,7 @@ import type {
   EffectiveGrant,
   GrantMode,
   ProjectDetail,
+  ProjectInvitation,
   ProjectRow,
 } from './projects.ts'
 
@@ -58,6 +59,8 @@ export interface GatewayUserService {
 /** Project and effective-directory-grant operations consumed by the Gateway. */
 export interface GatewayProjectService {
   create(input: { name: string; path: string; createdBy: number }): Awaitable<ProjectRow>
+  /** Allocate a new project directory below the configured managed root. */
+  createManaged?(input: { name: string; ownerUserId: number; createdBy?: number }): Awaitable<ProjectRow>
   list(): Awaitable<ProjectRow[]>
   getById(id: number): Awaitable<ProjectDetail | null>
   rename(id: number, name: string): Awaitable<void>
@@ -65,6 +68,14 @@ export interface GatewayProjectService {
   setMember(projectId: number, userId: number, mode: GrantMode): Awaitable<void>
   removeMember(projectId: number, userId: number): Awaitable<void>
   effectiveGrants(userId: number): Awaitable<EffectiveGrant[]>
+  createInvitation?(input: {
+    projectId: number
+    inviteeUserId: number
+    inviterUserId: number
+    mode: GrantMode
+  }): Awaitable<ProjectInvitation>
+  listInvitations?(userId: number, projectId?: number): Awaitable<ProjectInvitation[]>
+  acceptInvitation?(invitationId: string, userId: number): Awaitable<void>
 }
 
 /** Project membership and shared-conversation authorization operations. */

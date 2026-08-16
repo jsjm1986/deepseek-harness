@@ -1125,6 +1125,27 @@ a {
   text-decoration: none;
 }
 
+.projectOriginCell {
+  display: grid;
+  gap: 4px;
+  min-width: 128px;
+}
+
+.projectOriginCell > span:last-child {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.projectMetadata {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: -8px 0 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .projectLink:hover {
   color: var(--accent);
 }

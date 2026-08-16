@@ -202,6 +202,7 @@ describe('InstanceManager', () => {
 
     const patch = readFileSync(join(dshHome, 'cordis.patch.yml'), 'utf8')
     expect(patch).toContain('- id: session-persistence-jsonl\n  disabled: true\n')
+    expect(patch).toContain('danger-full-access:\n        sandbox: danger-full-access\n        approval: never\n')
     for (const plugin of [
       '@deepseek-ai/dsh-gateway-runtime',
       '@deepseek-ai/dsh-collaboration-gateway',

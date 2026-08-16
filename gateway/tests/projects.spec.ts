@@ -10,7 +10,11 @@ import { UserService } from '../src/users.ts'
 async function setup() {
   const root = mkdtempSync(join(tmpdir(), 'hgw-'))
   const db = openDb(join(root, 'g.sqlite'))
-  const cfg = loadConfig({ HGW_USERS_ROOT: join(root, 'users') })
+  const cfg = loadConfig({
+    HGW_USERS_ROOT: join(root, 'users'),
+    HGW_STATE_ROOT: join(root, 'state'),
+    HGW_USER_PROJECTS_ROOT: join(root, 'user-projects'),
+  })
   const users = new UserService(db, cfg)
   const alice = await users.create({ username: 'alice', password: 'pw-123456' })
   const shared = join(root, 'shared'); mkdirSync(shared)
@@ -110,5 +114,73 @@ describe('ProjectService', () => {
     expect(projects.effectiveGrants(alice.id)).toEqual([
       { path: alice.homePath, mode: 'rw', label: '主目录' },
     ])
+  })
+
+  it('creates user-owned projects below the managed root and protects the owner grant', async () => {
+    const { projects, users, alice, cfg } = await setup()
+    const project = projects.createManaged({ name: '用户项目', ownerUserId: alice.id })
+    expect(project).toMatchObject({
+      origin: 'user',
+      owner: { id: alice.id, username: 'alice' },
+      createdBy: { id: alice.id, username: 'alice' },
+      memberCount: 1,
+    })
+    expect(project.path.startsWith(realpathSync(cfg.userProjectsRoot))).toBe(true)
+    expect(projects.getById(project.id)?.members).toEqual([
+      { userId: alice.id, username: 'alice', mode: 'rw' },
+    ])
+    expect(() => projects.setMember(project.id, alice.id, 'ro')).toThrow('owner-must-be-rw')
+    expect(() => projects.removeMember(project.id, alice.id)).toThrow('owner-protected')
+    const bob = await users.create({ username: 'bob', password: 'pw-123456' })
+    projects.setMember(project.id, bob.id, 'ro')
+    expect(projects.getById(project.id)?.members).toContainEqual({ userId: bob.id, username: 'bob', mode: 'ro' })
+  })
+
+  it('creates, lists, rejects duplicate, and accepts project invitations', async () => {
+    const { projects, users, alice } = await setup()
+    const bob = await users.create({ username: 'bob', password: 'pw-123456' })
+    const project = projects.createManaged({ name: '邀请项目', ownerUserId: alice.id })
+    const invitation = projects.createInvitation({
+      projectId: project.id, inviteeUserId: bob.id, inviterUserId: alice.id, mode: 'rw',
+    })
+    expect(invitation).toMatchObject({
+      projectId: project.id, invitee: { id: bob.id, username: 'bob' },
+      inviter: { id: alice.id, username: 'alice' }, mode: 'rw', status: 'pending',
+    })
+    expect(projects.listInvitations(bob.id)).toContainEqual(invitation)
+    expect(() => projects.createInvitation({
+      projectId: project.id, inviteeUserId: bob.id, inviterUserId: alice.id, mode: 'ro',
+    })).toThrow('invitation-already-pending')
+    projects.acceptInvitation(invitation.id, bob.id)
+    expect(projects.getById(project.id)?.members).toContainEqual({
+      userId: bob.id, username: 'bob', mode: 'rw',
+    })
+    expect(projects.listInvitations(bob.id)[0]?.status).toBe('accepted')
+    expect(() => projects.createInvitation({
+      projectId: project.id, inviteeUserId: bob.id, inviterUserId: alice.id, mode: 'ro',
+    })).toThrow('invitation-already-member')
+  })
+
+  it('normalizes names, protects invitation authority, and commits expiry state', async () => {
+    const { projects, users, alice, db } = await setup()
+    const bob = await users.create({ username: 'bob', password: 'pw-123456' })
+    const project = projects.createManaged({ name: '  Managed name  ', ownerUserId: alice.id })
+    expect(project.name).toBe('Managed name')
+    projects.rename(project.id, '  Renamed  ')
+    expect(projects.getById(project.id)?.name).toBe('Renamed')
+    expect(() => projects.createInvitation({
+      projectId: project.id, inviteeUserId: alice.id, inviterUserId: bob.id, mode: 'ro',
+    })).toThrow('invitation-forbidden')
+
+    const invitation = projects.createInvitation({
+      projectId: project.id, inviteeUserId: bob.id, inviterUserId: alice.id, mode: 'ro',
+    })
+    db.prepare(`UPDATE project_invitations SET expires_at = ? WHERE id = ?`).run(Date.now() - 1, Number(invitation.id))
+    expect(() => projects.acceptInvitation(invitation.id, bob.id)).toThrow('invitation-expired')
+    expect((db.prepare(`SELECT status FROM project_invitations WHERE id = ?`).get(Number(invitation.id)) as { status: string }).status)
+      .toBe('expired')
+    expect(() => projects.acceptInvitation(invitation.id, bob.id)).toThrow('invitation-not-pending')
+    expect(() => projects.acceptInvitation('not-an-id', bob.id)).toThrow('invitation-not-found')
+    expect(() => projects.rename(project.id, '   ')).toThrow('invalid project name')
   })
 })

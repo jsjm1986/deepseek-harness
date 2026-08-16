@@ -156,6 +156,32 @@ describe('browser transport', () => {
     expect(reload).toHaveBeenCalledOnce()
   })
 
+  it('uses the account project and invitation routes', async () => {
+    const invitation = {
+      id: 'invite-1', projectId: 9, projectName: '支付重构',
+      invitee: { id: 8, username: 'zhou', displayName: '周工' },
+      inviter: { id: 7, username: 'lin', displayName: '林工' },
+      mode: 'rw', status: 'pending', expiresAt: null,
+      createdAt: '2026-08-16T00:00:00.000Z', respondedAt: null,
+    }
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ id: 12 }))
+      .mockResolvedValueOnce(Response.json([invitation]))
+      .mockResolvedValueOnce(Response.json(invitation))
+      .mockResolvedValueOnce(new Response(null, { status: 204 })) as unknown as typeof fetch
+    const api = createBrowserCollaborationTransport({ fetch: fetcher, reload: vi.fn() })
+    const signal = new AbortController().signal
+
+    await expect(api.createProject?.('新项目', signal)).resolves.toEqual({ projectId: 12 })
+    await expect(api.listInvitations?.(undefined, signal)).resolves.toEqual([invitation])
+    await expect(api.inviteMember?.(9, 'zhou', 'rw', signal)).resolves.toEqual(invitation)
+    await expect(api.acceptInvitation?.('invite/1', signal)).resolves.toBeUndefined()
+    expect(fetcher).toHaveBeenNthCalledWith(1, '/account/api/projects', expect.objectContaining({ method: 'POST' }))
+    expect(fetcher).toHaveBeenNthCalledWith(2, '/account/api/invitations', expect.objectContaining({ credentials: 'same-origin' }))
+    expect(fetcher).toHaveBeenNthCalledWith(3, '/account/api/projects/9/invitations', expect.objectContaining({ method: 'POST' }))
+    expect(fetcher).toHaveBeenNthCalledWith(4, '/account/api/invitations/invite%2F1/accept', expect.objectContaining({ method: 'POST' }))
+  })
+
   it('retains machine error codes and tolerates malformed error bodies', async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(Response.json({ error: 'visibility-locked' }, { status: 409 }))

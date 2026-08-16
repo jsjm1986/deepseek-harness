@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-在 Linux 主机上以 systemd 内核约束上线网关，并把公网域名切换到它。全文使用的布局：网关代码在 `/srv/harness/gateway`，数据在 `/srv/harness/gateway-data`，用户目录在 `/srv/harness/users` 下，共享项目数据在 `/srv/harness/projects` 下，共享项目运行时 home 在 `/srv/harness/project-runtimes` 下，目录守卫在 `/srv/harness/plugins/dsh-directory-guard`，强制模型治理在 `/srv/harness/plugins/dsh-model-governance`。
+在 Linux 主机上以 systemd 内核约束上线网关，并把公网域名切换到它。全文使用的布局：网关代码在 `/srv/harness/gateway`，数据在 `/srv/harness/gateway-data`，用户目录在 `/srv/harness/users` 下，管理员登记的项目数据在 `/srv/harness/projects` 下，用户创建的项目数据在 `/srv/harness/projects/user-projects` 下，共享项目运行时 home 在 `/srv/harness/project-runtimes` 下，目录守卫在 `/srv/harness/plugins/dsh-directory-guard`，强制模型治理在 `/srv/harness/plugins/dsh-model-governance`。
 
 ## 前置条件
 
-- 带 systemd 的 Linux、root 权限、Docker Compose、供一次性导入/回滚使用的 `sqlite3`，以及 Node 25（`/usr/local/bin/node`；nvm 布局需调整单元内路径）。创建共享项目单元使用的不可登录 `harness-project` 账户，创建各个 `HGW_PROJECT_PATH_ROOTS` 目录，并授予该账户这些根目录下每个项目目录所需的 Unix 读写权限。
+- 带 systemd 的 Linux、root 权限、Docker Compose、供一次性导入/回滚使用的 `sqlite3`，以及 Node 25（`/usr/local/bin/node`；nvm 布局需调整单元内路径）。创建共享项目单元使用的不可登录 `harness-project` 账户，创建各个 `HGW_PROJECT_PATH_ROOTS` 目录，并授予该账户这些根目录下每个项目目录所需的 Unix 读写权限。受控用户项目根必须让后续创建的目录继承这份权限，例如执行 `install -d -o root -g harness-project -m 2770 /srv/harness/projects/user-projects`（无法使用组继承时改用等效默认 ACL）。
 - 钉死版本的 dsh：`npm install -g @deepseek-ai/dsh@0.1.0-rc.5`（升级 = 改版本号 + 滚动重启，绝不检出源码）。注意：开发 clone 里未提交的本地工作（例如 UI 改动）在合入上游前不在 npm 发行版内。
 - 公网域名的 DNS/入口控制权（Nginx 或 Cloudflare Tunnel）。
 
@@ -18,12 +18,12 @@
 2. 把构建完成的 `plugins/dsh-directory-guard/` 目录复制到 `/srv/harness/plugins/dsh-directory-guard`，把 `plugins/dsh-model-governance/` 复制到 `/srv/harness/plugins/dsh-model-governance`。钉死的 npm dsh 以纯 Node 运行插件 `lib/`，不使用 tsx。即使 `HGW_GUARD_PATCH=off`，模型治理仍是强制项。
 3. 把公司默认凭据写入 `/srv/harness/gateway-data/company.env`（`DEEPSEEK_API_KEY=...`，权限 600）。每次运行时启动都会把它复制到 `$DSH_HOME/.env`；用户在 Settings 里设置的个人 key 存放于 `.credentials.yaml`，优先级更高，共享项目运行时则把凭据设置暴露为只读并使用公司来源。
 4. 启动 [`deploy/postgres/`](postgres/README.md)，应用 migration，并创建权限为 `0600` 的数据库 URL 文件。在启动 Gateway 前，导入冻结的 SQLite 控制面，或创建配置的企业与计算节点。
-5. 创建仅所有者可访问的 `/srv/harness/gateway-data/principal-keys` 和 `/srv/harness/gateway-data/runtime-credentials`，以及 `/srv/harness/project-runtimes` 和 `/srv/harness/projects`。把 `deploy/harness-gateway.service` 复制到 `/etc/systemd/system/`；调整数据库 URL 文件、`HGW_ORGANIZATION_SLUG`、`HGW_COMPUTE_NODE_NAME`、`HGW_PUBLIC_ORIGINS`、`HGW_PROJECT_PATH_ROOTS`、项目运行时账户/根目录、principal/凭据目录、插件路径和其他宿主机路径，然后执行 `systemctl daemon-reload && systemctl enable --now harness-gateway`。
+5. 创建仅所有者可访问的 `/srv/harness/gateway-data/principal-keys` 和 `/srv/harness/gateway-data/runtime-credentials`，以及 `/srv/harness/project-runtimes` 和项目根目录。为受控根配置组继承，例如执行 `install -d -o root -g harness-project -m 2770 /srv/harness/projects/user-projects`；管理员登记的目录仍需显式授予 `harness-project` 读写权限。把 `deploy/harness-gateway.service` 复制到 `/etc/systemd/system/`；调整数据库 URL 文件、`HGW_ORGANIZATION_SLUG`、`HGW_COMPUTE_NODE_NAME`、`HGW_PUBLIC_ORIGINS`、`HGW_PROJECT_PATH_ROOTS`、`HGW_USER_PROJECTS_ROOT`、项目运行时账户/根目录、principal/凭据目录、插件路径和其他宿主机路径，然后执行 `systemctl daemon-reload && systemctl enable --now harness-gateway`。
 6. 数据库中没有用户时，首次启动会把引导管理员密码打进 journal：`journalctl -u harness-gateway | grep 'bootstrap admin'`。
 
 ## 每用户开号
 
-在 `/admin` 创建用户，然后以 root 执行一次 `deploy/provision-user.sh <username>`：它创建 `harness-<username>` 系统账号并 chown `/srv/harness/users/<username>/{home,dsh}`。个人单元在每次启动时按该用户当前授权自动渲染。项目记录会分配一个共享运行时，但创建项目明确不会创建或 chmod 宿主目录；成员进入项目 scope 前，要为 `harness-project` 配置这个既有路径，并保证它严格位于某个 `HGW_PROJECT_PATH_ROOTS` 条目之下。项目目录不能与用户数据、运行时数据、Gateway 目录或另一项目重叠。成员身份和个人目录权限写入会在需要时重启正在运行的个人运行时；项目 ACL 按请求检查，不要求重启共享运行时。
+在 `/admin` 创建用户，然后以 root 执行一次 `deploy/provision-user.sh <username>`：它创建 `harness-<username>` 系统账号并 chown `/srv/harness/users/<username>/{home,dsh}`。个人单元在每次启动时按该用户当前授权自动渲染。管理员发起的项目登记既有目录，因此要显式授予 `harness-project` 访问权。用户发起的项目会在 `HGW_USER_PROJECTS_ROOT` 下创建空目录；前面的 setgid/默认 ACL 配置会让项目单元继承访问权，创建者成为 `rw` 所有者。两种来源都分配一个共享运行时，支持 `ro`/`rw` 邀请，并使用同一套对话与文件夹 scope。项目目录不能与用户数据、运行时数据、Gateway 目录或另一项目重叠。成员身份和个人目录权限写入会在需要时重启正在运行的个人运行时；项目 ACL 按请求检查，不要求重启共享运行时。管理员在个人和项目 scope 都保留 `danger-full-access` 预设，但项目运行时仍受内核项目路径约束。
 
 ## 数据库切换与回滚
 
@@ -58,6 +58,7 @@ server {
 - 网关行为：`HGW_ACCEPT_DATABASE_URL=postgresql://.../harness_accept bash scripts/accept-phase1.sh`（需要库名以 `_test`、`_accept` 或 `_acceptance` 结尾的临时 PostgreSQL 数据库；无需 API key）。
 - 内核约束：以测试用户登录一次让单元启动，然后 `sudo bash scripts/accept-phase2.sh <user> <other-user> [ro-path] [rw-path]`——从挂载命名空间内部验证同伴不可见、自身主目录可写、`ProtectSystem`、ro/rw 授权语义。把会话切到 `danger-full-access` 后重跑：内核边界必须保持不变。
 - 协作：让两个测试用户加入同一项目，验证共享历史与参与者归属；再把一位成员改为 `ro`，确认 composer 和直接 Host 写入/审批路径都拒绝；确认第二位成员看不到私密对话。
+- 项目生命周期：从账户创建一个用户发起项目，接受邀请，并确认管理端项目列表能区分管理员发起和用户发起。分别以管理员进入个人和项目 scope，确认返回 `fullAccess`；确认普通成员不能通过 `/permission` 或新会话默认设置选择该预设。
 - 重启韧性：`reboot` 后确认 `harness-gateway` 活跃，个人/项目登录都能重新到达可用运行时。
 
 ## macOS 变体（launchd，隧道入口）

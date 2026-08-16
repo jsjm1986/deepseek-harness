@@ -20,7 +20,40 @@ const PRINCIPAL: GatewayRequestPrincipal = {
   },
 }
 
+const ADMIN_PRINCIPAL: GatewayRequestPrincipal = {
+  ...PRINCIPAL,
+  claims: {
+    ...PRINCIPAL.claims,
+    user: { ...PRINCIPAL.claims.user, role: 'admin' },
+  },
+}
+
 describe('GatewayCollaboration', () => {
+  it('advertises full access only to an authenticated administrator in every scope', async () => {
+    let current: GatewayRequestPrincipal | undefined = PRINCIPAL
+    const runtime = {
+      requireCurrent: () => {
+        if (current === undefined) throw new Error('no current request')
+        return current
+      },
+      request: vi.fn(),
+      sessionCreation: () => undefined,
+    } as unknown as GatewayRuntime
+    const ctx = new Context()
+    ctx.provide('gatewayRuntime', runtime)
+    const fiber = ctx.plugin(GatewayCollaboration)
+    await fiber.await()
+    const authorization = ctx.get('permissionPresetAuthorization')
+    if (authorization === undefined) throw new Error('permission preset authorization was not installed')
+    expect(authorization.canSelect('workspace-write')).toBe(true)
+    expect(authorization.canSelect('danger-full-access')).toBe(false)
+    current = ADMIN_PRINCIPAL
+    expect(authorization.canSelect('danger-full-access')).toBe(true)
+    current = undefined
+    expect(authorization.canSelect('danger-full-access')).toBe(false)
+    await fiber.dispose()
+  })
+
   it('invalidates retained authorities when the provider unloads', async () => {
     const request = vi.fn(() => Promise.resolve(new Response(JSON.stringify({
       access: {

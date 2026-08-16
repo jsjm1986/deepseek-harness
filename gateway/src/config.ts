@@ -18,6 +18,8 @@ export interface GatewayConfig {
   projectRuntimesRoot: string
   /** Host directory roots hidden from every systemd unit before authorized project paths are re-bound. */
   projectPathRoots: string[]
+  /** Root under which user-created project directories are allocated. */
+  userProjectsRoot: string
   /** Linux account used by project-scoped systemd units. */
   projectRuntimeUser: string
   /** Private directory containing the Gateway's Ed25519 assertion keypair. */
@@ -87,6 +89,27 @@ function projectPathRoots(value: string | undefined): string[] {
   return roots
 }
 
+function strictlyNestedPath(root: string, path: string): boolean {
+  const normalizedRoot = posix.normalize(root)
+  const normalizedPath = posix.normalize(path)
+  return normalizedPath !== normalizedRoot
+    && posix.relative(normalizedRoot, normalizedPath).split('/')[0] !== '..'
+    && !posix.isAbsolute(posix.relative(normalizedRoot, normalizedPath))
+}
+
+function normalizedAbsolutePath(path: string): string {
+  const normalized = posix.normalize(path)
+  return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  const nested = (root: string, candidate: string): boolean => {
+    const relative = posix.relative(posix.normalize(root), posix.normalize(candidate))
+    return relative === '' || (!relative.startsWith('../') && relative !== '..' && !posix.isAbsolute(relative))
+  }
+  return nested(left, right) || nested(right, left)
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const port = Number(env.HGW_PORT ?? 8899)
   const publicOrigins = (env.HGW_PUBLIC_ORIGINS ?? `http://127.0.0.1:${port}`)
@@ -98,6 +121,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
   const configuredProjectPathRoots = projectPathRoots(env.HGW_PROJECT_PATH_ROOTS)
   if (launcher === 'systemd' && configuredProjectPathRoots.length === 0) {
     throw new Error('HGW_PROJECT_PATH_ROOTS is required when HGW_LAUNCHER=systemd')
+  }
+  const userProjectsRoot = normalizedAbsolutePath(env.HGW_USER_PROJECTS_ROOT
+    ?? join(configuredProjectPathRoots[0] ?? stateRoot, 'user-projects'))
+  if (!posix.isAbsolute(userProjectsRoot) || userProjectsRoot === '/') {
+    throw new Error('HGW_USER_PROJECTS_ROOT must be an absolute path')
+  }
+  if (launcher === 'systemd' && !configuredProjectPathRoots.some(root => strictlyNestedPath(root, userProjectsRoot))) {
+    throw new Error('HGW_USER_PROJECTS_ROOT must be a strict descendant of HGW_PROJECT_PATH_ROOTS when HGW_LAUNCHER=systemd')
+  }
+  const projectRuntimesRoot = env.HGW_PROJECT_RUNTIMES_ROOT ?? join(homedir(), 'harness-project-runtimes')
+  const gatewayDir = env.HGW_GATEWAY_DIR ?? gatewayRoot
+  if (pathsOverlap(userProjectsRoot, usersRoot) || pathsOverlap(userProjectsRoot, projectRuntimesRoot)
+    || pathsOverlap(userProjectsRoot, gatewayDir)) {
+    throw new Error('HGW_USER_PROJECTS_ROOT overlaps a reserved Gateway directory')
   }
   // The default source-run entry is resolved to ABSOLUTE paths against
   // dshRepoRoot: instances spawn with cwd = user home (outside the repo), so
@@ -141,8 +178,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     usageTimeZone: env.HGW_USAGE_TIME_ZONE ?? 'Asia/Shanghai',
     publicOrigins,
     usersRoot,
-    projectRuntimesRoot: env.HGW_PROJECT_RUNTIMES_ROOT ?? join(homedir(), 'harness-project-runtimes'),
+    projectRuntimesRoot,
     projectPathRoots: configuredProjectPathRoots,
+    userProjectsRoot,
     projectRuntimeUser,
     principalKeyDir: env.HGW_PRINCIPAL_KEY_DIR ?? join(stateRoot, 'principal-keys'),
     principalAssertionTtlMs: Number(env.HGW_PRINCIPAL_ASSERTION_TTL_MS ?? 30_000),
@@ -159,7 +197,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     launcher,
     memoryMax: env.HGW_MEMORY_MAX ?? '1G',
     cpuQuota: env.HGW_CPU_QUOTA ?? '100%',
-    gatewayDir: env.HGW_GATEWAY_DIR ?? gatewayRoot,
+    gatewayDir,
     systemdUnitDir: env.HGW_SYSTEMD_UNIT_DIR ?? '/etc/systemd/system',
     guardPatch,
     modelGovernancePackage: env.HGW_MODEL_GOVERNANCE_PACKAGE ?? join(dshRepoRoot, 'plugins/dsh-model-governance'),

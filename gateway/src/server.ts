@@ -100,6 +100,38 @@ function csrfOk(req: IncomingMessage, cfg: GatewayConfig, pathname: string): boo
   return pathname.startsWith('/api')
 }
 
+function jsonObject(body: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(body)
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+}
+
+function accountProjectError(error: unknown): { status: number; error: string } {
+  if (error instanceof CollaborationDeniedError) {
+    return { status: error.code === 'conversation-not-found' ? 404 : 403, error: error.code }
+  }
+  if (error instanceof Error) {
+    const status = error.message === 'invitation-already-pending' || error.message === 'invitation-already-member' ? 409
+      : error.message === 'invitation-not-found' || error.message === 'project-not-found' ? 404
+        : error.message === 'invitation-forbidden' ? 403
+          : error.message === 'invitation-expired' ? 410
+            : error.message === 'invitation-not-pending' ? 409
+              : error.message === 'owner-protected' || error.message === 'owner-must-be-rw' || error.message === 'user-disabled' ? 409
+                : error.message.startsWith('duplicate ') ? 409 : 400
+    return { status, error: error.message }
+  }
+  return { status: 400, error: String(error) }
+}
+
 export interface GatewayRequestContext {
   user: UserRow
   scope: PrincipalScope
@@ -289,7 +321,12 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
     if (resolved.resetScope) res.setHeader('set-cookie', scopeCookie('personal', cfg))
 
     if (pathname === '/account/api/context' && req.method === 'GET') {
-      const projects = await deps.collaboration?.projectsForUser(user.id) ?? []
+      const scopes = await deps.collaboration?.projectsForUser(user.id) ?? []
+      const projects = await Promise.all(scopes.map(async (scope) => {
+        const detail = await deps.projects.getById(scope.projectId)
+        const canManage = user.role === 'admin' || detail?.owner?.id === user.id
+        return canManage ? { ...scope, canManage: true } : scope
+      }))
       send(res, 200, JSON.stringify({
         user: {
           id: user.id,
@@ -299,7 +336,118 @@ export function createGatewayServer(deps: GatewayDeps, handlers: GatewayHandlers
         },
         scope: resolved.context.scope,
         projects,
+        // The shared project runtime remains confined to its project path;
+        // this flag only advertises the administrator-only preset choice.
+        fullAccess: user.role === 'admin',
       }), 'application/json')
+      return
+    }
+
+    if (pathname === '/account/api/projects') {
+      try {
+        if (req.method === 'GET') {
+          const scopes = await deps.collaboration?.projectsForUser(user.id) ?? []
+          const details = await Promise.all(scopes.map(scope => deps.projects.getById(scope.projectId)))
+          send(res, 200, JSON.stringify(details.filter((project): project is NonNullable<typeof project> => project !== null).map(project => ({
+            ...project,
+            canManage: user.role === 'admin' || project.owner?.id === user.id,
+          }))), 'application/json')
+          return
+        }
+        if (req.method === 'POST') {
+          const input = jsonObject(await readBody(req))
+          const name = stringField(input?.name)
+          if (name === undefined) { send(res, 400, '{"error":"name required"}', 'application/json'); return }
+          if (deps.projects.createManaged === undefined) {
+            send(res, 503, '{"error":"managed-projects-unavailable"}', 'application/json'); return
+          }
+          const project = await deps.projects.createManaged({ name, ownerUserId: user.id })
+          await audit.write({ userId: user.id, action: 'projects.create', detail: JSON.stringify({ id: project.id, origin: 'user' }), ip: clientIp(req) })
+          send(res, 201, JSON.stringify(project), 'application/json')
+          return
+        }
+        send(res, 405, '{"error":"method-not-allowed"}', 'application/json')
+      } catch (error) {
+        const mapped = accountProjectError(error)
+        send(res, mapped.status, JSON.stringify({ error: mapped.error }), 'application/json')
+      }
+      return
+    }
+
+    if (pathname === '/account/api/invitations' && req.method === 'GET') {
+      if (deps.projects.listInvitations === undefined) {
+        send(res, 503, '{"error":"invitations-unavailable"}', 'application/json'); return
+      }
+      send(res, 200, JSON.stringify(await deps.projects.listInvitations(user.id)), 'application/json')
+      return
+    }
+
+    const invitationAccept = pathname.match(/^\/account\/api\/invitations\/([^/]+)\/accept$/)
+    if (invitationAccept !== null && req.method === 'POST') {
+      if (deps.projects.acceptInvitation === undefined) {
+        send(res, 503, '{"error":"invitations-unavailable"}', 'application/json'); return
+      }
+      try {
+        await deps.projects.acceptInvitation(decodeURIComponent(invitationAccept[1] ?? ''), user.id)
+        await audit.write({ userId: user.id, action: 'projects.invitation.accept', ip: clientIp(req) })
+        res.writeHead(204); res.end()
+      } catch (error) {
+        if (error instanceof URIError) {
+          send(res, 400, JSON.stringify({ error: 'invalid-invitation-id' }), 'application/json')
+          return
+        }
+        const mapped = accountProjectError(error)
+        send(res, mapped.status, JSON.stringify({ error: mapped.error }), 'application/json')
+      }
+      return
+    }
+
+    const accountProjectPath = pathname.match(/^\/account\/api\/projects\/(\d+)(?:\/(invitations))?$/)
+    if (accountProjectPath !== null) {
+      const projectId = Number(accountProjectPath[1])
+      const isInvitationPath = accountProjectPath[2] !== undefined
+      try {
+        const project = await deps.projects.getById(projectId)
+        if (project === null) { send(res, 404, '{"error":"project-not-found"}', 'application/json'); return }
+        const authority = await deps.collaboration?.projectForUser(projectId, user.id)
+        if (authority === null || authority === undefined) { send(res, 403, '{"error":"not-member"}', 'application/json'); return }
+        const canManage = user.role === 'admin' || authority.administrator || project.owner?.id === user.id
+        if (isInvitationPath) {
+          if (req.method === 'GET') {
+            if (deps.projects.listInvitations === undefined) { send(res, 503, '{"error":"invitations-unavailable"}', 'application/json'); return }
+            send(res, 200, JSON.stringify(await deps.projects.listInvitations(user.id, projectId)), 'application/json'); return
+          }
+          if (req.method === 'POST') {
+            if (!canManage || deps.projects.createInvitation === undefined) { send(res, 403, '{"error":"forbidden"}', 'application/json'); return }
+            const input = jsonObject(await readBody(req))
+            const username = stringField(input?.username)
+            const mode = input?.mode === 'ro' || input?.mode === 'rw' ? input.mode : undefined
+            if (username === undefined || mode === undefined) { send(res, 400, '{"error":"username and mode required"}', 'application/json'); return }
+            const invitee = await users.getByUsername(username)
+            if (invitee === null) { send(res, 404, '{"error":"user-not-found"}', 'application/json'); return }
+            if (invitee.id === user.id) { send(res, 400, '{"error":"cannot-invite-self"}', 'application/json'); return }
+            const invitation = await deps.projects.createInvitation({ projectId, inviteeUserId: invitee.id, inviterUserId: user.id, mode })
+            await audit.write({ userId: user.id, action: 'projects.invitation.create', detail: JSON.stringify({ projectId, inviteeUserId: invitee.id, mode }), ip: clientIp(req) })
+            send(res, 201, JSON.stringify(invitation), 'application/json'); return
+          }
+          send(res, 405, '{"error":"method-not-allowed"}', 'application/json'); return
+        }
+        if (req.method === 'GET') {
+          send(res, 200, JSON.stringify({ ...project, canManage }), 'application/json'); return
+        }
+        if (req.method === 'PATCH') {
+          if (!canManage) { send(res, 403, '{"error":"forbidden"}', 'application/json'); return }
+          const name = stringField(jsonObject(await readBody(req))?.name)
+          if (name === undefined) { send(res, 400, '{"error":"name required"}', 'application/json'); return }
+          await deps.projects.rename(projectId, name)
+          await audit.write({ userId: user.id, action: 'projects.rename', detail: JSON.stringify({ projectId, name }), ip: clientIp(req) })
+          res.writeHead(204); res.end(); return
+        }
+        send(res, 405, '{"error":"method-not-allowed"}', 'application/json')
+      } catch (error) {
+        const mapped = accountProjectError(error)
+        send(res, mapped.status, JSON.stringify({ error: mapped.error }), 'application/json')
+      }
       return
     }
 

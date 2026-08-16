@@ -15,6 +15,9 @@ export type Project = {
   name: string
   path: string
   memberCount: number
+  origin?: 'admin' | 'user'
+  owner?: { id: number; username: string; displayName: string } | null
+  createdBy?: { id: number; username: string; displayName: string } | null
 }
 
 export type GrantMode = 'ro' | 'rw'
@@ -82,8 +85,8 @@ export function controlInstance(id: number, op: 'start' | 'stop' | 'restart'): P
   return request(`/admin/api/users/${id}/instance/${op}`, { method: 'POST' })
 }
 
-export function listProjects(): Promise<Project[]> {
-  return request('/admin/api/projects')
+export function listProjects(origin?: 'admin' | 'user'): Promise<Project[]> {
+  return request(`/admin/api/projects${origin === undefined ? '' : `?origin=${origin}`}`)
 }
 
 export function createProject(body: { name: string; path: string }): Promise<Project> {

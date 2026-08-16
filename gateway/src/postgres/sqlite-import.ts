@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
 import Database from 'better-sqlite3'
 import type { Pool, PoolClient } from 'pg'
@@ -17,6 +18,7 @@ export interface SqliteImportReport {
   users: number
   projects: number
   projectMembers: number
+  projectInvitations: number
   instances: number
   models: number
   prices: number
@@ -30,6 +32,7 @@ export interface SqliteImportReport {
 
 type SqliteRow = Record<string, unknown>
 type SourceTable = 'users' | 'projects' | 'project_members' | 'auth_sessions' | 'login_attempts' | 'instances'
+  | 'project_invitations'
   | 'audit_log' | 'model_catalog' | 'model_role_access' | 'model_user_access' | 'model_prices'
   | 'model_quotas' | 'model_intake_tokens' | 'model_usage' | 'model_usage_alerts'
 
@@ -45,6 +48,17 @@ function epoch(value: unknown): Date | null {
 
 function inet(value: unknown): string | null {
   return typeof value === 'string' && isIP(value.replace(/^::ffff:/, '')) !== 0 ? value : null
+}
+
+/** Derive a repeatable UUID for a legacy row that has no PostgreSQL UUID. */
+function legacyUuid(organizationId: string, table: string, legacyId: unknown): string {
+  const digest = createHash('sha256')
+    .update(`${organizationId}\0${table}\0${String(legacyId)}`)
+    .digest()
+  digest[6] = (digest[6]! & 0x0f) | 0x50
+  digest[8] = (digest[8]! & 0x3f) | 0x80
+  const hex = digest.subarray(0, 16).toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
 /** Convert an integer number of millionths into an exact decimal SQL value. */
@@ -119,12 +133,15 @@ export async function importSqliteControlPlane(pool: Pool, options: SqliteImport
       const sourceProjects = rows(db, 'projects')
       for (const row of sourceProjects) {
         const createdBy = row.created_by === null ? null : await idForLegacy(client, 'users', organizationId, row.created_by)
+        const ownerUserId = row.owner_user_id === null || row.owner_user_id === undefined
+          ? null : await idForLegacy(client, 'users', organizationId, row.owner_user_id)
+        const origin = row.origin === 'user' ? 'user' : 'admin'
         const project = await client.query<{ id: string }>(`INSERT INTO harness.projects(
-          organization_id,name,created_by,legacy_id,public_id,created_at,updated_at
-        ) VALUES($1,$2,$3,$4,$4,$5,$6) ON CONFLICT(organization_id,legacy_id) DO UPDATE SET
-          name=excluded.name,created_by=excluded.created_by,public_id=excluded.public_id,
+          organization_id,name,created_by,origin,owner_user_id,legacy_id,public_id,created_at,updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$6,$7,$8) ON CONFLICT(organization_id,legacy_id) DO UPDATE SET
+          name=excluded.name,created_by=excluded.created_by,origin=excluded.origin,owner_user_id=excluded.owner_user_id,public_id=excluded.public_id,
           updated_at=excluded.updated_at RETURNING id`,
-        [organizationId, row.name, createdBy, row.id, epoch(row.created_at), epoch(row.updated_at)])
+        [organizationId, row.name, createdBy, origin, ownerUserId, row.id, epoch(row.created_at), epoch(row.updated_at)])
         await client.query(`INSERT INTO harness.project_mounts(organization_id,project_id,node_id,local_path,canonical_path)
           VALUES($1,$2,$3,$4,$4) ON CONFLICT(project_id,node_id) DO UPDATE SET local_path=excluded.local_path,
           canonical_path=excluded.canonical_path,status='active'`, [organizationId, project.rows[0]!.id, nodeId, row.path])
@@ -142,6 +159,29 @@ export async function importSqliteControlPlane(pool: Pool, options: SqliteImport
         SELECT organization_id,id,created_by,'rw' FROM harness.projects
         WHERE organization_id=$1 AND created_by IS NOT NULL
         ON CONFLICT(project_id,user_id) DO UPDATE SET access_mode='rw',updated_at=now()`, [organizationId])
+      await client.query(`INSERT INTO harness.project_members(organization_id,project_id,user_id,access_mode)
+        SELECT organization_id,id,owner_user_id,'rw' FROM harness.projects
+        WHERE organization_id=$1 AND owner_user_id IS NOT NULL
+        ON CONFLICT(project_id,user_id) DO UPDATE SET access_mode='rw',updated_at=now()`, [organizationId])
+
+      const sourceInvitations = rows(db, 'project_invitations')
+      for (const row of sourceInvitations) {
+        const invitationId = legacyUuid(organizationId, 'project-invitation', row.id)
+        await client.query(`INSERT INTO harness.project_invitations(
+          id,organization_id,project_id,invitee_user_id,inviter_user_id,access_mode,status,
+          expires_at,created_at,responded_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,
+          invitee_user_id=excluded.invitee_user_id,inviter_user_id=excluded.inviter_user_id,
+          access_mode=excluded.access_mode,status=excluded.status,expires_at=excluded.expires_at,
+          created_at=excluded.created_at,responded_at=excluded.responded_at`, [
+          invitationId, organizationId,
+          await idForLegacy(client, 'projects', organizationId, row.project_id),
+          await idForLegacy(client, 'users', organizationId, row.invitee_user_id),
+          await idForLegacy(client, 'users', organizationId, row.inviter_user_id),
+          row.mode, row.status, epoch(row.expires_at), epoch(row.created_at), epoch(row.responded_at),
+        ])
+      }
 
       const sourceInstances = rows(db, 'instances')
       for (const row of sourceInstances) {
@@ -249,7 +289,8 @@ export async function importSqliteControlPlane(pool: Pool, options: SqliteImport
 
       return {
         organizationId, nodeId, users: sourceUsers.length, projects: sourceProjects.length,
-        projectMembers: sourceMembers.length, instances: sourceInstances.length, models: sourceModels.length,
+        projectMembers: sourceMembers.length, projectInvitations: sourceInvitations.length,
+        instances: sourceInstances.length, models: sourceModels.length,
         prices: priceCount, usageEvents: sourceUsage.length, usageAlerts: sourceAlerts.length,
         auditEvents: sourceAudits.length, skippedSessions: rows(db, 'auth_sessions').length,
         skippedLoginAttempts: rows(db, 'login_attempts').length,

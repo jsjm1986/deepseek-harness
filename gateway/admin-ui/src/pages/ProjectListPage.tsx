@@ -16,6 +16,7 @@ import {
 
 export function ProjectListPage() {
   const [projects, setProjects] = useState<Project[]>([])
+  const [originFilter, setOriginFilter] = useState<'all' | 'admin' | 'user'>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
@@ -27,14 +28,14 @@ export function ProjectListPage() {
   const reload = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
     try {
-      setProjects(await listProjects())
+      setProjects(await listProjects(originFilter === 'all' ? undefined : originFilter))
       setError('')
     } catch (cause) {
       setError(messageFrom(cause))
     } finally {
       if (showLoading) setLoading(false)
     }
-  }, [])
+  }, [originFilter])
 
   useEffect(() => { void reload(true) }, [reload])
 
@@ -70,17 +71,22 @@ export function ProjectListPage() {
     <div className="page">
       <PageHeader
         title="项目"
-        description="按项目目录配置成员及其只读或读写权限。"
+        description="统一查看管理员发起和用户发起的工作空间，并配置成员权限。"
         meta={loading ? undefined : `${projects.length} 个项目`}
         actions={<Button variant="primary" icon={Plus} onClick={openCreate}>新建项目</Button>}
       />
       <ErrorBanner message={error} />
+      <div className="segmented" role="group" aria-label="项目来源筛选">
+        <button type="button" aria-pressed={originFilter === 'all'} onClick={() => setOriginFilter('all')}>全部</button>
+        <button type="button" aria-pressed={originFilter === 'admin'} onClick={() => setOriginFilter('admin')}>管理员发起</button>
+        <button type="button" aria-pressed={originFilter === 'user'} onClick={() => setOriginFilter('user')}>用户发起</button>
+      </div>
       <Section className="responsiveSection" title="项目目录" meta={loading ? undefined : `${projects.length} 条记录`}>
         {loading ? <LoadingState label="正在加载项目" /> : projects.length === 0 ? (
           <EmptyState
             icon={FolderKanban}
             title="还没有项目"
-            detail="登记宿主机上的现有目录，然后为用户分配访问权限。"
+            detail="管理员项目登记现有目录；用户项目由账户在受控项目根目录中创建。"
             action={<Button variant="primary" icon={Plus} onClick={openCreate}>新建项目</Button>}
           />
         ) : (
@@ -90,6 +96,7 @@ export function ProjectListPage() {
                 <thead>
                   <tr>
                     <th>项目</th>
+                    <th>来源 / 所有者</th>
                     <th>目录</th>
                     <th>成员</th>
                     <th aria-label="打开" />
@@ -103,6 +110,12 @@ export function ProjectListPage() {
                           <Folder aria-hidden="true" />
                           <span>{project.name}</span>
                         </Link>
+                      </td>
+                      <td>
+                        <div className="projectOriginCell">
+                          <StatusBadge tone={project.origin === 'user' ? 'info' : 'neutral'}>{project.origin === 'user' ? '用户发起' : '管理员发起'}</StatusBadge>
+                          <span>{project.owner?.displayName || project.owner?.username || '组织管理'}</span>
+                        </div>
                       </td>
                       <td><span className="pathText">{project.path}</span></td>
                       <td><StatusBadge tone={project.memberCount === 0 ? 'neutral' : 'info'}>{project.memberCount} 位成员</StatusBadge></td>
@@ -123,6 +136,7 @@ export function ProjectListPage() {
                     <ArrowUpRight className="mobileChevron" aria-hidden="true" />
                   </div>
                   <div className="mobileItemBody">
+                    <StatusBadge tone={project.origin === 'user' ? 'info' : 'neutral'}>{project.origin === 'user' ? `用户发起 · ${project.owner?.displayName || project.owner?.username || '未知所有者'}` : '管理员发起'}</StatusBadge>
                     <span className="pathText">{project.path}</span>
                     <StatusBadge tone={project.memberCount === 0 ? 'neutral' : 'info'}>{project.memberCount} 位成员</StatusBadge>
                   </div>
@@ -136,7 +150,7 @@ export function ProjectListPage() {
       <Dialog
         open={createOpen}
         title="新建项目"
-        description="项目路径必须是 Gateway 宿主机上已经存在的绝对目录。"
+        description="管理员发起的项目需要填写 Gateway 宿主机上已经存在的绝对目录。"
         onClose={closeCreate}
         footer={(
           <>
@@ -150,7 +164,7 @@ export function ProjectListPage() {
           <Field label="项目名称" className="formSpanFull">
             <input className="input" required autoFocus value={name} onChange={event => { setName(event.target.value); setCreateError('') }} placeholder="例如：产品文档" />
           </Field>
-          <Field label="绝对路径" hint="该目录不会由管理端自动创建。" className="formSpanFull">
+          <Field label="绝对路径" hint="该目录不会由管理端自动创建；用户自建项目使用受控项目根目录。" className="formSpanFull">
             <input className="input codeText" required value={path} onChange={event => { setPath(event.target.value); setCreateError('') }} placeholder="/srv/harness/projects/docs" />
           </Field>
         </form>

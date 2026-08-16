@@ -992,6 +992,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'permissionPresetAuthorization',
+    summary: 'Optional policy supplied by a deployment that owns the request identity.',
+    description: 'Optional policy supplied by a deployment that owns the request identity.',
+    methods: [
+      {
+        signature: 'canSelect(name: string): boolean',
+        description: 'Return whether the current request may select a named preset.',
+        parameters: [{ name: 'name', description: 'preset table key requested by the account.' }],
+        returns: 'whether the request may select the preset.',
+      },
+    ],
+  },
+  {
     key: 'permissionPresets',
     summary: 'Owns the deployment\'s permission presets and their write path.',
     description: 'Owns the deployment\'s permission presets and their write path. Requires a confining `ctx.shell` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.',

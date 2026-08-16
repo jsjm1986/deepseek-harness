@@ -12,6 +12,7 @@ import Collaboration, {
   type CollaborationSessionCreation,
 } from '@deepseek-ai/dsh-collaboration'
 import type { GatewayRequestPrincipal, GatewayRuntime } from '@deepseek-ai/dsh-gateway-runtime'
+import type { PermissionPresetAuthorization } from '@deepseek-ai/dsh-permission-presets'
 import { SessionId, type SessionId as SessionIdentity } from '@deepseek-ai/dsh-session'
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -193,6 +194,18 @@ export class GatewayCollaboration extends Collaboration {
 
   constructor(ctx: Context) {
     super(ctx)
+    const presetAuthorization: PermissionPresetAuthorization = {
+      canSelect: (name) => {
+        if (name !== 'danger-full-access') return true
+        try {
+          return this.ctx.gatewayRuntime.requireCurrent().claims.user.role === 'admin'
+        } catch {
+          // Permission changes outside an authenticated Gateway request fail closed.
+          return false
+        }
+      },
+    }
+    ctx.provide('permissionPresetAuthorization', presetAuthorization)
     ctx.effect(
       () => () => { this.lifetime.abort(new Error('Gateway collaboration provider unloaded')) },
       'collaboration-gateway: invalidate captured authorities',

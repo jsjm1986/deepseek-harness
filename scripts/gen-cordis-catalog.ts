@@ -80,6 +80,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   messageFeedback: 'feedback.md',
   modelAccess: 'llm-streaming.md',
   permissionPresets: 'permission-presets.md',
+  permissionPresetAuthorization: 'permission-presets.md',
   planMode: 'plan.md',
   terminals: 'terminal.md',
   sandbox: 'sandbox.md',

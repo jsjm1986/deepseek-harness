@@ -36,6 +36,8 @@ export type * from './types.ts'
 declare module '@deepseek-ai/cordis' {
   interface Context {
     permissionPresets: PermissionPresetService
+    /** Optional deployment policy for selecting a preset. */
+    permissionPresetAuthorization: PermissionPresetAuthorization
   }
 }
 
@@ -149,6 +151,16 @@ export interface Config {
    * sandbox and approval defaults is used.
    */
   defaultPreset?: string
+}
+
+/** Optional policy supplied by a deployment that owns the request identity. */
+export interface PermissionPresetAuthorization {
+  /**
+   * Return whether the current request may select a named preset.
+   * @param name - preset table key requested by the account.
+   * @returns whether the request may select the preset.
+   */
+  canSelect(name: string): boolean
 }
 
 /**
@@ -270,7 +282,11 @@ export class PermissionPresetService extends Service {
           if (!this.names.includes(name)) {
             return { kind: 'error', text: `unknown preset "${name}" (available: ${this.names.join(', ')})` }
           }
-          this.apply(agent.session, name, (policy) =>{  this.ctx.approval.setPolicy(agent, policy) })
+          try {
+            this.apply(agent.session, name, (policy) =>{  this.ctx.approval.setPolicy(agent, policy) })
+          } catch (error) {
+            return { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+          }
           return { kind: 'success', text: `preset ${name}` }
         },
       })
@@ -379,6 +395,7 @@ export class PermissionPresetService extends Service {
   /** Apply one preset with the caller-selected live or initialization policy writer. */
   private apply(session: Session, name: string, setApproval: (policy: ApprovalPolicy) => void): void {
     const spec = this.resolve(name)
+    this.assertAuthorized(name)
     if (this.current(session.events) !== name) {
       session.append('permission/preset', { preset: name })
     }
@@ -406,6 +423,7 @@ export class PermissionPresetService extends Service {
     if (selected === undefined && sandbox === undefined && approval === undefined && !seeded) {
       const name = this.defaultPreset
       const spec = this.resolve(name)
+      this.assertAuthorized(name)
       session.append('permission/preset', { preset: name })
       setSandboxMode(session, spec.sandbox)
       setApprovalPolicy(session, spec.approval)
@@ -419,6 +437,7 @@ export class PermissionPresetService extends Service {
     }
     const effective = this.derive(state)
     if (selected === undefined && effective !== CUSTOM_PRESET) {
+      this.assertAuthorized(effective)
       session.append('permission/preset', { preset: effective })
     }
     if (sandbox === undefined) {
@@ -426,6 +445,14 @@ export class PermissionPresetService extends Service {
     }
     if (approval === undefined) {
       setApprovalPolicy(session, this.ctx.approval.config.policy ?? 'ask')
+    }
+  }
+
+  /** Reject a preset that the mounted deployment reserves for administrators. */
+  private assertAuthorized(name: string): void {
+    const authorization = this.ctx.get('permissionPresetAuthorization')
+    if (authorization !== undefined && !authorization.canSelect(name)) {
+      throw new Error(`permission preset "${name}" is administrator-only`)
     }
   }
 }
