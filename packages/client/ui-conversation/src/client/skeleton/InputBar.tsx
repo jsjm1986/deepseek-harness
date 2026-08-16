@@ -10,7 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconCloseOutline16, IconPlusOutline16, IconRefreshOutline14, IconWarningOutline16, Toast, Tooltip,
+  IconCloseOutline16, IconPaperclipOutline16, IconPlusOutline16, IconRefreshOutline14,
+  IconWarningOutline16, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AttachmentRail, DropOverlay, ImageLightbox } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { AttachmentRailItem } from '@deepseek-ai/dsh-client-ui-attachment'
@@ -185,6 +186,7 @@ export function InputBar({
       : `${promptError.error.message} (${promptError.error.code})`)
   }, [promptError, showToast, t, imageLimits])
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const cardRef = useRef<HTMLDivElement | null>(null)
   const dragDepthRef = useRef(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -555,6 +557,15 @@ export function InputBar({
     intakeDocuments(documents)
   }, [intakeDocuments, intakeImages])
 
+  const onFileInputChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    const files = [...(event.currentTarget.files ?? [])]
+    // Clear the native value so choosing the same file again starts a new
+    // upload after removal or failure.
+    event.currentTarget.value = ''
+    if (locked || machineBusy) return
+    intakeFiles(files)
+  }
+
   // Whole-page file-drop intake (DeepSeek Chat behavior): the listeners live
   // on the document so a drop anywhere over the window adds images, not only
   // over the composer card. Safe as document-level state: the composer-bar
@@ -845,6 +856,27 @@ export function InputBar({
         </div>
         <div className={css.row}>
           <div className={css.tools}>
+            <Tooltip label={t('document.attach')} side="top" delayMs={500}>
+              <button
+                type="button"
+                className={css.add}
+                aria-label={t('document.attach')}
+                disabled={locked || machineBusy || addDocuments === undefined}
+                onMouseDown={keepFocus}
+                onClick={() => { fileInputRef.current?.click() }}
+              >
+                <IconPaperclipOutline16 size={14} />
+              </button>
+            </Tooltip>
+            <input
+              ref={fileInputRef}
+              className={css.fileInput}
+              type="file"
+              multiple
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={onFileInputChange}
+            />
             <Tooltip label={t('input.commands')} side="top" delayMs={500}>
               <button
                 type="button"

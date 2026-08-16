@@ -1,57 +1,46 @@
-# DeepSeek Harness
+# CoHarness
 
 English | [中文](README.zh.md)
 
-DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek AI](https://deepseek.com).
+**CoHarness is a multi-user agent harness built for teams.**
 
-It uses an architecture where **everything is a plugin**, and is powered by [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper).
+CoHarness is independently maintained and based on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) under the MIT License. It keeps the Cordis-powered, plugin-based runtime and adds shared project workspaces, authenticated collaboration, administrative controls, and a deployable Web UI.
 
-## Developer preview
+## Highlights
 
-DeepSeek Harness is currently in _developer preview_ and is iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
+- **Team workspaces:** share project conversations while preserving participant identity and project or private visibility.
+- **Access control:** manage administrator and user roles, read-only or read-write project membership, and directory grants.
+- **Central governance:** operate user and project runtimes through one Gateway with managed model access and usage visibility.
+- **Plugin architecture:** compose tools, providers, policies, interfaces, and agent behavior as Cordis plugins.
+- **Self-hosting:** run the Web UI locally or deploy the Gateway behind infrastructure you control.
+
+## Status
+
+CoHarness is under active pre-release development. Configuration, APIs, and persisted formats may change without compatibility guarantees.
 
 ## Run
 
-### Run from `npm`
-
-Install `Node.js`, then run:
-
-```sh
-npx @deepseek-ai/dsh web
-```
-
-The command starts the Web UI, served at `http://127.0.0.1:3080` by default. See [Web UI guide](docs/user/guide/index.md).
+Requirements: Node.js `^22.19.0` or `>=24.0.0`, plus pnpm.
 
 ### Run from source
 
-To run from a repository checkout:
-
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/jsjm1986/CoHarness.git
+cd CoHarness
+corepack enable
 pnpm install
 pnpm run build
 pnpm dsh web
 ```
 
-## Community and support
-
-- Feel free to submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).
-- Add the [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic to your plugin repository for discoverability.
-- Join <a href="https://discord.gg/Ycq5dCaS4">DeepSeek Harness Discord community</a>.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+The Web UI is available at `http://127.0.0.1:3080` by default. See the [Web UI guide](docs/user/guide/index.md) for usage and the [production deployment runbook](gateway/deploy/README.md) for a multi-user Gateway deployment.
 
 ## Development
 
-Start with the [development guide](docs/development.md) and [architecture documentation](docs/architecture.md).
+Read the [architecture documentation](docs/architecture.md) before changing runtime packages. Contributor setup and repository commands are documented in the [development guide](docs/development.md), and agent contributors must follow [AGENTS.md](AGENTS.md).
 
-For agents, follow [AGENTS.md](AGENTS.md).
+## Upstream and License
 
-## License
+CoHarness is an independent derivative of DeepSeek Harness, originally developed by DeepSeek AI. Original copyright and license notices are retained.
 
-[MIT](LICENSE)
-
-Third-party dependencies and their licenses are disclosed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The project is distributed under the [MIT License](LICENSE). Third-party dependencies and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
