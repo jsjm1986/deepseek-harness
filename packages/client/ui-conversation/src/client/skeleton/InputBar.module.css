@@ -440,6 +440,10 @@
   cursor: default;
 }
 
+.fileInput {
+  display: none;
+}
+
 /* Plan / Read-only / model — native <select>, chip-like closed chrome
    (figma ToggleButton: 13/20 medium secondary, 12px chevron). */
 .select {

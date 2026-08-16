@@ -43,4 +43,13 @@ describe('AuthService', () => {
     expect(await auth.login('alice', 'secret-1', '1.1.1.1', 'ua')).toBe('invalid')
     expect(auth.validate('bogus')).toBeNull()
   })
+
+  it('rejects soft-deleted users for login and existing sessions', async () => {
+    const { db, auth } = await setup()
+    const result = await auth.login('alice', 'secret-1', '1.2.3.4', 'ua')
+    if (result === 'invalid' || result === 'locked') throw new Error(result)
+    db.prepare(`UPDATE users SET deleted_at = ?`).run(Date.now())
+    expect(auth.validate(result.token)).toBeNull()
+    expect(await auth.login('alice', 'secret-1', '1.2.3.4', 'ua')).toBe('invalid')
+  })
 })

@@ -388,12 +388,14 @@ export class ProjectService {
 
   effectiveGrants(userId: number): EffectiveGrant[] {
     const grants: EffectiveGrant[] = []
-    const home = this.db.prepare(`SELECT home_path FROM users WHERE id = ?`).get(userId) as
+    const home = this.db.prepare(`SELECT home_path FROM users WHERE id = ? AND deleted_at IS NULL`).get(userId) as
       { home_path: string } | undefined
     if (home !== undefined) grants.push({ path: home.home_path, mode: 'rw', label: '主目录' })
     const rows = this.db.prepare(
       `SELECT p.path AS path, p.name AS label, m.mode AS mode
-       FROM project_members m JOIN projects p ON p.id = m.project_id
+       FROM project_members m
+       JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+       JOIN projects p ON p.id = m.project_id
        WHERE m.user_id = ? ORDER BY p.path`,
     ).all(userId) as Array<{ path: string; label: string; mode: GrantMode }>
     for (const row of rows) grants.push({ path: row.path, mode: row.mode, label: row.label })

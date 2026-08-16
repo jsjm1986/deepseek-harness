@@ -49,6 +49,7 @@ export interface GatewayUserService {
   list(): Awaitable<Array<UserRow & { port: number; instanceState: string }>>
   getById(id: number): Awaitable<UserRow | null>
   getByUsername(username: string): Awaitable<UserRow | null>
+  remove(id: number): Awaitable<boolean>
   setStatus(id: number, status: 'active' | 'disabled'): Awaitable<void>
   setRole(id: number, role: 'admin' | 'user'): Awaitable<void>
   setDisplayName(id: number, name: string): Awaitable<void>

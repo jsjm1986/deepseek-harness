@@ -68,4 +68,13 @@ describe('ModelGovernanceService', () => {
     expect(() => governance.ingest({ kind: 'user', id: user.id }, event({ occurredAt: -1 }))).toThrow(/occurredAt/)
     expect(() => governance.setQuota('role', 'owner', 1, null)).toThrow(/admin or user/)
   })
+
+  it('does not issue or resolve intake credentials for a deleted user', async () => {
+    const { governance, users, user } = await setup()
+    const token = governance.issueIntakeToken({ kind: 'user', id: user.id })
+
+    expect(users.remove(user.id)).toBe(true)
+    expect(governance.subjectForIntakeToken(token)).toBeNull()
+    expect(() => governance.issueIntakeToken({ kind: 'user', id: user.id })).toThrow(/unknown user/)
+  })
 })

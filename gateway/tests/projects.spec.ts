@@ -43,6 +43,16 @@ describe('ProjectService', () => {
     ])
   })
 
+  it('returns no grants for a deleted user', async () => {
+    const { projects, users, alice, shared } = await setup()
+    const bob = await users.create({ username: 'bob', password: 'pw-123456' })
+    const project = projects.create({ name: 'Alpha', path: shared, createdBy: alice.id })
+    projects.setMember(project.id, bob.id, 'rw')
+
+    expect(users.remove(bob.id)).toBe(true)
+    expect(projects.effectiveGrants(bob.id)).toEqual([])
+  })
+
   it('rejects duplicate name, duplicate path, missing path, home, and dsh path', async () => {
     const { projects, cfg, alice, shared, docs, root } = await setup()
     projects.create({ name: 'Alpha', path: shared, createdBy: alice.id })

@@ -124,6 +124,23 @@ describe('admin JSON API', () => {
     expect(await res.json()).toEqual({ error: 'cannot-remove-last-admin' })
   })
 
+  it('deletes a member through the admin API and rejects deleting the current admin', async () => {
+    const { base, cookie, admin, member, deps } = await setup()
+    const deleted = await fetch(`${base}/admin/api/users/${member.id}`, {
+      method: 'DELETE', headers: { cookie, origin: base },
+    })
+    expect(deleted.status).toBe(204)
+    expect(await deps.users.getById(member.id)).toBeNull()
+    const listed = await (await fetch(`${base}/admin/api/users`, { headers: { cookie } })).json() as Array<{ id: number }>
+    expect(listed.some(row => row.id === member.id)).toBe(false)
+
+    const self = await fetch(`${base}/admin/api/users/${admin.id}`, {
+      method: 'DELETE', headers: { cookie, origin: base },
+    })
+    expect(self.status).toBe(409)
+    expect(await self.json()).toEqual({ error: 'cannot-delete-self' })
+  })
+
   it('does not persist displayName when a later PATCH field fails', async () => {
     const { base, cookie, admin, deps } = await setup()
     const original = (await deps.users.getById(admin.id))!.displayName

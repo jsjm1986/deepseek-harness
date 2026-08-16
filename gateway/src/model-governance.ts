@@ -216,6 +216,8 @@ export class ModelGovernanceService {
 
   issueIntakeToken(subject: ModelUsageSubject): string {
     const userId = this.userId(subject)
+    const user = this.db.prepare(`SELECT 1 FROM users WHERE id=? AND deleted_at IS NULL`).get(userId)
+    if (user === undefined) throw new Error(`unknown user ${String(userId)}`)
     const token = randomBytes(32).toString('base64url')
     this.db.prepare(`INSERT INTO model_intake_tokens(user_id,token_hash,created_at) VALUES(?,?,?)
       ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,created_at=excluded.created_at`)
@@ -224,7 +226,9 @@ export class ModelGovernanceService {
   }
 
   subjectForIntakeToken(token: string): ModelUsageSubject | null {
-    const row = this.db.prepare(`SELECT user_id FROM model_intake_tokens WHERE token_hash=?`).get(tokenHash(token)) as
+    const row = this.db.prepare(`SELECT t.user_id FROM model_intake_tokens t
+      JOIN users u ON u.id=t.user_id AND u.deleted_at IS NULL
+      WHERE t.token_hash=?`).get(tokenHash(token)) as
       { user_id: number } | undefined
     return row === undefined ? null : { kind: 'user', id: row.user_id }
   }
