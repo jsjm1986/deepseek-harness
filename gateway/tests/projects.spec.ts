@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -14,6 +14,7 @@ async function setup() {
     HGW_USERS_ROOT: join(root, 'users'),
     HGW_STATE_ROOT: join(root, 'state'),
     HGW_USER_PROJECTS_ROOT: join(root, 'user-projects'),
+    HGW_PROJECTS_ROOT: join(root, 'projects'),
   })
   const users = new UserService(db, cfg)
   const alice = await users.create({ username: 'alice', password: 'pw-123456' })
@@ -23,6 +24,21 @@ async function setup() {
 }
 
 describe('ProjectService', () => {
+  it('creates a managed directory from a name when no path is supplied', async () => {
+    const { projects, cfg, alice } = await setup()
+    const project = projects.create({ name: '  产品文档  ', createdBy: alice.id })
+    expect(project.name).toBe('产品文档')
+    expect(project.path).toBe(realpathSync(join(cfg.projectsRoot, '产品文档')))
+    expect(statSync(project.path).isDirectory()).toBe(true)
+    expect(statSync(project.path).mode & 0o777).toBe(0o770)
+  })
+
+  it('rejects managed names that could escape the project root', async () => {
+    const { projects, alice } = await setup()
+    expect(() => projects.create({ name: '../outside', createdBy: alice.id })).toThrow('project-name-invalid')
+    expect(() => projects.create({ name: 'nested/docs', createdBy: alice.id })).toThrow('project-name-invalid')
+  })
+
   it('effective grants are home plus member projects with labels', async () => {
     const { projects, alice, shared } = await setup()
     const p = projects.create({ name: 'Alpha', path: shared, createdBy: alice.id })
@@ -181,6 +197,6 @@ describe('ProjectService', () => {
       .toBe('expired')
     expect(() => projects.acceptInvitation(invitation.id, bob.id)).toThrow('invitation-not-pending')
     expect(() => projects.acceptInvitation('not-an-id', bob.id)).toThrow('invitation-not-found')
-    expect(() => projects.rename(project.id, '   ')).toThrow('invalid project name')
+    expect(() => projects.rename(project.id, '   ')).toThrow('project-name-invalid')
   })
 })

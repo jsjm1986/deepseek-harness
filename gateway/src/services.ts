@@ -52,13 +52,15 @@ export interface GatewayUserService {
   setStatus(id: number, status: 'active' | 'disabled'): Awaitable<void>
   setRole(id: number, role: 'admin' | 'user'): Awaitable<void>
   setDisplayName(id: number, name: string): Awaitable<void>
+  remove(id: number): Awaitable<boolean>
   resetPassword(id: number, newPassword: string): Promise<void>
   changeOwnPassword(id: number, newPassword: string): Promise<void>
 }
 
 /** Project and effective-directory-grant operations consumed by the Gateway. */
 export interface GatewayProjectService {
-  create(input: { name: string; path: string; createdBy: number }): Awaitable<ProjectRow>
+  /** `path` is omitted for managed creation below the configured project root. */
+  create(input: { name: string; path?: string; createdBy: number }): Awaitable<ProjectRow>
   /** Allocate a new project directory below the configured managed root. */
   createManaged?(input: { name: string; ownerUserId: number; createdBy?: number }): Awaitable<ProjectRow>
   list(): Awaitable<ProjectRow[]>

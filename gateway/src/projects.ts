@@ -1,5 +1,5 @@
-import { mkdirSync, realpathSync, rmSync, statSync } from 'node:fs'
-import { isAbsolute, join, relative } from 'node:path'
+import { chmodSync, mkdirSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type Database from 'better-sqlite3'
 import type { GatewayConfig } from './config.ts'
 
@@ -54,11 +54,24 @@ export interface ProjectDetail extends ProjectRow {
   invitations?: ProjectInvitation[]
 }
 
-/** Normalize a project name shared by administrator and account creation paths. */
+/**
+ * Normalize a project name used by the project catalog and managed directory root.
+ * @param name - administrator-supplied project name
+ * @returns trimmed, single-directory-segment project name
+ * @throws `project-name-invalid` when the name cannot identify one safe directory segment
+ */
 export function normalizeProjectName(name: string): string {
-  const trimmed = name.trim()
-  if (trimmed === '' || trimmed.length > 120) throw new Error('invalid project name')
-  return trimmed
+  const normalized = name.trim()
+  if (
+    normalized === ''
+    || normalized === '.'
+    || normalized === '..'
+    || normalized.length > 120
+    || /[\\/\u0000-\u001f\u007f]/u.test(normalized)
+  ) {
+    throw new Error('project-name-invalid')
+  }
+  return normalized
 }
 
 function isCodedError(error: unknown): error is Error & { code: string } {
@@ -124,16 +137,69 @@ export function resolveProjectDirectory(path: string): string {
   return canonical
 }
 
+/**
+ * Create or resolve a project directory below the configured managed root.
+ * @param cfg - Gateway configuration containing the managed project root
+ * @param name - administrator-supplied project name
+ * @returns normalized name and canonical directory path
+ * @throws a stable project-name or project-path diagnostic when creation is unsafe or inaccessible
+ */
+export function ensureManagedProjectDirectory(cfg: GatewayConfig, name: string): { name: string; path: string } {
+  const normalized = normalizeProjectName(name)
+  const root = resolve(cfg.projectsRoot)
+  try {
+    if (mkdirSync(root, { recursive: true, mode: 0o770 }) !== undefined) chmodSync(root, 0o770)
+  } catch (error) {
+    if (isCodedError(error) && (error.code === 'EACCES' || error.code === 'EPERM')) {
+      throw new Error('project-path-inaccessible', { cause: error })
+    }
+    if (isCodedError(error) && (error.code === 'EEXIST' || error.code === 'ENOTDIR')) {
+      throw new Error('project-root-not-directory', { cause: error })
+    }
+    throw error
+  }
+  const canonicalRoot = resolveProjectDirectory(root)
+  const candidate = join(canonicalRoot, normalized)
+  try {
+    if (mkdirSync(candidate, { recursive: true, mode: 0o770 }) !== undefined) chmodSync(candidate, 0o770)
+  } catch (error) {
+    // An existing file is resolved below so callers receive the stable
+    // project-path-not-directory diagnostic; existing directories are reusable.
+    if (!isCodedError(error) || error.code !== 'EEXIST') {
+      if (isCodedError(error) && (error.code === 'EACCES' || error.code === 'EPERM')) {
+        throw new Error('project-path-inaccessible', { cause: error })
+      }
+      throw error
+    }
+  }
+  const canonical = resolveProjectDirectory(candidate)
+  if (canonical === canonicalRoot || canonical !== candidate || dirname(canonical) !== canonicalRoot) {
+    throw new Error('project-path-outside-root')
+  }
+  return { name: normalized, path: canonical }
+}
+
 export class ProjectService {
   constructor(
     private readonly db: Database.Database,
     private readonly cfg: GatewayConfig,
   ) {}
 
-  create(input: { name: string; path: string; createdBy: number }): ProjectRow {
-    const canonical = resolveProjectDirectory(input.path)
+  create(input: { name: string; path?: string; createdBy: number }): ProjectRow {
+    const requestedPath = input.path?.trim()
+    const managed = requestedPath === undefined || requestedPath === ''
+      ? ensureManagedProjectDirectory(this.cfg, input.name)
+      : undefined
+    const canonical = managed !== undefined ? managed.path : resolveProjectDirectory(requestedPath!)
     this.assertNotReserved(canonical)
-    return this.insert({ ...input, name: normalizeProjectName(input.name), canonical, origin: 'admin', ownerUserId: null })
+    return this.insert({
+      name: managed?.name ?? normalizeProjectName(input.name),
+      path: canonical,
+      canonical,
+      createdBy: input.createdBy,
+      origin: 'admin',
+      ownerUserId: null,
+    })
   }
 
   /** Create an owned project directory below the configured managed root. */

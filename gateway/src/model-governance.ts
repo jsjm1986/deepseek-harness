@@ -302,7 +302,7 @@ export class ModelGovernanceService {
       FROM model_usage WHERE user_id=? AND occurred_at>=? AND occurred_at<?`).get(userId, start, end) as {
         input: number; output: number; read: number; write: number; cost: number; company: number; calls: number; missing: number
       }
-    const user = this.db.prepare(`SELECT role FROM users WHERE id=?`).get(userId) as { role: string } | undefined
+    const user = this.db.prepare(`SELECT role FROM users WHERE id=? AND deleted_at IS NULL`).get(userId) as { role: string } | undefined
     const userQuota = this.db.prepare(`SELECT * FROM model_quotas WHERE subject_type='user' AND subject_id=?`).get(String(userId)) as
       { token_limit: number | null; company_cost_micros_limit: number | null } | undefined
     const roleQuota = user === undefined ? undefined : this.db.prepare(

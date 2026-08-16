@@ -64,7 +64,7 @@ export async function internalUserId(
   publicId: number,
 ): Promise<string | null> {
   const result = await queryable.query<{ id: string }>(
-    'SELECT id FROM harness.users WHERE organization_id=$1 AND public_id=$2',
+    'SELECT id FROM harness.users WHERE organization_id=$1 AND public_id=$2 AND deleted_at IS NULL',
     [organizationId, publicId],
   )
   return result.rows[0]?.id ?? null

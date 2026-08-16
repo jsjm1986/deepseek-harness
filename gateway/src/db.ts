@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { basename, dirname } from 'node:path'
 import Database from 'better-sqlite3'
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
   home_path TEXT NOT NULL,
   must_change_password INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS projects (
@@ -288,6 +289,11 @@ function migrate(db: Database.Database): void {
       CREATE UNIQUE INDEX idx_project_invitations_pending
         ON project_invitations(project_id, invitee_user_id) WHERE status = 'pending';
       CREATE INDEX idx_project_invitations_invitee ON project_invitations(invitee_user_id, status, created_at DESC);`)
+    }
+
+    const userColumns = columnNames(db, 'users')
+    if (!userColumns.has('deleted_at')) {
+      db.exec('ALTER TABLE users ADD COLUMN deleted_at INTEGER')
     }
 
     db.exec('DELETE FROM schema_meta')

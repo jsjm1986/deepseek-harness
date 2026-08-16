@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, unlinkSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
@@ -30,7 +30,7 @@ async function login(base: string, username: string, password: string): Promise<
 async function setup() {
   const root = mkdtempSync(join(tmpdir(), 'hgw-'))
   const db = openDb(join(root, 'g.sqlite'))
-  const cfg = loadConfig({ HGW_USERS_ROOT: join(root, 'users') })
+  const cfg = loadConfig({ HGW_USERS_ROOT: join(root, 'users'), HGW_PROJECTS_ROOT: join(root, 'projects') })
   const instances = new InstanceManager(db, cfg)
   const stoppedTargets: RuntimeTargetInput[] = []
   const stop = instances.stop.bind(instances)
@@ -99,6 +99,48 @@ describe('admin JSON API', () => {
     })
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: 'project-path-not-found' })
+  })
+
+  it('creates the project directory when the API receives only a name', async () => {
+    const { base, cookie, root } = await setup()
+    const response = await fetch(`${base}/admin/api/projects`, {
+      method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '产品文档' }),
+    })
+    expect(response.status).toBe(200)
+    const project = await response.json() as { name: string; path: string }
+    const expectedPath = realpathSync(join(root, 'projects', '产品文档'))
+    expect(project).toMatchObject({ name: '产品文档', path: expectedPath })
+    expect(existsSync(expectedPath)).toBe(true)
+    expect(statSync(expectedPath).isDirectory()).toBe(true)
+  })
+
+  it('deletes a user after stopping the runtime, revoking access, and recording the action', async () => {
+    const { base, cookie, member, admin, deps, stoppedTargets } = await setup()
+    const memberCookie = await login(base, 'worker', 'pw-12345678')
+    const memberToken = memberCookie.split('=')[1]
+    expect(memberToken).toBeTruthy()
+    const res = await fetch(`${base}/admin/api/users/${member.id}`, {
+      method: 'DELETE', headers: { cookie, origin: base },
+    })
+    expect(res.status).toBe(204)
+    expect(stoppedTargets).toContainEqual(member.id)
+    expect(await deps.users.getById(member.id)).toBeNull()
+    expect(await deps.auth.validate(memberToken!)).toBeNull()
+    expect((await deps.audit.query({ action: 'admin.users.delete' }))[0]).toMatchObject({
+      userId: admin.id,
+      action: 'admin.users.delete',
+    })
+  })
+
+  it('rejects deleting the current administrator', async () => {
+    const { base, cookie, admin, deps } = await setup()
+    const res = await fetch(`${base}/admin/api/users/${admin.id}`, {
+      method: 'DELETE', headers: { cookie, origin: base },
+    })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'cannot-delete-self' })
+    expect(await deps.users.getById(admin.id)).not.toBeNull()
   })
 
   it('returns JSON { error: "origin not allowed" } for /admin/api CSRF failures', async () => {

@@ -15,6 +15,7 @@ interface PostgresUserRow {
   display_name: string
   role: 'admin' | 'member'
   user_status: 'active' | 'disabled'
+  deleted_at: Date | null
   membership_status: 'active' | 'disabled'
   home_path: string
   must_change_password: boolean
@@ -47,18 +48,18 @@ export class PostgresUserService {
 
   private selectUsers(where = ''): string {
     return `SELECT u.id internal_id,u.public_id::text,u.username::text,u.display_name,
-      u.status user_status,u.home_path,m.role,m.status membership_status,c.must_change_password,
+      u.status user_status,u.deleted_at,u.home_path,m.role,m.status membership_status,c.must_change_password,
       i.port,i.observed_state instance_state
       FROM harness.users u
       JOIN harness.memberships m ON m.organization_id=u.organization_id AND m.user_id=u.id
       JOIN harness.password_credentials c ON c.user_id=u.id
       JOIN harness.instances i ON i.organization_id=u.organization_id AND i.user_id=u.id AND i.assigned_node_id=$2
-      WHERE u.organization_id=$1 ${where}`
+      WHERE u.organization_id=$1 AND u.deleted_at IS NULL ${where}`
   }
 
   async count(): Promise<number> {
     const result = await this.context.pool.query<{ n: string }>(
-      'SELECT COUNT(*)::text n FROM harness.users WHERE organization_id=$1',
+      'SELECT COUNT(*)::text n FROM harness.users WHERE organization_id=$1 AND deleted_at IS NULL',
       [this.context.organizationId],
     )
     return Number(result.rows[0]?.n ?? 0)
@@ -148,7 +149,7 @@ export class PostgresUserService {
       }>(`SELECT u.id,m.role,u.status user_status,m.status membership_status
         FROM harness.users u
         JOIN harness.memberships m ON m.organization_id=u.organization_id AND m.user_id=u.id
-        WHERE u.organization_id=$1 AND u.public_id=$2 FOR UPDATE OF u,m`,
+        WHERE u.organization_id=$1 AND u.public_id=$2 AND u.deleted_at IS NULL FOR UPDATE OF u,m`,
       [this.context.organizationId, id])
       const row = target.rows[0]
       if (row === undefined) return
@@ -158,7 +159,7 @@ export class PostgresUserService {
         const others = await client.query<{ n: string }>(`SELECT COUNT(*)::text n
           FROM harness.users u JOIN harness.memberships m
             ON m.organization_id=u.organization_id AND m.user_id=u.id
-          WHERE u.organization_id=$1 AND u.id<>$2 AND u.status='active'
+          WHERE u.organization_id=$1 AND u.id<>$2 AND u.deleted_at IS NULL AND u.status='active'
             AND m.status='active' AND m.role='admin'`, [this.context.organizationId, row.id])
         if (Number(others.rows[0]?.n ?? 0) === 0) throw new Error('cannot-remove-last-admin')
       }
@@ -190,14 +191,64 @@ export class PostgresUserService {
 
   async setDisplayName(id: number, name: string): Promise<void> {
     await this.context.pool.query(`UPDATE harness.users SET display_name=$3,updated_at=now()
-      WHERE organization_id=$1 AND public_id=$2`, [this.context.organizationId, id, name])
+      WHERE organization_id=$1 AND public_id=$2 AND deleted_at IS NULL`, [this.context.organizationId, id, name])
+  }
+
+  /** Mark a user deleted while retaining history that still references the account. */
+  async remove(id: number): Promise<boolean> {
+    return transaction(this.context.pool, async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`gateway-admin:${this.context.organizationId}`])
+      const target = await client.query<{
+        id: string
+        role: 'admin' | 'member'
+        user_status: 'active' | 'disabled'
+        membership_status: 'active' | 'disabled'
+      }>(`SELECT u.id,m.role,u.status user_status,m.status membership_status
+        FROM harness.users u
+        JOIN harness.memberships m ON m.organization_id=u.organization_id AND m.user_id=u.id
+        WHERE u.organization_id=$1 AND u.public_id=$2 AND u.deleted_at IS NULL
+        FOR UPDATE OF u,m`, [this.context.organizationId, id])
+      const row = target.rows[0]
+      if (row === undefined) return false
+      const losesAdmin = row.role === 'admin' && row.user_status === 'active' && row.membership_status === 'active'
+      if (losesAdmin) {
+        const others = await client.query<{ n: string }>(`SELECT COUNT(*)::text n
+          FROM harness.users u JOIN harness.memberships m
+            ON m.organization_id=u.organization_id AND m.user_id=u.id
+          WHERE u.organization_id=$1 AND u.id<>$2 AND u.deleted_at IS NULL
+            AND u.status='active' AND m.status='active' AND m.role='admin'`,
+        [this.context.organizationId, row.id])
+        if (Number(others.rows[0]?.n ?? 0) === 0) throw new Error('cannot-remove-last-admin')
+      }
+      await client.query(`UPDATE harness.users SET status='disabled',deleted_at=now(),updated_at=now()
+        WHERE organization_id=$1 AND id=$2`, [this.context.organizationId, row.id])
+      await client.query(`UPDATE harness.memberships SET status='disabled'
+        WHERE organization_id=$1 AND user_id=$2`, [this.context.organizationId, row.id])
+      await client.query(`UPDATE harness.auth_sessions SET revoked_at=now(),revoked_reason='user-deleted'
+        WHERE organization_id=$1 AND user_id=$2 AND revoked_at IS NULL`, [this.context.organizationId, row.id])
+      await client.query(`UPDATE harness.instances SET desired_state='stopped',observed_state='stopped',
+        runtime_token_hash=NULL,runtime_token_issued_at=NULL,updated_at=now()
+        WHERE organization_id=$1 AND user_id=$2`, [this.context.organizationId, row.id])
+      await client.query(`DELETE FROM harness.login_attempts
+        WHERE organization_id=$1 AND username=(SELECT username FROM harness.users WHERE id=$2)`,
+      [this.context.organizationId, row.id])
+      await client.query('DELETE FROM harness.project_members WHERE organization_id=$1 AND user_id=$2',
+        [this.context.organizationId, row.id])
+      await client.query('DELETE FROM harness.project_invitations WHERE invitee_user_id=$1 OR inviter_user_id=$1',
+        [row.id])
+      await client.query('DELETE FROM harness.model_user_access WHERE organization_id=$1 AND user_id=$2',
+        [this.context.organizationId, row.id])
+      await client.query('DELETE FROM harness.model_intake_tokens WHERE user_id=$1', [row.id])
+      await client.query('DELETE FROM harness.user_quotas WHERE user_id=$1', [row.id])
+      return true
+    })
   }
 
   async resetPassword(id: number, newPassword: string): Promise<void> {
     const passwordHash = await hashPassword(newPassword)
     await transaction(this.context.pool, async (client) => {
       const user = await client.query<{ id: string }>(
-        'SELECT id FROM harness.users WHERE organization_id=$1 AND public_id=$2',
+        'SELECT id FROM harness.users WHERE organization_id=$1 AND public_id=$2 AND deleted_at IS NULL',
         [this.context.organizationId, id],
       )
       const userId = user.rows[0]?.id
