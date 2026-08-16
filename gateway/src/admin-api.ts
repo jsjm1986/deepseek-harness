@@ -43,6 +43,9 @@ function mapError(error: unknown): { status: number; error: string } {
   if (error instanceof CollaborationDeniedError && error.code === 'visibility-locked') {
     return { status: 409, error: error.code }
   }
+  if (error instanceof Error && (error.message === 'owner-protected' || error.message === 'owner-must-be-rw')) {
+    return { status: 409, error: error.message }
+  }
   if (error instanceof Error && error.message === 'invalid json') {
     return { status: 400, error: 'invalid json' }
   }
@@ -283,7 +286,13 @@ async function dispatch(
   }
 
   if (pathname === '/admin/api/projects') {
-    if (method === 'GET') { sendJson(res, 200, await deps.projects.list()); return true }
+    if (method === 'GET') {
+      const source = new URL(req.url ?? '/', 'http://x').searchParams.get('origin')
+      if (source !== null && source !== 'admin' && source !== 'user') { sendError(res, 400, 'invalid origin'); return true }
+      const projects = await deps.projects.list()
+      sendJson(res, 200, source === null ? projects : projects.filter(project => project.origin === source))
+      return true
+    }
     if (method === 'POST') {
       const input = parseObject(body)
       const name = str(input, 'name')

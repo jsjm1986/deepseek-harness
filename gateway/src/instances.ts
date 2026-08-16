@@ -26,6 +26,18 @@ const PROJECT_RUNTIME_PATCH = `- id: session-persistence-jsonl
       name: '@deepseek-ai/dsh-collaboration-context'
     - id: session-persistence-gateway
       name: '@deepseek-ai/dsh-session-persistence-gateway'
+- id: permission
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
 `
 
 interface InstanceOwner {

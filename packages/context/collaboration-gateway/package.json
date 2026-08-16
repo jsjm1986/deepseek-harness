@@ -24,13 +24,15 @@
     "@deepseek-ai/dsh-collaboration": "workspace:^",
     "@deepseek-ai/dsh-gateway-runtime": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^"
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-permission-presets": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-collaboration": "workspace:^",
     "@deepseek-ai/dsh-gateway-runtime": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^"
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-permission-presets": "workspace:^"
   }
 }

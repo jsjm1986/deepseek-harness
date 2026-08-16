@@ -23,11 +23,12 @@ import { en, NS, zh, type CollaborationKey } from './locales.ts'
 export type {
   CollaborationContext, CollaborationScope, CollaborationSnapshot,
   CollaborationVisibility, ConversationAccess, ConversationCollaboration,
-  ConversationDetail, ConversationParticipant, ProjectMembership,
+  ConversationDetail, ConversationParticipant, ProjectInvitation, ProjectMembership,
 } from './collaboration-client.ts'
 export type { ConversationShareActionProps, ConversationShareInjected } from './ConversationShareAction.tsx'
 export type { ProjectReadOnlyMatch, ReadOnlyComposerProps } from './ReadOnlyComposer.tsx'
 export type { ScopeControlInjected, ScopeControlProps } from './ScopeControl.tsx'
+export type { ProjectManagerMode, ProjectManagerModalProps } from './ProjectManagerModal.tsx'
 export type { CollaborationKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -90,6 +91,10 @@ export function apply(ctx: ClientContext): void {
     hooks,
     switchScope: scope => collaboration.switchScope(scope),
     stageVisibility: (visibility: CollaborationVisibility) => { collaboration.stageVisibility(visibility) },
+    createProject: name => collaboration.createProject(name),
+    listInvitations: projectId => collaboration.listInvitations(projectId),
+    inviteMember: (projectId, username, mode) => collaboration.inviteMember(projectId, username, mode),
+    acceptInvitation: id => collaboration.acceptInvitation(id),
   })
   const conversationInjected = (sessionId: SessionId): ConversationShareInjected => ({
     hooks,

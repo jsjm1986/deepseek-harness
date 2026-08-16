@@ -221,6 +221,11 @@ export function ProjectDetailPage() {
         <Section><EmptyState title="无法加载项目" detail="请返回项目列表后重试。" /></Section>
       ) : (
         <>
+          <div className="projectMetadata" aria-label="项目来源信息">
+            <StatusBadge tone={project.origin === 'user' ? 'info' : 'neutral'}>{project.origin === 'user' ? '用户发起' : '管理员发起'}</StatusBadge>
+            <span>所有者：{project.owner?.displayName || project.owner?.username || '组织管理'}</span>
+            <span>创建者：{project.createdBy?.displayName || project.createdBy?.username || '未知'}</span>
+          </div>
           <Section
             className="projectUsageSection"
             title="项目用量"

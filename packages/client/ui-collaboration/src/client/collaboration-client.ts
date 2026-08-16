@@ -11,6 +11,22 @@ export interface ProjectMembership {
   name: string
   path: string
   mode: 'ro' | 'rw'
+  /** Whether the account may invite members or rename this project. */
+  canManage?: boolean
+}
+
+/** One project invitation returned by the account API. */
+export interface ProjectInvitation {
+  id: string
+  projectId: number
+  projectName: string
+  invitee: { id: number; username: string; displayName: string }
+  inviter: { id: number; username: string; displayName: string }
+  mode: 'ro' | 'rw'
+  status: 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired'
+  expiresAt: string | null
+  createdAt: string
+  respondedAt: string | null
 }
 
 /** Authenticated user fields required by collaboration presentation. */
@@ -31,6 +47,8 @@ export interface CollaborationContext {
   user: CollaborationUser
   scope: CollaborationScope
   projects: ProjectMembership[]
+  /** Whether the current account may select the administrator full-access preset. */
+  fullAccess?: boolean
 }
 
 /** One user who has contributed to a shared root conversation. */
@@ -92,6 +110,11 @@ export interface CollaborationTransport {
   switchScope: (scope: { kind: 'personal' } | { kind: 'project'; projectId: number }, signal: AbortSignal) => Promise<void>
   loadConversation: (sessionId: string, signal: AbortSignal) => Promise<ConversationDetail>
   setVisibility: (sessionId: string, visibility: CollaborationVisibility, signal: AbortSignal) => Promise<void>
+  /** Optional account project-management operations. */
+  createProject?: (name: string, signal: AbortSignal) => Promise<{ projectId: number }>
+  listInvitations?: (projectId: number | undefined, signal: AbortSignal) => Promise<ProjectInvitation[]>
+  inviteMember?: (projectId: number, username: string, mode: 'ro' | 'rw', signal: AbortSignal) => Promise<ProjectInvitation>
+  acceptInvitation?: (invitationId: string, signal: AbortSignal) => Promise<void>
   reload: () => void
 }
 
@@ -136,6 +159,22 @@ function mode(value: unknown): 'ro' | 'rw' {
   return value
 }
 
+function actor(value: unknown): { id: number; username: string; displayName: string } {
+  const row = object(value)
+  return { id: integer(row.id), username: string(row.username), displayName: string(row.displayName) }
+}
+
+function invitationStatus(value: unknown): ProjectInvitation['status'] {
+  if (value !== 'pending' && value !== 'accepted' && value !== 'declined'
+    && value !== 'revoked' && value !== 'expired') throw new Error('invalid collaboration response')
+  return value
+}
+
+function nullableString(value: unknown): string | null {
+  if (value !== null && typeof value !== 'string') throw new Error('invalid collaboration response')
+  return value
+}
+
 function visibility(value: unknown): CollaborationVisibility {
   if (value !== 'project' && value !== 'private') throw new Error('invalid collaboration response')
   return value
@@ -148,7 +187,29 @@ function project(value: unknown): ProjectMembership {
     name: string(row.name),
     path: string(row.path),
     mode: mode(row.mode),
+    ...(row.canManage === true ? { canManage: true } : {}),
   }
+}
+
+function invitation(value: unknown): ProjectInvitation {
+  const row = object(value)
+  return {
+    id: string(row.id),
+    projectId: integer(row.projectId),
+    projectName: string(row.projectName),
+    invitee: actor(row.invitee),
+    inviter: actor(row.inviter),
+    mode: mode(row.mode),
+    status: invitationStatus(row.status),
+    expiresAt: nullableString(row.expiresAt),
+    createdAt: string(row.createdAt),
+    respondedAt: nullableString(row.respondedAt),
+  }
+}
+
+function createdProject(value: unknown): { projectId: number } {
+  const row = object(value)
+  return { projectId: integer(row.id) }
 }
 
 /**
@@ -180,6 +241,7 @@ export function parseCollaborationContext(value: unknown): CollaborationContext 
     },
     scope: parsedScope,
     projects: root.projects.map(project),
+    ...(root.fullAccess === true ? { fullAccess: true } : {}),
   }
 }
 
@@ -287,6 +349,33 @@ export function createBrowserCollaborationTransport(options: {
         body: JSON.stringify({ visibility: nextVisibility }),
       },
     ),
+    createProject: (name, signal) => jsonRequest(
+      fetcher, '/account/api/projects', {
+        method: 'POST', signal, headers: jsonHeaders, body: JSON.stringify({ name }),
+      }, createdProject,
+    ),
+    listInvitations: (projectId, signal) => jsonRequest(
+      fetcher,
+      projectId === undefined
+        ? '/account/api/invitations'
+        : `/account/api/projects/${String(projectId)}/invitations`,
+      { signal },
+      (value) => {
+        if (!Array.isArray(value)) throw new Error('invalid collaboration response')
+        return value.map(invitation)
+      },
+    ),
+    inviteMember: (projectId, username, memberMode, signal) => jsonRequest(
+      fetcher, `/account/api/projects/${String(projectId)}/invitations`, {
+        method: 'POST', signal, headers: jsonHeaders,
+        body: JSON.stringify({ username, mode: memberMode }),
+      }, invitation,
+    ),
+    acceptInvitation: (invitationId, signal) => emptyRequest(
+      fetcher, `/account/api/invitations/${encodeURIComponent(invitationId)}/accept`, {
+        method: 'POST', signal, headers: jsonHeaders,
+      },
+    ),
     reload,
   }
 }
@@ -333,12 +422,13 @@ export class CollaborationClient {
 
   /**
    * Load or refresh the authenticated account context.
+   * @param force - refresh even when a ready snapshot exists.
    * @returns settlement after the current coalesced request.
    */
-  load(): Promise<void> {
+  load(force = false): Promise<void> {
     if (this.contextLoad !== undefined) return this.contextLoad
     if (this.disposed) return Promise.resolve()
-    if (this.getSnapshot().status !== 'ready') {
+    if (!force && this.getSnapshot().status !== 'ready') {
       this.store.update((draft) => { draft.status = 'loading' })
     }
     const operation = this.transport.loadContext(this.abortController.signal)
@@ -369,7 +459,7 @@ export class CollaborationClient {
    * @returns settlement after the coalesced account and conversation requests.
    */
   async refresh(): Promise<void> {
-    await this.load()
+    await this.load(true)
     if (this.disposed || this.getSnapshot().context?.scope.kind !== 'project') return
     await Promise.all(Object.keys(this.getSnapshot().conversations)
       .map(sessionId => this.loadConversation(sessionId, { force: true })))
@@ -406,6 +496,61 @@ export class CollaborationClient {
         draft.scopeError = 'switch-failed'
       })
     }
+  }
+
+  /**
+   * Create a user-owned project and refresh the account context.
+   * @param name - project display name.
+   * @returns the newly allocated public project id.
+   */
+  async createProject(name: string): Promise<number> {
+    if (this.disposed) throw new CollaborationRequestError(499, 'client-disposed')
+    const operation = this.transport.createProject
+    if (operation === undefined) throw new CollaborationRequestError(503, 'managed-projects-unavailable')
+    const result = await operation(name, this.abortController.signal)
+    if (this.abortController.signal.aborted) throw new CollaborationRequestError(499, 'client-disposed')
+    await this.load(true)
+    return result.projectId
+  }
+
+  /**
+   * Load invitations visible to the account, optionally narrowed to a project.
+   * @param projectId - optional project to narrow the invitation list.
+   * @returns invitations visible to the current account.
+   */
+  listInvitations(projectId?: number): Promise<ProjectInvitation[]> {
+    if (this.disposed) return Promise.resolve([])
+    const operation = this.transport.listInvitations
+    if (operation === undefined) return Promise.reject(new CollaborationRequestError(503, 'invitations-unavailable'))
+    return operation(projectId, this.abortController.signal)
+  }
+
+  /**
+   * Invite one account to a project.
+   * @param projectId - project receiving the invitation.
+   * @param username - account username to invite.
+   * @param memberMode - access mode granted after acceptance.
+   * @returns the persisted pending invitation.
+   */
+  inviteMember(projectId: number, username: string, memberMode: 'ro' | 'rw'): Promise<ProjectInvitation> {
+    if (this.disposed) return Promise.reject(new CollaborationRequestError(499, 'client-disposed'))
+    const operation = this.transport.inviteMember
+    if (operation === undefined) return Promise.reject(new CollaborationRequestError(503, 'invitations-unavailable'))
+    return operation(projectId, username, memberMode, this.abortController.signal)
+  }
+
+  /**
+   * Accept one pending invitation and refresh project membership.
+   * @param invitationId - invitation identifier to accept.
+   * @returns settlement after the membership refresh.
+   */
+  async acceptInvitation(invitationId: string): Promise<void> {
+    if (this.disposed) throw new CollaborationRequestError(499, 'client-disposed')
+    const operation = this.transport.acceptInvitation
+    if (operation === undefined) throw new CollaborationRequestError(503, 'invitations-unavailable')
+    await operation(invitationId, this.abortController.signal)
+    if (this.abortController.signal.aborted) return
+    await this.load(true)
   }
 
   /**

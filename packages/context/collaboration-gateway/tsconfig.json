@@ -9,6 +9,7 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../collaboration" },
     { "path": "../gateway-runtime" },
+    { "path": "../../interaction/permission-presets" },
     { "path": "../../core/session" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]

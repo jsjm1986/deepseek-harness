@@ -1,5 +1,5 @@
 import { createHash, generateKeyPairSync, randomUUID } from 'node:crypto'
-import { access, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -76,6 +76,9 @@ async function sqliteFixture(): Promise<{ file: string; cleanup: () => Promise<v
     db.prepare(`INSERT INTO projects(id,name,path,created_by,created_at,updated_at)
       VALUES(1,'Project','/srv/project',1,?,?)`).run(now, now)
     db.prepare(`INSERT INTO project_members(project_id,user_id,mode) VALUES(1,2,'rw')`).run()
+    db.prepare(`INSERT INTO project_invitations(
+      id,project_id,invitee_user_id,inviter_user_id,mode,status,expires_at,created_at,responded_at
+    ) VALUES(1,1,2,1,'ro','pending',NULL,?,NULL)`).run(now)
     db.prepare(`INSERT INTO instances(user_id,port,state,pid,started_at,last_activity_at)
       VALUES(1,19001,'ready',1234,?,?)`).run(now, now)
     db.prepare(`INSERT INTO model_catalog(provider,model,display_name,enabled,created_at,updated_at)
@@ -116,9 +119,9 @@ describePg('PostgreSQL baseline', () => {
     pool = createPostgresPool(DATABASE_URL!, { max: 4 })
     await pool.query('DROP SCHEMA IF EXISTS harness CASCADE')
     const migrated = await runMigrations(pool, MIGRATIONS)
-    expect(migrated).toEqual({ applied: [1, 2, 3, 4], current: 4 })
+    expect(migrated).toEqual({ applied: [1, 2, 3, 4, 5], current: 5 })
     expect(await runMigrations(pool, MIGRATIONS))
-      .toEqual({ applied: [], current: 4 })
+      .toEqual({ applied: [], current: 5 })
     const homeColumns = await pool.query<{ table_name: string; is_nullable: string }>(`SELECT table_name,is_nullable
       FROM information_schema.columns WHERE table_schema='harness' AND column_name='home_path' ORDER BY table_name`)
     expect(homeColumns.rows).toEqual([{ table_name: 'users', is_nullable: 'NO' }])
@@ -144,11 +147,18 @@ describePg('PostgreSQL baseline', () => {
     } finally {
       await pool.query(`UPDATE harness.schema_migrations SET checksum=$1 WHERE version=1`, [original.rows[0]!.checksum])
     }
-    await pool.query(`INSERT INTO harness.schema_migrations(version,name,checksum) VALUES(5,'005_unknown.sql',$1)`, ['0'.repeat(64)])
+    // SQLite's control-plane version is one behind the PostgreSQL ledger;
+    // choose a version beyond both ledgers so this remains genuinely unknown.
+    const unknownVersion = SCHEMA_VERSION + 2
+    await pool.query(`INSERT INTO harness.schema_migrations(version,name,checksum) VALUES($1,$2,$3)`, [
+      unknownVersion, `${String(unknownVersion).padStart(3, '0')}_unknown.sql`, '0'.repeat(64),
+    ])
     try {
-      await expect(runMigrations(pool, MIGRATIONS)).rejects.toThrow(/unknown PostgreSQL migration version 5/)
+      await expect(runMigrations(pool, MIGRATIONS)).rejects.toThrow(
+        new RegExp(`unknown PostgreSQL migration version ${String(unknownVersion)}`),
+      )
     } finally {
-      await pool.query('DELETE FROM harness.schema_migrations WHERE version=5')
+      await pool.query('DELETE FROM harness.schema_migrations WHERE version=$1', [unknownVersion])
     }
   })
 
@@ -900,6 +910,7 @@ describePg('PostgreSQL baseline', () => {
       const first = await importSqliteControlPlane(pool, { sqliteFile: fixture.file,
         organizationSlug: `fixture-${randomUUID()}`, organizationName: 'Fixture', nodeName: 'fixture-node' })
       expect(first).toMatchObject({ users: 2, projects: 1, projectMembers: 1, instances: 1,
+        projectInvitations: 1,
         models: 1, prices: 1, usageEvents: 1, usageAlerts: 1, auditEvents: 1,
         skippedSessions: 1, skippedLoginAttempts: 1, skippedIntakeTokens: 1 })
       const imported = await pool.query<{
@@ -927,6 +938,13 @@ describePg('PostgreSQL baseline', () => {
         JOIN harness.users u ON u.id=pm.user_id AND u.organization_id=pm.organization_id
         WHERE pm.organization_id=$1 AND u.username='admin'`, [first.organizationId])
       expect(creatorMembership.rows).toEqual([{ access_mode: 'rw' }])
+      const importedInvitation = await pool.query<{ status: string; access_mode: string; invitee: string }>(
+        `SELECT i.status,i.access_mode,u.username invitee
+         FROM harness.project_invitations i
+         JOIN harness.users u ON u.id=i.invitee_user_id
+         WHERE i.organization_id=$1`, [first.organizationId],
+      )
+      expect(importedInvitation.rows).toEqual([{ status: 'pending', access_mode: 'ro', invitee: 'member' }])
 
       const second = await importSqliteControlPlane(pool, { sqliteFile: fixture.file,
         organizationSlug: `fixture-${randomUUID()}`, organizationName: 'Fixture 2', nodeName: 'fixture-node' })
@@ -952,6 +970,8 @@ describePg('PostgreSQL baseline', () => {
       await checkPostgresReadiness(context)
       const cfg = loadConfig({
         HGW_USERS_ROOT: join(root, 'users'),
+        HGW_STATE_ROOT: join(root, 'state'),
+        HGW_USER_PROJECTS_ROOT: join(root, 'managed-projects'),
         HGW_INSTANCE_PORT_BASE: '45100',
         HGW_ORGANIZATION_SLUG: slug,
         HGW_COMPUTE_NODE_NAME: 'runtime-node',
@@ -1018,6 +1038,23 @@ describePg('PostgreSQL baseline', () => {
       await users.setStatus(member.id, 'active')
       const projectTarget = { kind: 'project' as const, id: project.id }
       expect(await instances.portOf(projectTarget)).toBe(45102)
+
+      const ownedProject = await projects.createManaged({
+        name: '  Runtime owned project  ', ownerUserId: member.id,
+      })
+      expect(ownedProject).toMatchObject({
+        name: 'Runtime owned project', origin: 'user', owner: { id: member.id },
+      })
+      expect(ownedProject.path.startsWith(`${await realpath(cfg.userProjectsRoot)}/`)).toBe(true)
+      const invitation = await projects.createInvitation({
+        projectId: ownedProject.id, inviteeUserId: admin.id, inviterUserId: member.id, mode: 'ro',
+      })
+      expect(invitation).toMatchObject({ projectId: ownedProject.id, status: 'pending', mode: 'ro' })
+      expect((await projects.listInvitations(admin.id)).some(item => item.id === invitation.id)).toBe(true)
+      await projects.acceptInvitation(invitation.id, admin.id)
+      expect((await projects.getById(ownedProject.id))?.members).toContainEqual({
+        userId: admin.id, username: 'runtime-admin', mode: 'ro',
+      })
 
       await governance.upsertModel({
         provider: 'runtime',
@@ -1138,6 +1175,9 @@ describePg('PostgreSQL baseline', () => {
         status: 201,
       })
       expect((await projects.remove(project.id)).sort((left, right) => left - right)).toEqual(
+        [admin.id, member.id].sort((left, right) => left - right),
+      )
+      expect((await projects.remove(ownedProject.id)).sort((left, right) => left - right)).toEqual(
         [admin.id, member.id].sort((left, right) => left - right),
       )
       const projectRemnants = await pool.query<{

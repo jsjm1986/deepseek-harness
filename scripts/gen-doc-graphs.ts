@@ -467,6 +467,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'User-facing preset table (`workspace-write`/`danger-full-access`) bundling the sandbox-mode and approval-policy knobs; a switch writes one `permission/preset` event through to both knob events.',
   },
   {
+    key: 'permissionPresetAuthorization',
+    pkg: 'permission-presets',
+    title: 'Permission preset authorization policy',
+    mode: 'core',
+    implementations: [],
+    consumers: ['collaboration-gateway'],
+    note: 'An optional deployment policy decides whether the current authenticated request may select each preset; the Gateway provider fails closed outside an administrator request.',
+  },
+  {
     key: 'codeRuntime',
     pkg: 'code-runtime',
     title: 'Code-execution seam',

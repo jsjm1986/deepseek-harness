@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { basename, dirname } from 'node:path'
 import Database from 'better-sqlite3'
 
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -23,8 +23,11 @@ CREATE TABLE IF NOT EXISTS projects (
   name TEXT NOT NULL UNIQUE,
   path TEXT NOT NULL UNIQUE,
   created_by INTEGER REFERENCES users(id),
+  origin TEXT NOT NULL DEFAULT 'admin' CHECK (origin IN ('admin','user')),
+  owner_user_id INTEGER REFERENCES users(id),
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  CHECK ((origin = 'user' AND owner_user_id IS NOT NULL) OR (origin = 'admin'))
 );
 CREATE TABLE IF NOT EXISTS project_members (
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -32,6 +35,20 @@ CREATE TABLE IF NOT EXISTS project_members (
   mode TEXT NOT NULL CHECK (mode IN ('ro','rw')),
   PRIMARY KEY (project_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS project_invitations (
+  id INTEGER PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  invitee_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  inviter_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  mode TEXT NOT NULL CHECK (mode IN ('ro','rw')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','declined','revoked','expired')),
+  expires_at INTEGER,
+  created_at INTEGER NOT NULL,
+  responded_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_project_invitations_pending
+  ON project_invitations(project_id, invitee_user_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_project_invitations_invitee ON project_invitations(invitee_user_id, status, created_at DESC);
 CREATE TABLE IF NOT EXISTS auth_sessions (
   id INTEGER PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -157,6 +174,10 @@ function tableNames(db: Database.Database): Set<string> {
   )
 }
 
+function columnNames(db: Database.Database, table: string): Set<string> {
+  return new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(row => row.name))
+}
+
 function uniqueProjectName(db: Database.Database, baseName: string): string {
   let name = baseName
   let suffix = 2
@@ -242,6 +263,31 @@ function migrate(db: Database.Database): void {
         DROP TABLE IF EXISTS groups;
         DROP TABLE IF EXISTS dir_grants;
       `)
+    }
+
+    const projectColumns = columnNames(db, 'projects')
+    if (!projectColumns.has('origin')) {
+      db.exec(`ALTER TABLE projects ADD COLUMN origin TEXT NOT NULL DEFAULT 'admin'
+        CHECK (origin IN ('admin','user'))`)
+    }
+    if (!projectColumns.has('owner_user_id')) {
+      db.exec('ALTER TABLE projects ADD COLUMN owner_user_id INTEGER REFERENCES users(id)')
+    }
+    if (!names.has('project_invitations')) {
+      db.exec(`CREATE TABLE project_invitations (
+        id INTEGER PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        invitee_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        inviter_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        mode TEXT NOT NULL CHECK (mode IN ('ro','rw')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','declined','revoked','expired')),
+        expires_at INTEGER,
+        created_at INTEGER NOT NULL,
+        responded_at INTEGER
+      );
+      CREATE UNIQUE INDEX idx_project_invitations_pending
+        ON project_invitations(project_id, invitee_user_id) WHERE status = 'pending';
+      CREATE INDEX idx_project_invitations_invitee ON project_invitations(invitee_user_id, status, created_at DESC);`)
     }
 
     db.exec('DELETE FROM schema_meta')

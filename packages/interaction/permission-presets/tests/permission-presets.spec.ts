@@ -29,6 +29,7 @@ async function mounted(options: {
   config?: Config
   bashDefault?: SandboxMode | undefined
   approvalDefault?: ApprovalPolicy | undefined
+  authorizePreset?: (name: string) => boolean
 } = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -39,6 +40,9 @@ async function mounted(options: {
     start() { throw new Error('permission tests do not execute bash') },
   })
   ctx.provide('approval', { config: { policy: 'approvalDefault' in options ? options.approvalDefault : 'ask' } })
+  if (options.authorizePreset !== undefined) {
+    ctx.provide('permissionPresetAuthorization', { canSelect: options.authorizePreset })
+  }
   await ctx.plugin(PermissionPresetService, options.config ?? {})
   return ctx
 }
@@ -47,7 +51,10 @@ function freshSession(id: string): Session {
   return Session.create(SessionId(id))
 }
 
-async function mountedStore(options: { approvalDefault?: ApprovalPolicy | undefined } = {}): Promise<Context> {
+async function mountedStore(options: {
+  approvalDefault?: ApprovalPolicy | undefined
+  authorizePreset?: (name: string) => boolean
+} = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(MemorySettings)
@@ -60,6 +67,9 @@ async function mountedStore(options: { approvalDefault?: ApprovalPolicy | undefi
   ctx.provide('approval', {
     config: { policy: 'approvalDefault' in options ? options.approvalDefault : 'ask' },
   })
+  if (options.authorizePreset !== undefined) {
+    ctx.provide('permissionPresetAuthorization', { canSelect: options.authorizePreset })
+  }
   await ctx.plugin(PermissionPresetService, {})
   return ctx
 }
@@ -91,6 +101,14 @@ describe('PermissionPresetService', () => {
     expect(ctx.permissionPresets.current(session.events)).toBe('workspace-write')
     ctx.permissionPresets.set(session, 'danger-full-access')
     expect(ctx.permissionPresets.current(session.events)).toBe('danger-full-access')
+  })
+
+  it('rejects a deployment-forbidden preset before writing session events', async () => {
+    const ctx = await mounted({ authorizePreset: name => name !== 'danger-full-access' })
+    const session = freshSession('sess-forbidden-preset')
+    const before = session.events.length
+    expect(() => { ctx.permissionPresets.set(session, 'danger-full-access') }).toThrow(/administrator-only/)
+    expect(session.events).toHaveLength(before)
   })
 
   it('a knob state matching no table entry derives custom — a state, not an error', async () => {
@@ -212,6 +230,16 @@ describe('new-session default', () => {
     expect(second.events.map(event => event.type)).toEqual([
       'permission/preset', 'sandbox/mode', 'approval/policy',
     ])
+  })
+
+  it('rejects an administrator-only default before writing a new session', async () => {
+    const ctx = await mountedStore({ authorizePreset: name => name !== 'danger-full-access' })
+    await ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
+      defaultPreset: 'danger-full-access',
+    })
+
+    expect(() => ctx.sessions.create(SessionId('unauthorized-default')))
+      .toThrow(/administrator-only/)
   })
 
   it('preserves a seeded legacy session instead of applying the latest user default', async () => {
