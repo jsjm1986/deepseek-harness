@@ -119,9 +119,9 @@ describePg('PostgreSQL baseline', () => {
     pool = createPostgresPool(DATABASE_URL!, { max: 4 })
     await pool.query('DROP SCHEMA IF EXISTS harness CASCADE')
     const migrated = await runMigrations(pool, MIGRATIONS)
-    expect(migrated).toEqual({ applied: [1, 2, 3, 4, 5], current: 5 })
+    expect(migrated).toEqual({ applied: [1, 2, 3, 4, 5, 6], current: 6 })
     expect(await runMigrations(pool, MIGRATIONS))
-      .toEqual({ applied: [], current: 5 })
+      .toEqual({ applied: [], current: 6 })
     const homeColumns = await pool.query<{ table_name: string; is_nullable: string }>(`SELECT table_name,is_nullable
       FROM information_schema.columns WHERE table_schema='harness' AND column_name='home_path' ORDER BY table_name`)
     expect(homeColumns.rows).toEqual([{ table_name: 'users', is_nullable: 'NO' }])
@@ -1190,6 +1190,25 @@ describePg('PostgreSQL baseline', () => {
         (SELECT count(*) FROM harness.content_files WHERE project_id=$1)::text content`,
       [projectInternalId])
       expect(projectRemnants.rows[0]).toEqual({ instances: '0', usage: '0', content: '0' })
+
+      const deletionLogin = await auth.login('runtime-user', 'pw-abcdefgh', '127.0.0.1', 'vitest')
+      if (deletionLogin === 'invalid' || deletionLogin === 'locked') throw new Error('deletion login failed')
+      expect(await users.remove(member.id)).toBe(true)
+      expect(await users.getById(member.id)).toBeNull()
+      expect(await projects.effectiveGrants(member.id)).toEqual([])
+      expect(await governance.subjectForIntakeToken(intakeToken)).toBeNull()
+      await expect(governance.issueIntakeToken({ kind: 'user', id: member.id })).rejects.toThrow(/unknown user/)
+      expect(await auth.validate(deletionLogin.token)).toBeNull()
+      expect(await auth.login('runtime-user', 'pw-abcdefgh', '127.0.0.1', 'vitest')).toBe('invalid')
+      expect(await users.remove(member.id)).toBe(false)
+      const deletedFacts = await pool.query<{ deleted_at: Date | null; usage: string; audits: string }>(`SELECT u.deleted_at,
+        (SELECT count(*) FROM harness.model_usage WHERE user_id=u.id)::text usage,
+        (SELECT count(*) FROM harness.audit_events WHERE actor_user_id=u.id)::text audits
+        FROM harness.users u WHERE u.organization_id=$1 AND u.public_id=$2`, [context.organizationId, member.id])
+      expect(deletedFacts.rows[0]).toMatchObject({ deleted_at: expect.any(Date) })
+      expect(Number(deletedFacts.rows[0]?.usage ?? 0)).toBeGreaterThan(0)
+      expect(Number(deletedFacts.rows[0]?.audits ?? 0)).toBeGreaterThan(0)
+      await expect(users.create({ username: 'runtime-user', password: 'pw-12345678' })).rejects.toThrow(/duplicate username/)
     } finally {
       await rm(root, { recursive: true, force: true })
     }

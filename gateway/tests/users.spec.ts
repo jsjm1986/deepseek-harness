@@ -73,4 +73,26 @@ describe('UserService', () => {
     users.setDisplayName(u.id, 'Dave Smith')
     expect(users.getById(u.id)?.displayName).toBe('Dave Smith')
   })
+
+  it('soft-deletes a user, revokes access, and keeps the username reserved', async () => {
+    const { db, users } = setup()
+    const admin = await users.create({ username: 'boss', password: 'pw-123456', role: 'admin' })
+    const member = await users.create({ username: 'worker', password: 'pw-123456' })
+    db.prepare('INSERT INTO auth_sessions(user_id, token_hash, created_at, expires_at, absolute_expires_at, last_seen_at) VALUES(?, ?, ?, ?, ?, ?)')
+      .run(member.id, 'token', 1, 2, 3, 1)
+
+    expect(users.remove(member.id)).toBe(true)
+    expect(users.getById(member.id)).toBeNull()
+    expect(users.list().map(user => user.id)).toEqual([admin.id])
+    expect((db.prepare('SELECT deleted_at, status FROM users WHERE id=?').get(member.id) as { deleted_at: number | null; status: string }).status)
+      .toBe('disabled')
+    expect((db.prepare('SELECT COUNT(*) AS n FROM auth_sessions WHERE user_id=?').get(member.id) as { n: number }).n).toBe(0)
+    await expect(users.create({ username: 'worker', password: 'pw-123456' })).rejects.toThrow()
+  })
+
+  it('refuses to delete the last active administrator', async () => {
+    const { users } = setup()
+    const admin = await users.create({ username: 'boss', password: 'pw-123456', role: 'admin' })
+    expect(() => users.remove(admin.id)).toThrow(/cannot-remove-last-admin/)
+  })
 })

@@ -358,6 +358,20 @@ describe('image draft rail', () => {
     expect(view.queryByRole('alert')).toBeNull()
   })
 
+  it('routes files selected through the attachment picker', () => {
+    const addImages = vi.fn(() => null)
+    const addDocuments = vi.fn(() => null)
+    const { view } = bench({ addImages, addDocuments })
+    expect(view.getByRole('button', { name: '添加图片或文档' })).toBeTruthy()
+    const input = view.container.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(input).not.toBeNull()
+    const file = new File(['notes'], 'notes.txt', { type: 'text/plain' })
+    fireEvent.change(input!, { target: { files: [file] } })
+    expect(addImages).not.toHaveBeenCalled()
+    expect(addDocuments).toHaveBeenCalledWith([file])
+    expect(input!.value).toBe('')
+  })
+
   it('shows the projected limits in the drop overlay desc line', () => {
     const { view } = bench({
       addImages: vi.fn(() => null),

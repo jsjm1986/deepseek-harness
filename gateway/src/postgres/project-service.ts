@@ -457,7 +457,7 @@ export class PostgresProjectService {
 
   async effectiveGrants(userId: number): Promise<EffectiveGrant[]> {
     const home = await this.context.pool.query<{ home_path: string }>(
-      'SELECT home_path FROM harness.users WHERE organization_id=$1 AND public_id=$2',
+      'SELECT home_path FROM harness.users WHERE organization_id=$1 AND public_id=$2 AND deleted_at IS NULL',
       [this.context.organizationId, userId],
     )
     const grants: EffectiveGrant[] = []
@@ -465,7 +465,7 @@ export class PostgresProjectService {
     const projects = await this.context.pool.query<{ path: string; label: string; mode: GrantMode }>(`SELECT
       pm.local_path path,p.name::text label,m.access_mode mode
       FROM harness.project_members m
-      JOIN harness.users u ON u.id=m.user_id AND u.organization_id=m.organization_id
+      JOIN harness.users u ON u.id=m.user_id AND u.organization_id=m.organization_id AND u.deleted_at IS NULL
       JOIN harness.projects p ON p.id=m.project_id AND p.organization_id=m.organization_id
       JOIN harness.project_mounts pm ON pm.project_id=p.id AND pm.organization_id=p.organization_id
         AND pm.node_id=$3 AND pm.status='active'

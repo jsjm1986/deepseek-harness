@@ -357,11 +357,16 @@ export class PostgresModelGovernanceService {
   async issueIntakeToken(subject: ModelUsageSubject): Promise<string> {
     const token = randomBytes(32).toString('base64url')
     if (subject.kind === 'user') {
-      const user = await internalUserId(this.context.pool, this.context.organizationId, subject.id)
-      if (user === null) throw new Error(`unknown user ${String(subject.id)}`)
-      await this.context.pool.query(`INSERT INTO harness.model_intake_tokens(user_id,token_hash)
-        VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,created_at=now()`,
-      [user, tokenHash(token)])
+      await transaction(this.context.pool, async (client) => {
+        const result = await client.query<{ id: string }>(`SELECT id FROM harness.users
+          WHERE organization_id=$1 AND public_id=$2 AND deleted_at IS NULL FOR UPDATE`,
+        [this.context.organizationId, subject.id])
+        const user = result.rows[0]?.id
+        if (user === undefined) throw new Error(`unknown user ${String(subject.id)}`)
+        await client.query(`INSERT INTO harness.model_intake_tokens(user_id,token_hash)
+          VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,created_at=now()`,
+        [user, tokenHash(token)])
+      })
     } else {
       const project = await internalProjectId(this.context.pool, this.context.organizationId, subject.id)
       if (project === null) throw new Error(`unknown project ${String(subject.id)}`)
@@ -376,7 +381,7 @@ export class PostgresModelGovernanceService {
     const result = await this.context.pool.query<{ kind: 'user' | 'project'; public_id: string }>(`SELECT
       'user'::text kind,u.public_id::text public_id
       FROM harness.model_intake_tokens t
-      JOIN harness.users u ON u.id=t.user_id
+      JOIN harness.users u ON u.id=t.user_id AND u.deleted_at IS NULL
       WHERE u.organization_id=$1 AND t.token_hash=$2
       UNION ALL
       SELECT 'project'::text kind,p.public_id::text public_id

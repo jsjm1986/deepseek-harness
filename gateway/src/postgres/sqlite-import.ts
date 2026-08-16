@@ -114,12 +114,13 @@ export async function importSqliteControlPlane(pool: Pool, options: SqliteImport
       const sourceUsers = rows(db, 'users')
       for (const row of sourceUsers) {
         const user = await client.query<{ id: string }>(`INSERT INTO harness.users(
-          organization_id,username,display_name,home_path,status,legacy_id,public_id,created_at,updated_at
-        ) VALUES($1,$2,$3,$4,$5,$6,$6,$7,$8)
+          organization_id,username,display_name,home_path,status,deleted_at,legacy_id,public_id,created_at,updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$7,$8,$9)
         ON CONFLICT(organization_id,legacy_id) DO UPDATE SET username=excluded.username,
           display_name=excluded.display_name,home_path=excluded.home_path,status=excluded.status,
-          public_id=excluded.public_id,updated_at=excluded.updated_at RETURNING id`,
-        [organizationId, row.username, row.display_name, row.home_path, row.status, row.id, epoch(row.created_at), epoch(row.updated_at)])
+          deleted_at=excluded.deleted_at,public_id=excluded.public_id,updated_at=excluded.updated_at RETURNING id`,
+        [organizationId, row.username, row.display_name, row.home_path, row.status, epoch(row.deleted_at), row.id,
+          epoch(row.created_at), epoch(row.updated_at)])
         const userId = user.rows[0]!.id
         await client.query(`INSERT INTO harness.password_credentials(user_id,password_hash,must_change_password,changed_at)
           VALUES($1,$2,$3,$4) ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,

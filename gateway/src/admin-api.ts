@@ -40,6 +40,9 @@ function mapError(error: unknown): { status: number; error: string } {
   if (error instanceof Error && error.message === 'cannot-remove-last-admin') {
     return { status: 409, error: 'cannot-remove-last-admin' }
   }
+  if (error instanceof Error && error.message === 'cannot-delete-self') {
+    return { status: 409, error: 'cannot-delete-self' }
+  }
   if (error instanceof CollaborationDeniedError && error.code === 'visibility-locked') {
     return { status: 409, error: error.code }
   }
@@ -152,9 +155,21 @@ async function dispatch(
 
   const userIdPath = /^\/admin\/api\/users\/(\d+)$/.exec(pathname)
   if (userIdPath !== null) {
-    if (method !== 'PATCH') return false
     const userId = Number(userIdPath[1])
-    if (await deps.users.getById(userId) === null) { sendError(res, 404, 'user not found'); return true }
+    const target = await deps.users.getById(userId)
+    if (target === null) { sendError(res, 404, 'user not found'); return true }
+    if (method === 'DELETE') {
+      if (userId === admin.id) throw new Error('cannot-delete-self')
+      const removed = await deps.instances.withStopped(
+        { kind: 'user', id: userId },
+        async () => deps.users.remove(userId),
+      )
+      if (!removed) { sendError(res, 404, 'user not found'); return true }
+      await write('admin.users.delete', { id: userId, username: target.username })
+      sendNoContent(res)
+      return true
+    }
+    if (method !== 'PATCH') return false
     const input = parseObject(body)
     const displayName = str(input, 'displayName')
     const role = str(input, 'role')

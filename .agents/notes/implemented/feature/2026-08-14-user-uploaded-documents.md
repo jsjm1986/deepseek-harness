@@ -40,7 +40,7 @@ The `userdoc-context` plugin listens after the exact `user/message` event is app
 
 ### Browser intake
 
-The conversation controller owns browser-only draft identities and metadata while the Host owns durable ids. Paste and drag-and-drop send image MIME types through the existing image path and every other file through the streaming document client. The input bar shows a document rail with upload progress, ready/failed states, retry, and removal. Submission waits for uploads to become ready; a failed prompt restores the document ids and draft text, while a successful prompt releases browser metadata but leaves the durable files in place. Removing a draft aborts an in-flight upload and best-effort deletes its durable file, and service teardown aborts all remaining uploads.
+The conversation controller owns browser-only draft identities and metadata while the Host owns durable ids. Paste, drag-and-drop, and the attachment picker send image MIME types through the existing image path and every other file through the streaming document client. The input bar shows a document rail with upload progress, ready/failed states, retry, and removal. Submission waits for uploads to become ready; a failed prompt restores the document ids and draft text, while a successful prompt releases browser metadata but leaves the durable files in place. Removing a draft aborts an in-flight upload and best-effort deletes its durable file, and service teardown aborts all remaining uploads.
 
 ### Containment
 

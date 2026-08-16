@@ -25,6 +25,7 @@ interface DbUser {
   status: 'active' | 'disabled'
   home_path: string
   must_change_password: number
+  deleted_at: number | null
 }
 
 export function toUserRow(row: DbUser): UserRow {
@@ -55,7 +56,8 @@ export class AuthService {
     if (failures.n >= LOCK_THRESHOLD) return 'locked'
 
     const row = this.db.prepare(`SELECT * FROM users WHERE username = ?`).get(username) as DbUser | undefined
-    const ok = row !== undefined && row.status === 'active' && await verifyPassword(row.password_hash, password)
+    const ok = row !== undefined && row.status === 'active' && row.deleted_at === null
+      && await verifyPassword(row.password_hash, password)
     if (!ok || row === undefined) {
       this.db.prepare(`INSERT INTO login_attempts(username, ip, ts) VALUES(?, ?, ?)`).run(username, ip, now)
       return 'invalid'
@@ -78,7 +80,7 @@ export class AuthService {
     this.db.prepare(`UPDATE auth_sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?`)
       .run(now, Math.min(now + this.cfg.sessionTtlMs, session.absolute_expires_at), session.id)
     const user = this.db.prepare(`SELECT * FROM users WHERE id = ?`).get(session.user_id) as DbUser | undefined
-    if (user === undefined || user.status !== 'active') return null
+    if (user === undefined || user.status !== 'active' || user.deleted_at !== null) return null
     return toUserRow(user)
   }
 

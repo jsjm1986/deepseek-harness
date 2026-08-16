@@ -135,8 +135,11 @@ class SqliteInstanceRepository implements InstanceRepository {
 
   async beginStart(target: RuntimeTarget, at: number, _runtimeTokenHash: Buffer): Promise<number> {
     const userId = this.userId(target)
-    this.db.prepare(`UPDATE instances SET state = 'starting', started_at = ?, last_activity_at = ? WHERE user_id = ?`)
-      .run(at, at, userId)
+    const result = this.db.prepare(`UPDATE instances SET state = 'starting', started_at = ?, last_activity_at = ?
+      WHERE user_id = ? AND EXISTS(
+        SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL
+      )`).run(at, at, userId, userId)
+    if (result.changes !== 1) throw new Error(`no active user instance for ${String(userId)}`)
     return 1
   }
 

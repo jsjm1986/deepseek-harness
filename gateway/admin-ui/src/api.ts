@@ -77,6 +77,10 @@ export function patchUser(id: number, body: {
   return request(`/admin/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
 }
 
+export function deleteUser(id: number): Promise<void> {
+  return request(`/admin/api/users/${id}`, { method: 'DELETE' })
+}
+
 export function resetPassword(id: number, password: string): Promise<void> {
   return request(`/admin/api/users/${id}/password`, { method: 'POST', body: JSON.stringify({ password }) })
 }
