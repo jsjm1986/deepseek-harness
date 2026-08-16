@@ -47,6 +47,7 @@ function verifyArtifacts(): void {
     'gateway/src/index.ts',
     'gateway/public/admin/index.html',
     'gateway/deploy/postgres/migrations/003_project_collaboration.sql',
+    'gateway/deploy/postgres/migrations/004_conversation_event_json.sql',
     'plugins/dsh-directory-guard/lib/index.js',
     'plugins/dsh-directory-guard/cordis.patch.yml',
     'plugins/dsh-directory-guard/cordis.admin.patch.yml',

@@ -116,9 +116,9 @@ describePg('PostgreSQL baseline', () => {
     pool = createPostgresPool(DATABASE_URL!, { max: 4 })
     await pool.query('DROP SCHEMA IF EXISTS harness CASCADE')
     const migrated = await runMigrations(pool, MIGRATIONS)
-    expect(migrated).toEqual({ applied: [1, 2, 3], current: 3 })
+    expect(migrated).toEqual({ applied: [1, 2, 3, 4], current: 4 })
     expect(await runMigrations(pool, MIGRATIONS))
-      .toEqual({ applied: [], current: 3 })
+      .toEqual({ applied: [], current: 4 })
     const homeColumns = await pool.query<{ table_name: string; is_nullable: string }>(`SELECT table_name,is_nullable
       FROM information_schema.columns WHERE table_schema='harness' AND column_name='home_path' ORDER BY table_name`)
     expect(homeColumns.rows).toEqual([{ table_name: 'users', is_nullable: 'NO' }])
@@ -144,15 +144,15 @@ describePg('PostgreSQL baseline', () => {
     } finally {
       await pool.query(`UPDATE harness.schema_migrations SET checksum=$1 WHERE version=1`, [original.rows[0]!.checksum])
     }
-    await pool.query(`INSERT INTO harness.schema_migrations(version,name,checksum) VALUES(4,'004_unknown.sql',$1)`, ['0'.repeat(64)])
+    await pool.query(`INSERT INTO harness.schema_migrations(version,name,checksum) VALUES(5,'005_unknown.sql',$1)`, ['0'.repeat(64)])
     try {
-      await expect(runMigrations(pool, MIGRATIONS)).rejects.toThrow(/unknown PostgreSQL migration version 4/)
+      await expect(runMigrations(pool, MIGRATIONS)).rejects.toThrow(/unknown PostgreSQL migration version 5/)
     } finally {
-      await pool.query('DELETE FROM harness.schema_migrations WHERE version=4')
+      await pool.query('DELETE FROM harness.schema_migrations WHERE version=5')
     }
   })
 
-  it('stores arbitrary session ids, JSONB events, and searchable nested tool results', async () => {
+  it('stores arbitrary session ids, full JSON strings, and searchable nested tool results', async () => {
     const sessions = new ConversationRepository(pool)
     const sessionId = 'session-not-a-uuid'
     await sessions.create({ id: sessionId, organizationId, creatorUserId: userId,
@@ -165,14 +165,17 @@ describePg('PostgreSQL baseline', () => {
       { type: 'tool/result', seq: 1, time: Date.now(), data: { message: { content: [{
         type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: '工具执行完成' }],
       }] } } },
+      { type: 'session/state', seq: 2, time: Date.now(), data: {
+        changes: [{ action: 'set', scope: '.\0virtual-module', path: ['ready'], value: true }],
+      } },
     ]
     expect(await sessions.append(sessionId, batchId, events)).toBe('inserted')
     expect(await sessions.append(sessionId, batchId, events)).toBe('duplicate')
     expect(await sessions.readFrom(sessionId, 0)).toEqual(events)
     expect((await sessions.search(organizationId, 'Agent 对话'))[0]).toMatchObject({ sessionId, seq: 0 })
     expect((await sessions.search(organizationId, '工具执行'))[0]).toMatchObject({ sessionId, seq: 1 })
-    await expect(sessions.append(sessionId, randomUUID(), [{ ...events[0]!, seq: 3 }]))
-      .rejects.toThrow(/expected seq 2/)
+    await expect(sessions.append(sessionId, randomUUID(), [{ ...events[0]!, seq: 4 }]))
+      .rejects.toThrow(/expected seq 3/)
   })
 
   it('serializes concurrent retries of one append batch', async () => {

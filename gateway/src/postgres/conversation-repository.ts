@@ -357,7 +357,7 @@ export class ConversationRepository {
         bytes += payloadBytes
         await client.query(`INSERT INTO harness.conversation_events(
           session_id,seq,event_type,occurred_at,event,payload_bytes
-        ) VALUES($1,$2,$3,to_timestamp($4/1000.0),$5::jsonb,$6)`,
+        ) VALUES($1,$2,$3,to_timestamp($4/1000.0),$5::json,$6)`,
         [sessionId, event.seq, event.type, event.time, json, payloadBytes])
         const search = eventText(event)
         if (search !== undefined && search.content !== '') {
